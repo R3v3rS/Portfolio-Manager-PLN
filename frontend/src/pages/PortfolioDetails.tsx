@@ -7,6 +7,7 @@ import PortfolioChart from '../components/PortfolioChart';
 import PriceHistoryChart from '../components/PriceHistoryChart';
 import DividendBarChart from '../components/DividendBarChart';
 import PortfolioHistoryChart from '../components/PortfolioHistoryChart';
+import PortfolioProfitChart from '../components/PortfolioProfitChart';
 import { cn } from '../lib/utils';
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
@@ -69,6 +70,7 @@ const PortfolioDetails: React.FC = () => {
   
   // Portfolio History (Monthly)
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
 
   // Closed Positions
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
@@ -129,6 +131,10 @@ const PortfolioDetails: React.FC = () => {
         // Fetch history for standard portfolios too
         const histRes = await api.get(`/history/monthly/${id}`);
         setPortfolioHistory(histRes.data.history);
+        
+        const profitRes = await api.get(`/history/profit/${id}`);
+        setPortfolioProfitHistory(profitRes.data.history);
+
         setActiveTab('holdings');
       }
 
@@ -158,6 +164,9 @@ const PortfolioDetails: React.FC = () => {
     if (activeTab === 'value_history' && id) {
       api.get(`/history/monthly/${id}`).then(res => {
         setPortfolioHistory(res.data.history);
+      });
+      api.get(`/history/profit/${id}`).then(res => {
+        setPortfolioProfitHistory(res.data.history);
       });
     }
   }, [activeTab, id]);
@@ -419,8 +428,15 @@ const PortfolioDetails: React.FC = () => {
             <div className="space-y-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Portfolio Value History</h3>
               {portfolioHistory.length > 0 ? (
-                <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                  <PortfolioHistoryChart data={portfolioHistory} />
+                <div className="space-y-8">
+                    <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                      <PortfolioHistoryChart data={portfolioHistory} />
+                    </div>
+                    
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Cumulative Profit/Loss History</h3>
+                    <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                      <PortfolioProfitChart data={portfolioProfitHistory} />
+                    </div>
                 </div>
               ) : (
                 <div className="h-64 flex items-center justify-center text-gray-500">

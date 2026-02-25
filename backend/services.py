@@ -833,6 +833,150 @@ class PortfolioService:
         return result
 
     @staticmethod
+    def get_portfolio_profit_history(portfolio_id):
+        """
+        Calculates cumulative profit over time (month-end).
+        Profit = Total Value - Net Invested Capital (Deposits - Withdrawals).
+        """
+        db = get_db()
+        transactions = db.execute(
+            'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC',
+            (portfolio_id,)
+        ).fetchall()
+        
+        if not transactions:
+            return []
+            
+        portfolio = db.execute('SELECT account_type, created_at FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        account_type = portfolio['account_type']
+        
+        first_trans_date = transactions[0]['date']
+        if isinstance(first_trans_date, str):
+            start_date = datetime.strptime(first_trans_date.split(' ')[0], '%Y-%m-%d').date()
+        else:
+            start_date = first_trans_date
+        
+        today = date.today()
+        
+        # Generate month-end dates
+        month_ends = []
+        curr_y, curr_m = start_date.year, start_date.month
+        while date(curr_y, curr_m, 1) <= today:
+            if curr_m == 12:
+                next_m, next_y = 1, curr_y + 1
+            else:
+                next_m, next_y = curr_m + 1, curr_y
+                
+            month_end = date(next_y, next_m, 1) - timedelta(days=1)
+            if month_end > today:
+                month_end = today
+            month_ends.append(month_end)
+            
+            if month_end == today:
+                break
+            curr_m, curr_y = next_m, next_y
+        
+        # Get unique tickers and SYNC their history first!
+        tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
+        
+        if account_type not in ['SAVINGS', 'BONDS']:
+            for ticker in tickers:
+                try:
+                    PriceService.sync_stock_history(ticker, start_date)
+                except Exception as e:
+                    print(f"Failed to sync history for {ticker}: {e}")
+
+        # Load prices into memory
+        price_history = {}
+        if account_type not in ['SAVINGS', 'BONDS']:
+            for ticker in tickers:
+                rows = db.execute(
+                    'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
+                    (ticker,)
+                ).fetchall()
+                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
+
+        def get_price_at_date(ticker, target_date):
+            if ticker not in price_history or not price_history[ticker]:
+                return 0
+            
+            target_str = target_date.strftime('%Y-%m-%d')
+            if target_str in price_history[ticker]:
+                return price_history[ticker][target_str]
+            
+            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
+            if past_dates:
+                return price_history[ticker][max(past_dates)]
+            return 0
+
+        monthly_data = {}
+        
+        for end_date in month_ends:
+            current_cash = 0.0
+            invested_capital = 0.0
+            holdings_qty = {}
+            
+            for t in transactions:
+                t_date_str = str(t['date']).split(' ')[0].split('T')[0]
+                t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
+                
+                if t_date > end_date:
+                    continue
+                
+                t_val = float(t['total_value'])
+                t_qty = float(t['quantity'])
+                t_ticker = t['ticker']
+                
+                if t['type'] in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
+                    current_cash += t_val
+                elif t['type'] in ['WITHDRAW', 'BUY']:
+                    current_cash -= t_val
+                
+                # Track Net Invested Capital
+                if t['type'] == 'DEPOSIT':
+                    invested_capital += t_val
+                elif t['type'] == 'WITHDRAW':
+                    invested_capital -= t_val
+                
+                if t_ticker != 'CASH':
+                    if t['type'] == 'BUY':
+                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
+                    elif t['type'] == 'SELL':
+                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
+            
+            total_value = current_cash
+            if account_type not in ['SAVINGS', 'BONDS']:
+                for ticker, qty in holdings_qty.items():
+                    if qty > 0.0001:
+                        total_value += qty * get_price_at_date(ticker, end_date)
+            
+            # For BONDS, we should ideally sum bond values, but sticking to current logic:
+            # Current logic in get_portfolio_value sums bond 'total_value' (principal + accrued).
+            # But here we don't have historical bond values easily unless we recalc.
+            # For now, let's assume BONDS portfolio value is mainly cash + principal (if we implemented it)
+            # The user previously noted BONDS logic is partial.
+            # However, if account_type is SAVINGS, we might want to add accrued interest to total_value if possible?
+            # The prompt says: "Ensure it includes gains from... interest already recorded in the transactions."
+            # Since 'INTEREST' transactions are recorded in 'current_cash', they are already in 'total_value'.
+            # So 'profit' = 'total_value' (includes interest) - 'invested_capital' (only deposits/withdraws).
+            # This is correct.
+            
+            profit = total_value - invested_capital
+            monthly_data[end_date.strftime('%Y-%m')] = profit
+
+        sorted_keys = sorted(monthly_data.keys())
+        result = []
+        for k in sorted_keys:
+            dt = datetime.strptime(k, '%Y-%m')
+            result.append({
+                'date': k,
+                'label': dt.strftime('%b %Y'),
+                'value': round(monthly_data[k], 2)
+            })
+            
+        return result
+
+    @staticmethod
     def get_portfolio_value(portfolio_id):
         portfolio = PortfolioService.get_portfolio(portfolio_id)
         if not portfolio:
