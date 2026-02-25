@@ -3,9 +3,29 @@ import pandas as pd
 from database import get_db
 import sqlite3
 from datetime import datetime, timedelta, date
+import time
+import random
+import logging
 
 class PriceService:
     _price_cache = {}
+
+    @classmethod
+    def _download_with_retry(cls, *args, **kwargs):
+        """Download wrapper with simple retry + exponential backoff."""
+        attempts = 3
+        delay = 1
+        for attempt in range(1, attempts + 1):
+            try:
+                return yf.download(*args, **kwargs)
+            except Exception as e:
+                logging.warning(f"yfinance download failed (attempt {attempt}/{attempts}): {e}")
+                if attempt == attempts:
+                    logging.error("yfinance download failed after retries")
+                    raise
+                sleep_time = delay + random.uniform(0, 0.5)
+                time.sleep(sleep_time)
+                delay *= 2
 
     @classmethod
     def get_prices(cls, tickers):
@@ -18,9 +38,9 @@ class PriceService:
         if missing_tickers:
             print(f"Fetching prices for: {missing_tickers}")
             try:
-                # Fetch 5 days of data to handle weekends/holidays/gaps
-                data = yf.download(missing_tickers, period="5d", group_by='ticker', threads=False)
-                
+                # Fetch 5 days of data to handle weekends/holidays/gaps (with retry)
+                data = cls._download_with_retry(missing_tickers, period="5d", group_by='ticker', threads=False)
+
                 if data.empty:
                     for ticker in missing_tickers:
                         print(f"[WARNING] No valid data for {ticker} (Empty DataFrame)")
@@ -30,7 +50,7 @@ class PriceService:
                             # yfinance with group_by='ticker' returns MultiIndex: (Ticker, Attribute)
                             # We access the ticker's sub-dataframe directly
                             ticker_df = None
-                            
+
                             if isinstance(data.columns, pd.MultiIndex):
                                 if ticker in data.columns.levels[0]:
                                     ticker_df = data[ticker]
@@ -49,7 +69,7 @@ class PriceService:
                                     print(f"[WARNING] No valid data for {ticker} (All values NaN)")
                             else:
                                 print(f"[WARNING] No valid data for {ticker} (Missing 'Close' column or Ticker not found)")
-                                
+
                         except Exception as e:
                             print(f"[ERROR] Failed to process {ticker}: {e}")
             except Exception as e:
@@ -74,8 +94,8 @@ class PriceService:
         except Exception as e:
             print(f"Cache warmup failed: {e}")
 
-    @staticmethod
-    def sync_stock_history(ticker, required_start_date=None):
+    @classmethod
+    def sync_stock_history(cls, ticker, required_start_date=None):
         """
         Incremental sync of stock prices from yfinance to local DB.
         """
@@ -122,12 +142,12 @@ class PriceService:
              return max_date_str
 
         print(f"Syncing {ticker} history starting from {fetch_start}...")
-        
+
         try:
-            # 3. Fetch from yfinance
+            # 3. Fetch from yfinance (with retry)
             # Use fetch_start to today
-            data = yf.download(ticker, start=fetch_start, interval="1d", threads=False)
-            
+            data = cls._download_with_retry(ticker, start=fetch_start, interval="1d", threads=False)
+
             if not data.empty:
                 # 4. Save to DB
                 cursor = db.cursor()
@@ -139,7 +159,7 @@ class PriceService:
                         price = row['Close']
                         if hasattr(price, 'item'):
                             price = price.item()
-                    
+
                     if price is not None and not pd.isna(price):
                         cursor.execute(
                             '''INSERT OR IGNORE INTO stock_prices (ticker, date, close_price)
@@ -150,7 +170,7 @@ class PriceService:
                 print(f"Successfully synced {ticker} history.")
             else:
                 print(f"No history data found for {ticker} from {fetch_start}")
-                
+
         except Exception as e:
             print(f"Error syncing history for {ticker}: {e}")
             db.rollback()
@@ -183,24 +203,74 @@ class FinancialService:
             
         return enriched
 
+class BondService:
+    @staticmethod
+    def add_bond(portfolio_id, name, principal, interest_rate, purchase_date):
+        db = get_db()
+        try:
+            db.execute(
+                '''INSERT INTO bonds (portfolio_id, name, principal, interest_rate, purchase_date)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (portfolio_id, name, principal, interest_rate, purchase_date)
+            )
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise e
+
+    @staticmethod
+    def get_bonds(portfolio_id):
+        db = get_db()
+        bonds = db.execute('SELECT * FROM bonds WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
+        
+        results = []
+        today = date.today()
+        
+        for b in bonds:
+            b_dict = {key: b[key] for key in b.keys()}
+            p_date = datetime.strptime(b_dict['purchase_date'], '%Y-%m-%d').date()
+            days_passed = (today - p_date).days
+            if days_passed < 0: days_passed = 0
+            
+            # accrued_interest = principal * (interest_rate / 100) * (days_passed / 365)
+            accrued = float(b_dict['principal']) * (float(b_dict['interest_rate']) / 100) * (days_passed / 365.0)
+            b_dict['accrued_interest'] = round(accrued, 2)
+            b_dict['total_value'] = round(float(b_dict['principal']) + accrued, 2)
+            results.append(b_dict)
+            
+        return results
+
 class PortfolioService:
     @staticmethod
-    def create_portfolio(name, initial_cash=0.0):
+    def create_portfolio(name, initial_cash=0.0, account_type='STANDARD', created_at=None):
         db = get_db()
         cursor = db.cursor()
         try:
+            # If no created_at is provided, default to today
+            if not created_at:
+                created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Ensure created_at has a time component for TIMESTAMP column compatibility
+            if ' ' not in created_at:
+                created_at = f"{created_at} 00:00:00"
+            
+            # For interest tracking, extract only the date part if it's a full timestamp
+            interest_date = created_at.split(' ')[0] if ' ' in created_at else created_at
+            
             cursor.execute(
-                'INSERT INTO portfolios (name, current_cash, total_deposits) VALUES (?, ?, ?)',
-                (name, initial_cash, initial_cash)
+                '''INSERT INTO portfolios (name, current_cash, total_deposits, account_type, last_interest_date, created_at) 
+                   VALUES (?, ?, ?, ?, ?, ?)''',
+                (name, initial_cash, initial_cash, account_type, interest_date, created_at)
             )
             portfolio_id = cursor.lastrowid
             
             if initial_cash > 0:
                 cursor.execute(
                     '''INSERT INTO transactions 
-                       (portfolio_id, ticker, type, quantity, price, total_value) 
-                       VALUES (?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, 'CASH', 'DEPOSIT', 1, initial_cash, initial_cash)
+                       (portfolio_id, ticker, type, quantity, price, total_value, date) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (portfolio_id, 'CASH', 'DEPOSIT', 1, initial_cash, initial_cash, created_at)
                 )
             
             db.commit()
@@ -213,27 +283,102 @@ class PortfolioService:
     def get_portfolio(portfolio_id):
         db = get_db()
         portfolio = db.execute('SELECT * FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
-        return dict(portfolio) if portfolio else None
+        if portfolio:
+            p = {key: portfolio[key] for key in portfolio.keys()}
+            if p.get('last_interest_date'):
+                p['last_interest_date'] = str(p['last_interest_date'])
+            if p.get('created_at'):
+                p['created_at'] = str(p['created_at'])
+            return p
+        return None
 
     @staticmethod
     def list_portfolios():
         db = get_db()
-        portfolios = db.execute('SELECT * FROM portfolios').fetchall()
-        return [dict(p) for p in portfolios]
+        try:
+            # Explicitly selecting columns can be safer, but SELECT * is requested to be checked.
+            # We will use SELECT * and handle the mapping carefully.
+            portfolios = db.execute('SELECT * FROM portfolios').fetchall()
+            results = []
+            for row in portfolios:
+                try:
+                    p = {key: row[key] for key in row.keys()}
+                    # Safe conversion of date/datetime objects to string
+                    if p.get('last_interest_date'):
+                        p['last_interest_date'] = str(p['last_interest_date'])
+                    if p.get('created_at'):
+                        p['created_at'] = str(p['created_at'])
+                    results.append(p)
+                except Exception as e:
+                    print(f"MAPPING ERROR for row {row['id']}: {e}")
+                    # Continue or re-raise? User asked to print. We'll continue to try to return valid ones.
+            return results
+        except Exception as e:
+            print(f"DB FETCH ERROR: {e}")
+            raise e
 
     @staticmethod
-    def deposit_cash(portfolio_id, amount):
+    def _capitalize_savings(db, portfolio_id):
+        """
+        Calculates and records interest for SAVINGS account.
+        """
+        portfolio = db.execute('SELECT * FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio or portfolio['account_type'] != 'SAVINGS':
+            return
+            
+        last_date_str = portfolio['last_interest_date']
+        if not last_date_str:
+            return
+            
+        last_date = datetime.strptime(last_date_str, '%Y-%m-%d').date()
+        today = date.today()
+        days_passed = (today - last_date).days
+        
+        if days_passed > 0:
+            rate = float(portfolio['savings_rate'])
+            cash = float(portfolio['current_cash'])
+            interest = cash * (rate / 100) * (days_passed / 365.0)
+            
+            if interest > 0.01:
+                # Add interest to cash
+                db.execute(
+                    'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
+                    (interest, portfolio_id)
+                )
+                # Log transaction
+                db.execute(
+                    '''INSERT INTO transactions 
+                       (portfolio_id, ticker, type, quantity, price, total_value, date) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (portfolio_id, 'CASH', 'INTEREST', 1, interest, interest, today.isoformat())
+                )
+        
+        # Update last interest date anyway to reset the clock
+        db.execute(
+            'UPDATE portfolios SET last_interest_date = ? WHERE id = ?',
+            (today.isoformat(), portfolio_id)
+        )
+
+    @staticmethod
+    def deposit_cash(portfolio_id, amount, date_str=None):
         db = get_db()
         try:
+            # Capitalize first if SAVINGS
+            PortfolioService._capitalize_savings(db, portfolio_id)
+            
+            # Default to today if no date provided
+            if not date_str:
+                date_str = date.today().isoformat()
+            
             db.execute(
                 'UPDATE portfolios SET current_cash = current_cash + ?, total_deposits = total_deposits + ? WHERE id = ?',
                 (amount, amount, portfolio_id)
             )
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value) 
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount)
+                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, date_str)
             )
             db.commit()
             return True
@@ -242,22 +387,55 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def withdraw_cash(portfolio_id, amount):
+    def withdraw_cash(portfolio_id, amount, date_str=None):
         db = get_db()
-        portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
-        if not portfolio or portfolio['current_cash'] < amount:
+        portfolio = db.execute('SELECT current_cash, account_type FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        
+        # Note: If SAVINGS, we need to calculate live interest before checking balance
+        live_interest = 0
+        if portfolio and portfolio['account_type'] == 'SAVINGS':
+            # Temporary calculation for check
+            last_date = datetime.strptime(portfolio['last_interest_date'], '%Y-%m-%d').date()
+            days = (date.today() - last_date).days
+            if days > 0:
+                live_interest = float(portfolio['current_cash']) * (float(portfolio['savings_rate']) / 100) * (days / 365.0)
+
+        if not portfolio or (portfolio['current_cash'] + live_interest) < amount:
             raise ValueError("Insufficient funds")
 
         try:
+            # Capitalize first
+            PortfolioService._capitalize_savings(db, portfolio_id)
+            
+            # Default to today if no date provided
+            if not date_str:
+                date_str = date.today().isoformat()
+            
             db.execute(
                 'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
                 (amount, portfolio_id)
             )
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value) 
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount)
+                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount, date_str)
+            )
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise e
+
+    @staticmethod
+    def update_savings_rate(portfolio_id, new_rate):
+        db = get_db()
+        try:
+            # Capitalize before rate change
+            PortfolioService._capitalize_savings(db, portfolio_id)
+            db.execute(
+                'UPDATE portfolios SET savings_rate = ? WHERE id = ?',
+                (new_rate, portfolio_id)
             )
             db.commit()
             return True
@@ -330,7 +508,6 @@ class PortfolioService:
     @staticmethod
     def sell_stock(portfolio_id, ticker, quantity, price):
         db = get_db()
-        
         holding = db.execute(
             'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
             (portfolio_id, ticker)
@@ -341,7 +518,8 @@ class PortfolioService:
 
         total_value = quantity * price
         cost_basis = quantity * holding['average_buy_price']
-        
+        realized_profit = (price - holding['average_buy_price']) * quantity
+
         try:
             # Update cash
             db.execute(
@@ -349,19 +527,18 @@ class PortfolioService:
                 (total_value, portfolio_id)
             )
 
-            # Record transaction
+            # Record transaction with realized_profit
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value) 
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, price, total_value)
+                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'SELL', quantity, price, total_value, realized_profit)
             )
 
             # Update holdings
             new_quantity = holding['quantity'] - quantity
             if new_quantity > 0:
-                new_total_cost = holding['total_cost'] - cost_basis # Reduce cost proportionally
-                # Avg price remains unchanged on sell
+                new_total_cost = holding['total_cost'] - cost_basis
                 db.execute(
                     '''UPDATE holdings 
                        SET quantity = ?, total_cost = ?
@@ -392,7 +569,7 @@ class PortfolioService:
         
         holdings_value = 0.0
         for h in holdings:
-            h_dict = dict(h)
+            h_dict = {key: h[key] for key in h.keys()}
             price = current_prices.get(h_dict['ticker'])
             
             if price is None:
@@ -419,7 +596,7 @@ class PortfolioService:
             'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date DESC', 
             (portfolio_id,)
         ).fetchall()
-        return [dict(t) for t in transactions]
+        return [{key: t[key] for key in t.keys()} for t in transactions]
 
     @staticmethod
     def get_all_transactions():
@@ -430,7 +607,7 @@ class PortfolioService:
                JOIN portfolios p ON t.portfolio_id = p.id 
                ORDER BY t.date DESC'''
         ).fetchall()
-        return [dict(t) for t in transactions]
+        return [{key: t[key] for key in t.keys()} for t in transactions]
 
     @staticmethod
     def record_dividend(portfolio_id, ticker, amount, date):
@@ -470,7 +647,7 @@ class PortfolioService:
             'SELECT * FROM dividends WHERE portfolio_id = ? ORDER BY date DESC',
             (portfolio_id,)
         ).fetchall()
-        return [dict(d) for d in dividends]
+        return [{key: d[key] for key in d.keys()} for d in dividends]
 
     @staticmethod
     def get_monthly_dividends(portfolio_id):
@@ -504,27 +681,198 @@ class PortfolioService:
         return formatted_results
 
     @staticmethod
+    def add_manual_interest(portfolio_id, amount, date_str):
+        db = get_db()
+        try:
+            PortfolioService._capitalize_savings(db, portfolio_id)
+            
+            db.execute(
+                'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
+                (amount, portfolio_id)
+            )
+            
+            db.execute(
+                '''INSERT INTO transactions 
+                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, 'CASH', 'INTEREST', 1, amount, amount, date_str)
+            )
+            
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise e
+
+    @staticmethod
+    def get_portfolio_history(portfolio_id):
+        """
+        Reconstructs portfolio value over time based on transactions.
+        Groups by month.
+        """
+        db = get_db()
+        transactions = db.execute(
+            'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC',
+            (portfolio_id,)
+        ).fetchall()
+        
+        if not transactions:
+            return []
+            
+        portfolio = db.execute('SELECT account_type, created_at FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        account_type = portfolio['account_type']
+        
+        first_trans_date = transactions[0]['date']
+        if isinstance(first_trans_date, str):
+            start_date = datetime.strptime(first_trans_date.split(' ')[0], '%Y-%m-%d').date()
+        else:
+            start_date = first_trans_date
+        
+        today = date.today()
+        
+        # Generate month-end dates
+        month_ends = []
+        curr_y, curr_m = start_date.year, start_date.month
+        while date(curr_y, curr_m, 1) <= today:
+            if curr_m == 12:
+                next_m, next_y = 1, curr_y + 1
+            else:
+                next_m, next_y = curr_m + 1, curr_y
+                
+            month_end = date(next_y, next_m, 1) - timedelta(days=1)
+            if month_end > today:
+                month_end = today
+            month_ends.append(month_end)
+            
+            if month_end == today:
+                break
+            curr_m, curr_y = next_m, next_y
+        
+        # Get unique tickers and SYNC their history first!
+        tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
+        
+        if account_type not in ['SAVINGS', 'BONDS']:
+            for ticker in tickers:
+                try:
+                    # Force sync so we have the prices!
+                    PriceService.sync_stock_history(ticker, start_date)
+                except Exception as e:
+                    print(f"Failed to sync history for {ticker}: {e}")
+
+        # Load prices into memory
+        price_history = {}
+        if account_type not in ['SAVINGS', 'BONDS']:
+            for ticker in tickers:
+                rows = db.execute(
+                    'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
+                    (ticker,)
+                ).fetchall()
+                # Store dates as pure YYYY-MM-DD strings
+                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
+
+        def get_price_at_date(ticker, target_date):
+            if ticker not in price_history or not price_history[ticker]:
+                return 0
+            
+            target_str = target_date.strftime('%Y-%m-%d')
+            if target_str in price_history[ticker]:
+                return price_history[ticker][target_str]
+            
+            # Find closest available price BEFORE the target date
+            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
+            if past_dates:
+                return price_history[ticker][max(past_dates)]
+            return 0
+
+        monthly_data = {}
+        # Calculate values per month
+        for end_date in month_ends:
+            current_cash = 0.0
+            holdings_qty = {}
+            
+            for t in transactions:
+                t_date_str = str(t['date']).split(' ')[0].split('T')[0]
+                t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
+                
+                if t_date > end_date:
+                    continue
+                
+                t_val = float(t['total_value'])
+                t_qty = float(t['quantity'])
+                t_ticker = t['ticker']
+                
+                if t['type'] in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
+                    current_cash += t_val
+                elif t['type'] in ['WITHDRAW', 'BUY']:
+                    current_cash -= t_val
+                
+                if t_ticker != 'CASH':
+                    if t['type'] == 'BUY':
+                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
+                    elif t['type'] == 'SELL':
+                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
+            
+            total_value = current_cash
+            if account_type not in ['SAVINGS', 'BONDS']:
+                for ticker, qty in holdings_qty.items():
+                    if qty > 0.0001:
+                        total_value += qty * get_price_at_date(ticker, end_date)
+            
+            monthly_data[end_date.strftime('%Y-%m')] = total_value
+
+        sorted_keys = sorted(monthly_data.keys())
+        result = []
+        for k in sorted_keys:
+            dt = datetime.strptime(k, '%Y-%m')
+            result.append({
+                'date': k,
+                'label': dt.strftime('%b %Y'),
+                'value': round(monthly_data[k], 2)
+            })
+            
+        return result
+
+    @staticmethod
     def get_portfolio_value(portfolio_id):
         portfolio = PortfolioService.get_portfolio(portfolio_id)
         if not portfolio:
             return None
         
-        holdings = PortfolioService.get_holdings(portfolio_id)
-        tickers = [h['ticker'] for h in holdings]
-        current_prices = PriceService.get_prices(tickers)
-        
+        account_type = portfolio['account_type']
+        current_cash = float(portfolio['current_cash'])
         holdings_value = 0.0
-        for h in holdings:
-            ticker = h['ticker']
-            price = current_prices.get(ticker)
+        live_interest = 0.0
+        
+        if account_type == 'SAVINGS':
+            # Calculate live accrued interest from last_interest_date to today
+            last_date_str = portfolio['last_interest_date']
+            if last_date_str:
+                last_date = datetime.strptime(last_date_str, '%Y-%m-%d').date()
+                days = (date.today() - last_date).days
+                if days > 0:
+                    live_interest = current_cash * (float(portfolio['savings_rate']) / 100) * (days / 365.0)
             
-            # Use current price if available, otherwise fallback to average buy price
-            if price is None:
-                price = h['average_buy_price']
-                
-            holdings_value += h['quantity'] * price
+            # For savings, total value is cash + live interest
+            total_value = current_cash + live_interest
+        elif account_type == 'BONDS':
+            # Get bonds and their accrued interest
+            bonds = BondService.get_bonds(portfolio_id)
+            holdings_value = sum(b['total_value'] for b in bonds)
+            total_value = current_cash + holdings_value
+        else:
+            # STANDARD or IKE
+            holdings = PortfolioService.get_holdings(portfolio_id)
+            tickers = [h['ticker'] for h in holdings]
+            current_prices = PriceService.get_prices(tickers)
             
-        total_value = portfolio['current_cash'] + holdings_value
+            for h in holdings:
+                ticker = h['ticker']
+                price = current_prices.get(ticker)
+                if price is None:
+                    price = h['average_buy_price']
+                holdings_value += h['quantity'] * price
+            
+            total_value = current_cash + holdings_value
         
         # Get total dividends
         db = get_db()
@@ -534,17 +882,15 @@ class PortfolioService:
         ).fetchone()
         total_dividends = div_result['total_div'] or 0.0
         
-        # Total Result = (Current Value - Total Deposits)
-        # Note: Since dividends increase cash, they are already part of total_value.
-        # But for "Realized + Unrealized" clarity, we can show total dividends separately.
         total_result = total_value - portfolio['total_deposits']
         total_result_percent = (total_result / portfolio['total_deposits'] * 100) if portfolio['total_deposits'] > 0 else 0.0
         
         return {
             'portfolio_value': total_value,
-            'cash_value': portfolio['current_cash'],
+            'cash_value': current_cash + live_interest, # Include live interest in cash display for SAVINGS
             'holdings_value': holdings_value,
             'total_dividends': total_dividends,
             'total_result': total_result,
-            'total_result_percent': total_result_percent
+            'total_result_percent': total_result_percent,
+            'live_interest': live_interest # Just for informational purposes
         }

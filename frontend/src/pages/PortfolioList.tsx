@@ -11,6 +11,8 @@ const PortfolioList: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [initialCash, setInitialCash] = useState('');
+  const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS'>('STANDARD');
+  const [createdAt, setCreatedAt] = useState(new Date().toISOString().split('T')[0]);
 
   const fetchPortfolios = async () => {
     try {
@@ -34,10 +36,14 @@ const PortfolioList: React.FC = () => {
     try {
       await api.post('/create', {
         name: newPortfolioName,
-        initial_cash: parseFloat(initialCash) || 0
+        initial_cash: parseFloat(initialCash) || 0,
+        account_type: accountType,
+        created_at: createdAt
       });
       setNewPortfolioName('');
       setInitialCash('');
+      setAccountType('STANDARD');
+      setCreatedAt(new Date().toISOString().split('T')[0]);
       setIsCreating(false);
       fetchPortfolios();
     } catch (err) {
@@ -90,6 +96,31 @@ const PortfolioList: React.FC = () => {
                 step="0.01"
               />
             </div>
+            <div>
+              <label htmlFor="type" className="block text-sm font-medium text-gray-700">Account Type</label>
+              <select
+                id="type"
+                value={accountType}
+                onChange={(e) => setAccountType(e.target.value as any)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+              >
+                <option value="STANDARD">Standard Stocks</option>
+                <option value="IKE">IKE (Stocks)</option>
+                <option value="BONDS">Bonds (Obligacje)</option>
+                <option value="SAVINGS">Savings Account</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="createdAt" className="block text-sm font-medium text-gray-700">Creation Date</label>
+              <input
+                type="date"
+                id="createdAt"
+                value={createdAt}
+                onChange={(e) => setCreatedAt(e.target.value)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                required
+              />
+            </div>
             <div className="flex justify-end space-x-3">
               <button
                 type="button"
@@ -119,9 +150,20 @@ const PortfolioList: React.FC = () => {
             <div className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow duration-200">
               <div className="px-4 py-5 sm:p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-medium leading-6 text-gray-900 truncate">
-                    {portfolio.name}
-                  </h3>
+                  <div className="flex flex-col">
+                    <h3 className="text-lg font-medium leading-6 text-gray-900 truncate">
+                      {portfolio.name}
+                    </h3>
+                    <span className={cn(
+                      "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full mt-1 w-fit",
+                      portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
+                      portfolio.account_type === 'BONDS' ? "bg-amber-100 text-amber-800" :
+                      portfolio.account_type === 'IKE' ? "bg-indigo-100 text-indigo-800" :
+                      "bg-gray-100 text-gray-800"
+                    )}>
+                      {portfolio.account_type}
+                    </span>
+                  </div>
                   <ChevronRight className="h-5 w-5 text-gray-400" />
                 </div>
                 <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">

@@ -1,8 +1,11 @@
 export interface Portfolio {
   id: number;
   name: string;
+  account_type: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS';
   current_cash: number;
   total_deposits: number;
+  savings_rate: number;
+  last_interest_date?: string;
   created_at?: string;
   portfolio_value?: number;
   cash_value?: number;
@@ -17,9 +20,21 @@ export interface Transaction {
   portfolio_id: number;
   ticker: string;
   date: string;
-  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW' | 'DIVIDEND';
+  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW' | 'DIVIDEND' | 'INTEREST';
   quantity: number;
   price: number;
+  total_value: number;
+  realized_profit?: number;
+}
+
+export interface Bond {
+  id: number;
+  portfolio_id: number;
+  name: string;
+  principal: number;
+  interest_rate: number;
+  purchase_date: string;
+  accrued_interest: number;
   total_value: number;
 }
 
@@ -52,4 +67,9 @@ export interface PortfolioValue {
   total_dividends: number;
   total_result: number;
   total_result_percent: number;
+}
+
+export interface ClosedPosition {
+  ticker: string;
+  realized_profit: number;
 }

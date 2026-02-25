@@ -27,8 +27,11 @@ def init_db(app):
             CREATE TABLE IF NOT EXISTS portfolios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name VARCHAR(100) NOT NULL,
+                account_type VARCHAR(20) DEFAULT 'STANDARD',
                 current_cash DECIMAL(10,2) DEFAULT 0.00,
                 total_deposits DECIMAL(10,2) DEFAULT 0.00,
+                savings_rate DECIMAL(5,2) DEFAULT 0.00,
+                last_interest_date TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
@@ -42,11 +45,12 @@ def init_db(app):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 portfolio_id INTEGER NOT NULL,
                 ticker VARCHAR(10) NOT NULL,
-                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                type VARCHAR(10) NOT NULL CHECK (type IN ('BUY', 'SELL', 'DEPOSIT', 'WITHDRAW', 'DIVIDEND')),
+                date TEXT DEFAULT CURRENT_TIMESTAMP,
+                type VARCHAR(10) NOT NULL CHECK (type IN ('BUY', 'SELL', 'DEPOSIT', 'WITHDRAW', 'DIVIDEND', 'INTEREST')),
                 quantity DECIMAL(10,4) NOT NULL,
                 price DECIMAL(10,2) NOT NULL,
                 total_value DECIMAL(10,2) NOT NULL,
+                realized_profit DECIMAL(10,2) DEFAULT 0.0,
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
         ''')
@@ -103,5 +107,21 @@ def init_db(app):
         
         # Create index for dividends
         db.execute('CREATE INDEX IF NOT EXISTS idx_dividends_portfolio ON dividends(portfolio_id);')
+
+        # Bonds table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS bonds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                portfolio_id INTEGER NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                principal DECIMAL(15,2) NOT NULL,
+                interest_rate DECIMAL(5,2) NOT NULL,
+                purchase_date DATE NOT NULL,
+                FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
+            );
+        ''')
+        
+        # Create index for bonds
+        db.execute('CREATE INDEX IF NOT EXISTS idx_bonds_portfolio ON bonds(portfolio_id);')
         
         db.commit()

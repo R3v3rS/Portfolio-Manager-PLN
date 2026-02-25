@@ -110,7 +110,12 @@ const Dashboard: React.FC = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {portfolios.map((portfolio) => (
                 <tr key={portfolio.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{portfolio.name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <div className="flex flex-col">
+                      {portfolio.name}
+                      <span className="text-[10px] text-gray-500 font-bold uppercase">{portfolio.account_type}</span>
+                    </div>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                     {portfolio.portfolio_value?.toFixed(2)} PLN
                   </td>

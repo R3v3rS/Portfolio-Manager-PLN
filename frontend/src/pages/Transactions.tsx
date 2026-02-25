@@ -74,6 +74,8 @@ const Transactions: React.FC = () => {
             <option value="SELL">Sell</option>
             <option value="DEPOSIT">Deposit</option>
             <option value="WITHDRAW">Withdraw</option>
+            <option value="DIVIDEND">Dividend</option>
+            <option value="INTEREST">Interest</option>
           </select>
         </div>
       </div>
@@ -108,6 +110,7 @@ const Transactions: React.FC = () => {
                       t.type === 'BUY' ? "bg-green-100 text-green-800" :
                       t.type === 'SELL' ? "bg-red-100 text-red-800" :
                       t.type === 'DEPOSIT' ? "bg-blue-100 text-blue-800" :
+                      t.type === 'DIVIDEND' ? "bg-indigo-100 text-indigo-800" :
                       "bg-orange-100 text-orange-800"
                     )}>
                       {t.type}
