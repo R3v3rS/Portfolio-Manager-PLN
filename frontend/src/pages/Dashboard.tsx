@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowUpRight, ArrowDownRight, Wallet, TrendingUp, DollarSign } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart } from 'lucide-react';
 import api from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils';
@@ -29,6 +29,7 @@ const Dashboard: React.FC = () => {
 
   const totalValue = portfolios.reduce((sum, p) => sum + (p.portfolio_value || 0), 0);
   const totalDeposits = portfolios.reduce((sum, p) => sum + (p.total_deposits || 0), 0);
+  const totalDividends = portfolios.reduce((sum, p) => sum + (p.total_dividends || 0), 0);
   const totalResult = totalValue - totalDeposits;
   const totalResultPercent = totalDeposits > 0 ? (totalResult / totalDeposits) * 100 : 0;
 
@@ -46,6 +47,12 @@ const Dashboard: React.FC = () => {
       color: 'bg-gray-500',
     },
     {
+      name: 'Total Dividends',
+      value: `${totalDividends.toFixed(2)} PLN`,
+      icon: PieChart,
+      color: 'bg-indigo-500',
+    },
+    {
       name: 'Total Profit/Loss',
       value: `${totalResult.toFixed(2)} PLN`,
       subValue: `${totalResultPercent.toFixed(2)}%`,
@@ -59,7 +66,7 @@ const Dashboard: React.FC = () => {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
       
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-4">
         {cards.map((card) => {
           const Icon = card.icon;
           return (
@@ -95,6 +102,7 @@ const Dashboard: React.FC = () => {
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Dividends</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Result</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Return %</th>
               </tr>
@@ -105,6 +113,9 @@ const Dashboard: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{portfolio.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                     {portfolio.portfolio_value?.toFixed(2)} PLN
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600 font-medium">
+                    {portfolio.total_dividends?.toFixed(2)} PLN
                   </td>
                   <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", 
                     (portfolio.total_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
@@ -118,7 +129,7 @@ const Dashboard: React.FC = () => {
               ))}
               {portfolios.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
                     No portfolios found. Create one to get started!
                   </td>
                 </tr>

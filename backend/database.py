@@ -43,7 +43,7 @@ def init_db(app):
                 portfolio_id INTEGER NOT NULL,
                 ticker VARCHAR(10) NOT NULL,
                 date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                type VARCHAR(4) NOT NULL CHECK (type IN ('BUY', 'SELL', 'DEPOSIT', 'WITHDRAW')),
+                type VARCHAR(10) NOT NULL CHECK (type IN ('BUY', 'SELL', 'DEPOSIT', 'WITHDRAW', 'DIVIDEND')),
                 quantity DECIMAL(10,4) NOT NULL,
                 price DECIMAL(10,2) NOT NULL,
                 total_value DECIMAL(10,2) NOT NULL,
@@ -73,5 +73,35 @@ def init_db(app):
         # Create indexes for holdings
         db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_portfolio ON holdings(portfolio_id);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_ticker ON holdings(ticker);')
+        
+        # Stock prices history table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS stock_prices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker VARCHAR(10) NOT NULL,
+                date DATE NOT NULL,
+                close_price DECIMAL(10,2) NOT NULL,
+                UNIQUE(ticker, date)
+            );
+        ''')
+        
+        # Create index for stock prices
+        db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_date ON stock_prices(date);')
+        
+        # Dividends table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS dividends (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                portfolio_id INTEGER NOT NULL,
+                ticker VARCHAR(10) NOT NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                date DATE NOT NULL,
+                FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
+            );
+        ''')
+        
+        # Create index for dividends
+        db.execute('CREATE INDEX IF NOT EXISTS idx_dividends_portfolio ON dividends(portfolio_id);')
         
         db.commit()

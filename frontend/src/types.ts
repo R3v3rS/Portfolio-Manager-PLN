@@ -7,6 +7,7 @@ export interface Portfolio {
   portfolio_value?: number;
   cash_value?: number;
   holdings_value?: number;
+  total_dividends?: number;
   total_result?: number;
   total_result_percent?: number;
 }
@@ -16,10 +17,18 @@ export interface Transaction {
   portfolio_id: number;
   ticker: string;
   date: string;
-  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW';
+  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW' | 'DIVIDEND';
   quantity: number;
   price: number;
   total_value: number;
+}
+
+export interface Dividend {
+  id: number;
+  portfolio_id: number;
+  ticker: string;
+  amount: number;
+  date: string;
 }
 
 export interface Holding {
@@ -40,6 +49,7 @@ export interface PortfolioValue {
   portfolio_value: number;
   cash_value: number;
   holdings_value: number;
+  total_dividends: number;
   total_result: number;
   total_result_percent: number;
 }

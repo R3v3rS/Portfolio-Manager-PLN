@@ -1,96 +1,73 @@
-# Portfolio Manager (PLN)
+# 📈 Portfolio Manager (PLN)
 
-A production-ready web application for managing investment portfolios, built with React (Frontend) and Flask (Backend).
+Profesjonalna aplikacja webowa do zarządzania portfelem inwestycyjnym, zbudowana w nowoczesnym stosie technologicznym **React + Flask**. System został zaprojektowany z myślą o inwestorach operujących w walucie PLN, oferując zaawansowaną analitykę, śledzenie dywidend oraz inteligentne buforowanie danych giełdowych.
 
-## Features
+## 🚀 Główne Funkcje
 
-- **Portfolio Management**: Create multiple portfolios, track cash and holdings.
-- **Transaction Tracking**: Buy/Sell stocks, Deposit/Withdraw cash.
-- **Real-time Valuation**: Fetches latest stock prices (PLN) from Yahoo Finance (cached daily).
-- **Analytics**: Profit/Loss calculation, Allocation charts, Performance metrics.
-- **Clean Architecture**: Separation of concerns, type-safe frontend, modular backend.
+- **Zarządzanie Portfelami**: Tworzenie wielu niezależnych portfeli (np. Emerytalny, Akcyjny, Krypto).
+- **Inteligentne Pobieranie Cen**: Integracja z Yahoo Finance (`yfinance`) z obsługą GPW (`.WA`), Frankfurtu (`.F`) i rynków światowych.
+- **Pamięć Podręczna (Price Caching)**: Lokalna baza danych historycznych cen zamknięcia, eliminująca luki w danych (weekendy, święta) i drastycznie przyspieszająca działanie.
+- **System Dywidendowy**: Rejestrowanie wpływów z dywidend, automatyczna aktualizacja salda gotówkowego i wykresy miesięcznego dochodu pasywnego.
+- **Analityka Wizualna**:
+  - Interaktywne wykresy wydajności dla każdej pozycji.
+  - Wykresy kołowe alokacji aktywów (akcje vs gotówka).
+  - Statystyki Profit/Loss (Zysk/Strata) w czasie rzeczywistym.
+- **Historia Transakcji**: Pełny log operacji Kupna, Sprzedaży, Depozytów i Dywidend.
 
-## Tech Stack
+## 🛠 Stos Technologiczny
 
-- **Frontend**: React, TypeScript, Tailwind CSS, Chart.js, Axios, Vite.
-- **Backend**: Flask, SQLite, yfinance, Pandas.
-- **Database**: SQLite (local file).
+- **Frontend**: React 18, TypeScript, Tailwind CSS, Chart.js, Lucide Icons, Vite.
+- **Backend**: Flask (Python 3.11+), SQLite, Pandas, yfinance.
+- **Architektura**: Clean Code, separacja logiki biznesowej (Services) od warstwy prezentacji (Routes).
 
-## Project Structure
+## 📁 Struktura Projektu
 
 ```
 .
-├── backend/            # Flask Backend
-│   ├── app.py          # Application Factory & Startup
-│   ├── database.py     # Database Connection & Schema
-│   ├── routes.py       # API Endpoints
-│   ├── services.py     # Business Logic & Price Fetching
-│   ├── portfolio.db    # SQLite Database (generated on run)
+├── backend/            # Serwer Flask API
+│   ├── app.py          # Punkt wejścia aplikacji
+│   ├── database.py     # Definicje schematów SQLite
+│   ├── routes.py       # Endpointy API
+│   ├── services.py     # Logika biznesowa i analityka finansowa
 │   └── requirements.txt
-├── frontend/           # React Frontend
+├── frontend/           # Aplikacja React (Vite)
 │   ├── src/
-│   │   ├── components/ # Reusable UI Components
-│   │   ├── pages/      # Page Views
-│   │   ├── api.ts      # API Client
-│   │   └── types.ts    # TypeScript Interfaces
+│   │   ├── components/ # Reaktywne komponenty UI (Wykresy, Formularze)
+│   │   ├── pages/      # Widoki (Dashboard, Szczegóły Portfela)
+│   │   ├── api.ts      # Konfiguracja Axios
+│   │   └── types.ts    # Interfejsy TypeScript
 │   └── package.json
 └── README.md
 ```
 
-## Prerequisites
+## ⚙️ Instalacja i Uruchomienie
 
-- Node.js (v18+)
-- Python (v3.11+)
-
-## Setup & Run
-
-### 1. Backend Setup
-
-Open a terminal in the root directory:
-
+### 1. Backend (Python)
+Wymagany Python 3.11+.
 ```bash
 cd backend
-# Create virtual environment (optional but recommended)
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/Mac:
+source .venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the server
 python app.py
 ```
+API będzie dostępne pod adresem: `http://127.0.0.1:5000`
 
-The backend will start at `http://127.0.0.1:5000`.
-
-### 2. Frontend Setup
-
-Open a **new terminal** in the root directory:
-
+### 2. Frontend (Node.js)
+Wymagany Node.js 18+.
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
+Aplikacja będzie dostępna pod adresem: `http://localhost:5173`
 
-The frontend will start at `http://localhost:5173`.
+## 📊 Zaawansowana Logika
+Aplikacja wykorzystuje algorytm **Incremental Sync** dla danych historycznych. Przy każdym zakupie lub wyświetleniu szczegółów, system sprawdza ostatnią datę zapisaną w lokalnej bazie i pobiera z Yahoo Finance tylko brakujący zakres dat. Chroni to przed limitami API i zapewnia błyskawiczne ładowanie wykresów.
 
-## Usage
-
-1. Open `http://localhost:5173` in your browser.
-2. **Create a Portfolio**: Click "Create Portfolio" and enter a name (e.g., "Retirement").
-3. **Deposit Cash**: Go to Portfolio Details -> "Deposit" tab.
-4. **Buy Stocks**: Go to "Buy" tab, enter Ticker (e.g., "AAPL", "GOOGL", "CDR.WA" for Polish stocks), Quantity, and Price (in PLN).
-   - Note: Since the app forces PLN, ensure you enter the PLN equivalent price if buying foreign stocks, or use Polish tickers (e.g., "PKO.WA").
-5. **View Analytics**: Check the Dashboard for total value and the Details page for allocation charts.
-
-## License
-
-MIT
+## 📝 Licencja
+Projekt udostępniany na licencji MIT.

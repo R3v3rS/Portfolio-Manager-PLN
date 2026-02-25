@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from services import PortfolioService
+from services import PortfolioService, PriceService
 
 portfolio_bp = Blueprint('portfolio', __name__)
 
@@ -52,7 +52,8 @@ def buy():
             data['portfolio_id'], 
             data['ticker'], 
             data['quantity'], 
-            data['price']
+            data['price'],
+            data.get('date') # Accept optional custom date
         )
         return jsonify({'message': 'Buy successful'}), 200
     except Exception as e:
@@ -103,5 +104,63 @@ def get_all_transactions():
     try:
         transactions = PortfolioService.get_all_transactions()
         return jsonify({'transactions': transactions}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@portfolio_bp.route('/history/<string:ticker>', methods=['GET'])
+def get_stock_history(ticker):
+    try:
+        from database import get_db
+        db = get_db()
+        
+        # Ensure data is synced (at least last 30 days if new)
+        PriceService.sync_stock_history(ticker)
+        
+        prices = db.execute(
+            'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
+            (ticker,)
+        ).fetchall()
+        
+        # Get last updated timestamp
+        last_updated = db.execute(
+            'SELECT MAX(date) as last_date FROM stock_prices WHERE ticker = ?',
+            (ticker,)
+        ).fetchone()
+        
+        return jsonify({
+            'ticker': ticker,
+            'history': [dict(p) for p in prices],
+            'last_updated': last_updated['last_date'] if last_updated else None
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@portfolio_bp.route('/dividend', methods=['POST'])
+def record_dividend():
+    data = request.json
+    try:
+        PortfolioService.record_dividend(
+            data['portfolio_id'],
+            data['ticker'],
+            data['amount'],
+            data['date']
+        )
+        return jsonify({'message': 'Dividend recorded successfully'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@portfolio_bp.route('/dividends/<int:portfolio_id>', methods=['GET'])
+def get_dividends(portfolio_id):
+    try:
+        dividends = PortfolioService.get_dividends(portfolio_id)
+        return jsonify({'dividends': dividends}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@portfolio_bp.route('/dividends/monthly/<int:portfolio_id>', methods=['GET'])
+def get_monthly_dividends(portfolio_id):
+    try:
+        monthly_data = PortfolioService.get_monthly_dividends(portfolio_id)
+        return jsonify({'monthly_dividends': monthly_data}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
