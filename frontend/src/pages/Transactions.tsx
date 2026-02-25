@@ -1,0 +1,145 @@
+import React, { useEffect, useState } from 'react';
+import api from '../api';
+import { Transaction, Portfolio } from '../types';
+import { cn } from '../lib/utils';
+
+// Extend Transaction type to include portfolio_name for the list view
+interface ExtendedTransaction extends Transaction {
+  portfolio_name?: string;
+}
+
+const Transactions: React.FC = () => {
+  const [transactions, setTransactions] = useState<ExtendedTransaction[]>([]);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterPortfolio, setFilterPortfolio] = useState<string>('all');
+  const [filterType, setFilterType] = useState<string>('all');
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [tRes, pRes] = await Promise.all([
+          api.get('/transactions/all'),
+          api.get('/list')
+        ]);
+        setTransactions(tRes.data.transactions);
+        setPortfolios(pRes.data.portfolios);
+      } catch (err) {
+        console.error('Failed to fetch data', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const filteredTransactions = transactions.filter(t => {
+    if (filterPortfolio !== 'all' && t.portfolio_id !== parseInt(filterPortfolio)) return false;
+    if (filterType !== 'all' && t.type !== filterType) return false;
+    return true;
+  });
+
+  if (loading) return <div className="p-4 text-center">Loading transactions...</div>;
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold text-gray-900">Transaction History</h1>
+
+      {/* Filters */}
+      <div className="bg-white shadow rounded-lg p-4 flex flex-col sm:flex-row gap-4">
+        <div className="flex-1">
+          <label htmlFor="portfolio" className="block text-sm font-medium text-gray-700">Portfolio</label>
+          <select
+            id="portfolio"
+            value={filterPortfolio}
+            onChange={(e) => setFilterPortfolio(e.target.value)}
+            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border"
+          >
+            <option value="all">All Portfolios</option>
+            {portfolios.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label htmlFor="type" className="block text-sm font-medium text-gray-700">Type</label>
+          <select
+            id="type"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border"
+          >
+            <option value="all">All Types</option>
+            <option value="BUY">Buy</option>
+            <option value="SELL">Sell</option>
+            <option value="DEPOSIT">Deposit</option>
+            <option value="WITHDRAW">Withdraw</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white shadow rounded-lg overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Portfolio</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Value</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredTransactions.map((t) => (
+                <tr key={t.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {new Date(t.date).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {t.portfolio_name || portfolios.find(p => p.id === t.portfolio_id)?.name || t.portfolio_id}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <span className={cn(
+                      "px-2 inline-flex text-xs leading-5 font-semibold rounded-full",
+                      t.type === 'BUY' ? "bg-green-100 text-green-800" :
+                      t.type === 'SELL' ? "bg-red-100 text-red-800" :
+                      t.type === 'DEPOSIT' ? "bg-blue-100 text-blue-800" :
+                      "bg-orange-100 text-orange-800"
+                    )}>
+                      {t.type}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {t.ticker === 'CASH' ? '-' : t.ticker}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                    {t.quantity}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                    {t.price.toFixed(2)} PLN
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+                    {t.total_value.toFixed(2)} PLN
+                  </td>
+                </tr>
+              ))}
+              {filteredTransactions.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
+                    No transactions found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Transactions;
