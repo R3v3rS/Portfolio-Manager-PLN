@@ -1,3 +1,12 @@
+import os
+import tempfile
+# Force yfinance to use a cache directory in user home to avoid path length/space issues
+cache_dir = os.path.join(os.path.expanduser('~'), 'yfinance_cache_custom')
+if not os.path.exists(cache_dir):
+    os.makedirs(cache_dir, exist_ok=True)
+os.environ['YFINANCE_CACHE_DIR'] = cache_dir
+print(f"Using yfinance cache at: {cache_dir}")
+
 import yfinance as yf
 import pandas as pd
 from database import get_db
@@ -37,49 +46,68 @@ class PriceService:
         
         if missing_tickers:
             print(f"Fetching prices for: {missing_tickers}")
+            
+            # Attempt 1: Bulk Download
             try:
                 # Fetch 5 days of data to handle weekends/holidays/gaps (with retry)
                 data = cls._download_with_retry(missing_tickers, period="5d", group_by='ticker', threads=False)
 
                 if data.empty:
-                    for ticker in missing_tickers:
-                        print(f"[WARNING] No valid data for {ticker} (Empty DataFrame)")
-                else:
-                    for ticker in missing_tickers:
-                        try:
-                            # yfinance with group_by='ticker' returns MultiIndex: (Ticker, Attribute)
-                            # We access the ticker's sub-dataframe directly
-                            ticker_df = None
+                    print("[WARNING] Bulk download returned empty data. Trying individual fetch.")
+                    raise ValueError("Empty Data")
 
-                            if isinstance(data.columns, pd.MultiIndex):
-                                if ticker in data.columns.levels[0]:
-                                    ticker_df = data[ticker]
-                            elif 'Close' in data.columns and len(missing_tickers) == 1:
-                                # Fallback if yfinance returns flattened columns for single ticker
-                                ticker_df = data
+                # Process bulk data
+                for ticker in missing_tickers:
+                    try:
+                        ticker_df = None
+                        if isinstance(data.columns, pd.MultiIndex):
+                            if ticker in data.columns.levels[0]:
+                                ticker_df = data[ticker]
+                        elif 'Close' in data.columns and len(missing_tickers) == 1:
+                            ticker_df = data
 
-                            if ticker_df is not None and 'Close' in ticker_df.columns:
-                                df_cleaned = ticker_df.dropna(subset=['Close'])
-                                if not df_cleaned.empty:
-                                    price = df_cleaned['Close'].iloc[-1]
-                                    if hasattr(price, 'item'):
-                                        price = price.item()
-                                    cls._price_cache[ticker] = round(float(price), 2)
-                                else:
-                                    print(f"[WARNING] No valid data for {ticker} (All values NaN)")
-                            else:
-                                print(f"[WARNING] No valid data for {ticker} (Missing 'Close' column or Ticker not found)")
+                        if ticker_df is not None and 'Close' in ticker_df.columns:
+                            df_cleaned = ticker_df.dropna(subset=['Close'])
+                            if not df_cleaned.empty:
+                                price = df_cleaned['Close'].iloc[-1]
+                                if hasattr(price, 'item'):
+                                    price = price.item()
+                                cls._price_cache[ticker] = round(float(price), 2)
+                        
+                    except Exception as e:
+                        print(f"[ERROR] Failed to process bulk data for {ticker}: {e}")
 
-                        except Exception as e:
-                            print(f"[ERROR] Failed to process {ticker}: {e}")
             except Exception as e:
-                print(f"[CRITICAL] yfinance fetch failed: {e}")
+                print(f"[WARNING] Bulk fetch failed ({e}). Switching to individual fallback.")
             
+            # Attempt 2: Individual Fetch (Fallback for any still missing)
+            remaining_tickers = [t for t in missing_tickers if t not in cls._price_cache]
+            if remaining_tickers:
+                print(f"Fallback fetching for: {remaining_tickers}")
+                for ticker in remaining_tickers:
+                    try:
+                        t = yf.Ticker(ticker)
+                        # Try history first
+                        hist = t.history(period="5d")
+                        if not hist.empty:
+                            price = hist['Close'].iloc[-1]
+                            cls._price_cache[ticker] = round(float(price), 2)
+                        else:
+                            # Try fast_info as last resort
+                            try:
+                                price = t.fast_info.last_price
+                                if price:
+                                    cls._price_cache[ticker] = round(float(price), 2)
+                            except:
+                                print(f"[WARNING] No data for {ticker}")
+                    except Exception as e:
+                         print(f"[ERROR] Individual fetch failed for {ticker}: {e}")
+
             # Final Safety Step: Mark any missing tickers as None
             for ticker in missing_tickers:
                 if ticker not in cls._price_cache:
                     cls._price_cache[ticker] = None
-
+        
         return cls._price_cache
 
     @classmethod
