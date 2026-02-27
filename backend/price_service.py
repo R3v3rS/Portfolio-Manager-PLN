@@ -9,10 +9,17 @@ import time
 import random
 import logging
 
-# Force yfinance to use a cache directory in user home to avoid path length/space issues
-cache_dir = os.path.join(os.path.expanduser('~'), 'yfinance_cache_custom')
+# Force yfinance to use a cache directory in a temp folder to avoid permission issues
+cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_custom')
 if not os.path.exists(cache_dir):
-    os.makedirs(cache_dir, exist_ok=True)
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except Exception as e:
+        print(f"Failed to create cache dir {cache_dir}: {e}")
+        # Fallback to local
+        cache_dir = os.path.join(os.getcwd(), 'yfinance_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+
 os.environ['YFINANCE_CACHE_DIR'] = cache_dir
 print(f"Using yfinance cache at: {cache_dir}")
 
@@ -236,3 +243,148 @@ class PriceService:
         except Exception as e:
             print(f"Metadata fetch error for {ticker}: {e}")
             return None
+
+    @classmethod
+    def get_quotes(cls, tickers):
+        """
+        Fetches current price and multi-timeframe momentum (1D, 7D, 1M, 1Y) for a list of tickers.
+        Returns: { 'AAPL': {'price': 150.0, 'change_1d': 1.5, 'change_7d': ..., 'change_1m': ..., 'change_1y': ...}, ... }
+        """
+        quotes = {}
+        if not tickers:
+            return quotes
+            
+        for ticker in tickers:
+            try:
+                t = yf.Ticker(ticker)
+                
+                # Fetch 1 year history to calculate all changes
+                hist = t.history(period="1y")
+                
+                if hist.empty:
+                     # Fallback if no history
+                    quotes[ticker] = {
+                        'price': 0.0,
+                        'change_1d': None,
+                        'change_7d': None,
+                        'change_1m': None,
+                        'change_1y': None
+                    }
+                    continue
+
+                # Get latest price
+                current_price = hist['Close'].iloc[-1]
+                
+                # Helper to calculate percentage change safely
+                def calc_change(current, old):
+                    if old == 0: return 0.0
+                    return ((current - old) / old) * 100
+
+                # 1D Change (compare with previous row)
+                change_1d = None
+                if len(hist) >= 2:
+                    prev_close = hist['Close'].iloc[-2]
+                    change_1d = calc_change(current_price, prev_close)
+
+                # 7D Change (approx 5 trading days ago)
+                change_7d = None
+                if len(hist) >= 6:
+                    price_7d_ago = hist['Close'].iloc[-6]
+                    change_7d = calc_change(current_price, price_7d_ago)
+
+                # 1M Change (approx 21 trading days ago)
+                change_1m = None
+                if len(hist) >= 22:
+                    price_1m_ago = hist['Close'].iloc[-22]
+                    change_1m = calc_change(current_price, price_1m_ago)
+
+                # 1Y Change (approx start of the dataframe if it has enough data)
+                change_1y = None
+                # If we asked for 1y, the first row is roughly 1y ago
+                if len(hist) > 0:
+                     price_1y_ago = hist['Close'].iloc[0]
+                     change_1y = calc_change(current_price, price_1y_ago)
+
+                quotes[ticker] = {
+                    'price': round(float(current_price), 2),
+                    'change_1d': round(change_1d, 2) if change_1d is not None else None,
+                    'change_7d': round(change_7d, 2) if change_7d is not None else None,
+                    'change_1m': round(change_1m, 2) if change_1m is not None else None,
+                    'change_1y': round(change_1y, 2) if change_1y is not None else None,
+                }
+                
+                # Update cache while we are at it
+                cls._price_cache[ticker] = round(float(current_price), 2)
+                    
+            except Exception as e:
+                print(f"Error fetching quote for {ticker}: {e}")
+                quotes[ticker] = {
+                    'price': 0.0,
+                    'change_1d': None,
+                    'change_7d': None,
+                    'change_1m': None,
+                    'change_1y': None
+                }
+        
+        return quotes
+
+    @classmethod
+    def fetch_market_events(cls, tickers):
+        """
+        Fetches upcoming earnings and dividend info.
+        """
+        events = {}
+        for ticker in tickers:
+            try:
+                t = yf.Ticker(ticker)
+                
+                next_earnings = None
+                ex_dividend_date = None
+                dividend_yield = None
+                
+                # 1. Try Calendar for Earnings
+                try:
+                    cal = t.calendar
+                    # t.calendar can be a dict or dataframe depending on version
+                    if isinstance(cal, dict) and 'Earnings Date' in cal:
+                        dates = cal['Earnings Date']
+                        if dates:
+                            # It might be a list of dates or just one
+                            if isinstance(dates, list):
+                                next_earnings = str(dates[0].date()) if hasattr(dates[0], 'date') else str(dates[0])
+                            else:
+                                next_earnings = str(dates)
+                    elif hasattr(cal, 'get'):
+                        # DataFrame or similar?
+                        pass 
+                except Exception as e:
+                    print(f"Calendar fetch error {ticker}: {e}")
+
+                # 2. Try Info for everything else (and fallback for earnings)
+                try:
+                    info = t.info
+                    
+                    if not next_earnings and info.get('earningsTimestamp'):
+                         next_earnings = datetime.fromtimestamp(info['earningsTimestamp']).strftime('%Y-%m-%d')
+                    
+                    if info.get('exDividendDate'):
+                         ex_dividend_date = datetime.fromtimestamp(info['exDividendDate']).strftime('%Y-%m-%d')
+                    
+                    dividend_yield = info.get('dividendYield')
+                    
+                except Exception as e:
+                    print(f"Info fetch error {ticker}: {e}")
+
+                events[ticker] = {
+                    "next_earnings": next_earnings,
+                    "ex_dividend_date": ex_dividend_date,
+                    "dividend_yield": dividend_yield
+                }
+            except Exception as e:
+                print(f"Error fetching events for {ticker}: {e}")
+                events[ticker] = {
+                    "next_earnings": None,
+                    "ex_dividend_date": None,
+                    "dividend_yield": None
+                }
+        return events

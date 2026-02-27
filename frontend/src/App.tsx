@@ -9,6 +9,7 @@ import Transactions from './pages/Transactions';
 import LoansDashboard from './components/loans/LoansDashboard';
 import LoanSimulator from './components/loans/LoanSimulator';
 import BudgetDashboard from './components/budget/BudgetDashboard';
+import InvestmentRadar from './pages/InvestmentRadar';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="/" element={<MainDashboard />} />
           <Route path="/portfolios" element={<PortfolioDashboard />} />
           <Route path="/portfolio/:id" element={<PortfolioDetails />} />
+          <Route path="/radar" element={<InvestmentRadar />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/loans" element={<LoansDashboard />} />
           <Route path="/loans/:id" element={<LoanSimulator />} />

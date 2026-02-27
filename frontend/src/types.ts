@@ -77,3 +77,17 @@ export interface ClosedPosition {
   ticker: string;
   realized_profit: number;
 }
+
+export interface RadarItem {
+  ticker: string;
+  price: number | null;
+  change_1d: number | null;
+  change_7d: number | null;
+  change_1m: number | null;
+  change_1y: number | null;
+  next_earnings: string | null;
+  ex_dividend_date: string | null;
+  dividend_yield: number | null;
+  quantity: number;
+  is_watched: boolean;
+}

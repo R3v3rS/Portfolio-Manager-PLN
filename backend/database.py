@@ -22,6 +22,15 @@ def init_db(app):
     with app.app_context():
         db = get_db()
         
+        # Watchlist table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT UNIQUE NOT NULL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+
         # Portfolios table
         db.execute('''
             CREATE TABLE IF NOT EXISTS portfolios (
