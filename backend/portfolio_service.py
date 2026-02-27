@@ -563,7 +563,7 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def _calculate_historical_metrics(portfolio_id):
+    def _calculate_historical_metrics(portfolio_id, benchmark_ticker=None):
         db = get_db()
         transactions = db.execute(
             'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC',
@@ -604,8 +604,10 @@ class PortfolioService:
         
         # Get unique tickers and SYNC their history first!
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
+        if benchmark_ticker:
+            tickers.add(benchmark_ticker)
         
-        if account_type not in ['SAVINGS', 'BONDS']:
+        if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
             for ticker in tickers:
                 try:
                     # Force sync so we have the prices!
@@ -615,7 +617,7 @@ class PortfolioService:
 
         # Load prices into memory
         price_history = {}
-        if account_type not in ['SAVINGS', 'BONDS']:
+        if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
             for ticker in tickers:
                 rows = db.execute(
                     'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
@@ -636,12 +638,28 @@ class PortfolioService:
                 return price_history[ticker][max(past_dates)]
             return 0
 
+        # Benchmark Simulation Setup
+        benchmark_shares = 0.0
+        
         monthly_data = {}
         
         for end_date in month_ends:
             current_cash = 0.0
             invested_capital = 0.0
             holdings_qty = {}
+            
+            # Reset benchmark calculation for each month end to ensure correctness? 
+            # No, we can iterate transactions up to end_date. 
+            # But simpler to just re-run simulation up to end_date or keep state.
+            # Keeping state is tricky if we iterate month by month. 
+            # Actually, the transactions loop below iterates ALL transactions up to end_date every time.
+            # So we should reset benchmark_shares inside the loop or do it cumulatively.
+            # The current loop iterates `for t in transactions` inside `for end_date in month_ends`.
+            # And `if t_date > end_date: continue`.
+            # So it re-calculates state from scratch for each month.
+            # So we should reset benchmark_shares = 0.0 here.
+            
+            benchmark_shares = 0.0
             
             for t in transactions:
                 t_date_str = str(t['date']).split(' ')[0].split('T')[0]
@@ -662,8 +680,18 @@ class PortfolioService:
                 # Track Net Invested Capital
                 if t['type'] == 'DEPOSIT':
                     invested_capital += t_val
+                    # Benchmark Simulation
+                    if benchmark_ticker:
+                        bp = get_price_at_date(benchmark_ticker, t_date)
+                        if bp > 0:
+                            benchmark_shares += (t_val / bp)
                 elif t['type'] == 'WITHDRAW':
                     invested_capital -= t_val
+                    # Benchmark Simulation
+                    if benchmark_ticker:
+                        bp = get_price_at_date(benchmark_ticker, t_date)
+                        if bp > 0:
+                            benchmark_shares -= (t_val / bp)
                 
                 if t_ticker != 'CASH':
                     if t['type'] == 'BUY':
@@ -678,20 +706,27 @@ class PortfolioService:
                         total_value += qty * get_price_at_date(ticker, end_date)
             
             profit = total_value - invested_capital
-            monthly_data[end_date.strftime('%Y-%m')] = {
+            
+            metrics = {
                 "total_value": total_value,
                 "profit": profit
             }
             
+            if benchmark_ticker:
+                bp_end = get_price_at_date(benchmark_ticker, end_date)
+                metrics["benchmark_value"] = round(benchmark_shares * bp_end, 2)
+            
+            monthly_data[end_date.strftime('%Y-%m')] = metrics
+            
         return monthly_data
 
     @staticmethod
-    def get_portfolio_history(portfolio_id):
+    def get_portfolio_history(portfolio_id, benchmark_ticker=None):
         """
         Reconstructs portfolio value over time based on transactions.
         Groups by month.
         """
-        monthly_data = PortfolioService._calculate_historical_metrics(portfolio_id)
+        monthly_data = PortfolioService._calculate_historical_metrics(portfolio_id, benchmark_ticker)
         if not monthly_data:
             return []
 
@@ -699,11 +734,14 @@ class PortfolioService:
         result = []
         for k in sorted_keys:
             dt = datetime.strptime(k, '%Y-%m')
-            result.append({
+            entry = {
                 'date': k,
                 'label': dt.strftime('%b %Y'),
                 'value': round(monthly_data[k]['total_value'], 2)
-            })
+            }
+            if 'benchmark_value' in monthly_data[k]:
+                entry['benchmark_value'] = monthly_data[k]['benchmark_value']
+            result.append(entry)
             
         return result
 

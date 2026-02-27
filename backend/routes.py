@@ -75,7 +75,12 @@ def add_manual_interest():
 @portfolio_bp.route('/history/monthly/<int:portfolio_id>', methods=['GET'])
 def get_portfolio_history_monthly(portfolio_id):
     try:
-        history = PortfolioService.get_portfolio_history(portfolio_id)
+        benchmark = request.args.get('benchmark')
+        # If benchmark is empty string, treat as None
+        if benchmark == '':
+            benchmark = None
+            
+        history = PortfolioService.get_portfolio_history(portfolio_id, benchmark_ticker=benchmark)
         return jsonify({'history': history}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

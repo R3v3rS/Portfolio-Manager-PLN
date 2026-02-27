@@ -80,8 +80,9 @@ const PortfolioDetails: React.FC = () => {
   const [monthlyDividends, setMonthlyDividends] = useState<{ label: string; amount: number }[]>([]);
   
   // Portfolio History (Monthly)
-  const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number; benchmark_value?: number }[]>([]);
   const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
 
   // Closed Positions
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
@@ -169,14 +170,18 @@ const PortfolioDetails: React.FC = () => {
   useEffect(() => {
     // Fetch history separately when tab changes or initially
     if (activeTab === 'value_history' && id) {
-      api.get(`/history/monthly/${id}`).then(res => {
+      const url = selectedBenchmark 
+        ? `/history/monthly/${id}?benchmark=${selectedBenchmark}`
+        : `/history/monthly/${id}`;
+
+      api.get(url).then(res => {
         setPortfolioHistory(res.data.history);
       });
       api.get(`/history/profit/${id}`).then(res => {
         setPortfolioProfitHistory(res.data.history);
       });
     }
-  }, [activeTab, id]);
+  }, [activeTab, id, selectedBenchmark]);
 
   useEffect(() => {
     fetchData();
@@ -454,7 +459,27 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'value_history' && (
             <div className="space-y-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Historia Wartości Portfela</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Historia Wartości Portfela</h3>
+                <div className="flex items-center space-x-2">
+                  <label htmlFor="benchmark" className="text-sm text-gray-700">Benchmark:</label>
+                  <select
+                    id="benchmark"
+                    value={selectedBenchmark}
+                    onChange={(e) => setSelectedBenchmark(e.target.value)}
+                    className="block w-48 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                  >
+                    <option value="">Brak</option>
+                    <option value="^GSPC">S&P 500 (^GSPC)</option>
+                    <option value="ETFBW20TR.WA">WIG20 TR (BETA ETF)</option>
+                    <option value="ETFBM40TR.WA">mWIG40 TR (BETA ETF)</option>
+                    <option value="SPOL.L">MSCI Poland</option>
+                    <option value="VT">Cały Świat (VT)</option>
+                    <option value="EEM">Rynki Wschodzące (EEM)</option>
+                    <option value="^STOXX">Europa STOXX 600 (^STOXX)</option>
+                  </select>
+                </div>
+              </div>
               {portfolioHistory.length > 0 ? (
                 <div className="space-y-8">
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
