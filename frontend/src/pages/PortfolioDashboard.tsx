@@ -5,10 +5,7 @@ import api from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils';
 
-interface TaxLimitItem {
-  portfolio_id: number;
-  portfolio_name: string;
-  type: 'IKE' | 'IKZE';
+interface TaxLimitData {
   deposited: number;
   limit: number;
   percentage: number;
@@ -16,7 +13,8 @@ interface TaxLimitItem {
 
 interface TaxLimitsResponse {
   year: number;
-  limits: TaxLimitItem[];
+  IKE: TaxLimitData;
+  IKZE: TaxLimitData;
 }
 
 const PortfolioDashboard: React.FC = () => {
@@ -37,11 +35,7 @@ const PortfolioDashboard: React.FC = () => {
         api.get('/limits')
       ]);
       setPortfolios(listRes.data.portfolios);
-      // Backend returns { limits: [...], year: 2026 }
-      setTaxLimits({
-        year: limitsRes.data.year,
-        limits: limitsRes.data.limits
-      });
+      setTaxLimits(limitsRes.data.limits);
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error(err);
@@ -231,29 +225,47 @@ const PortfolioDashboard: React.FC = () => {
         })}
       </div>
 
-      {taxLimits && taxLimits.limits.length > 0 && (
+      {taxLimits && (
         <div className="bg-white shadow rounded-lg p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Limity Podatkowe ({taxLimits.year})</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {taxLimits.limits.map((item) => (
-              <div key={item.portfolio_id}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-700">{item.portfolio_name}</span>
-                  <span className={cn("text-sm font-medium", item.percentage >= 100 ? "text-emerald-600 font-bold" : "text-gray-500")}>
-                    {item.percentage >= 100 ? "Limit wyczerpany!" : `${item.deposited.toFixed(2)} / ${item.limit.toFixed(2)} PLN`}
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                  <div 
-                    className={cn("h-4 rounded-full transition-all duration-500", 
-                      item.percentage >= 100 ? "bg-emerald-500" : "bg-blue-600"
-                    )} 
-                    style={{ width: `${Math.min(item.percentage, 100)}%` }}
-                  ></div>
-                </div>
-                <div className="mt-1 text-xs text-right text-gray-500">{item.percentage.toFixed(1)}%</div>
+            {/* IKE */}
+            <div>
+              <div className="flex justify-between mb-1">
+                <span className="text-sm font-medium text-gray-700">IKE</span>
+                <span className={cn("text-sm font-medium", taxLimits.IKE.percentage >= 100 ? "text-emerald-600 font-bold" : "text-gray-500")}>
+                  {taxLimits.IKE.percentage >= 100 ? "Limit wyczerpany!" : `${taxLimits.IKE.deposited.toFixed(2)} / ${taxLimits.IKE.limit.toFixed(2)} PLN`}
+                </span>
               </div>
-            ))}
+              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div 
+                  className={cn("h-4 rounded-full transition-all duration-500", 
+                    taxLimits.IKE.percentage >= 100 ? "bg-emerald-500" : "bg-blue-600"
+                  )} 
+                  style={{ width: `${Math.min(taxLimits.IKE.percentage, 100)}%` }}
+                ></div>
+              </div>
+              <div className="mt-1 text-xs text-right text-gray-500">{taxLimits.IKE.percentage.toFixed(1)}%</div>
+            </div>
+
+            {/* IKZE */}
+            <div>
+              <div className="flex justify-between mb-1">
+                <span className="text-sm font-medium text-gray-700">IKZE</span>
+                <span className={cn("text-sm font-medium", taxLimits.IKZE.percentage >= 100 ? "text-emerald-600 font-bold" : "text-gray-500")}>
+                  {taxLimits.IKZE.percentage >= 100 ? "Limit wyczerpany!" : `${taxLimits.IKZE.deposited.toFixed(2)} / ${taxLimits.IKZE.limit.toFixed(2)} PLN`}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div 
+                  className={cn("h-4 rounded-full transition-all duration-500", 
+                    taxLimits.IKZE.percentage >= 100 ? "bg-emerald-500" : "bg-blue-600"
+                  )} 
+                  style={{ width: `${Math.min(taxLimits.IKZE.percentage, 100)}%` }}
+                ></div>
+              </div>
+              <div className="mt-1 text-xs text-right text-gray-500">{taxLimits.IKZE.percentage.toFixed(1)}%</div>
+            </div>
           </div>
         </div>
       )}

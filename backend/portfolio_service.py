@@ -10,54 +10,58 @@ class PortfolioService:
     def get_tax_limits():
         db = get_db()
         current_year = date.today().year
-        start_date = f"{current_year}-01-01"
         
         # Hardcoded limits for 2026 (and default)
-        IKE_LIMIT = 28260.0
-        IKZE_LIMIT = 11304.0
+        limits = {
+            2026: {'IKE': 28260.0, 'IKZE': 11304.0}
+        }
         
-        results = []
+        year_limits = limits.get(current_year, limits[2026])
+        ike_limit = year_limits['IKE']
+        ikze_limit = year_limits['IKZE']
         
-        # Fetch all portfolios to check names
-        portfolios = db.execute("SELECT id, name FROM portfolios").fetchall()
-        
+        # Calculate IKE deposits
+        ike_deposited = 0.0
+        # Use upper(name) to be case-insensitive safe
+        portfolios = db.execute("SELECT id FROM portfolios WHERE upper(name) LIKE '%IKE%'").fetchall()
         for p in portfolios:
-            name_upper = p['name'].upper()
-            limit_type = None
-            limit_amount = 0.0
-            
-            # Check for IKZE first (more specific)
-            if 'IKZE' in name_upper:
-                limit_type = 'IKZE'
-                limit_amount = IKZE_LIMIT
-            # Then check for IKE (but implicitly not IKZE due to elif order)
-            elif 'IKE' in name_upper:
-                limit_type = 'IKE'
-                limit_amount = IKE_LIMIT
-            
-            if limit_type:
-                # Calculate YTD deposits for this specific portfolio
-                res = db.execute("""
-                    SELECT SUM(total_value) as total 
-                    FROM transactions 
-                    WHERE portfolio_id = ? 
-                    AND type = 'DEPOSIT' 
-                    AND date >= ?
-                """, (p['id'], start_date)).fetchone()
+            res = db.execute("""
+                SELECT SUM(total_value) as total 
+                FROM transactions 
+                WHERE portfolio_id = ? 
+                AND type = 'DEPOSIT' 
+                AND date >= ?
+            """, (p['id'], f"{current_year}-01-01")).fetchone()
+            if res and res['total']:
+                ike_deposited += float(res['total'])
                 
-                deposited = float(res['total']) if res and res['total'] else 0.0
-                percentage = round((deposited / limit_amount * 100), 2) if limit_amount > 0 else 0.0
-                
-                results.append({
-                    "portfolio_id": p['id'],
-                    "portfolio_name": p['name'],
-                    "type": limit_type,
-                    "deposited": deposited,
-                    "limit": limit_amount,
-                    "percentage": percentage
-                })
+        # Calculate IKZE deposits
+        ikze_deposited = 0.0
+        portfolios = db.execute("SELECT id FROM portfolios WHERE upper(name) LIKE '%IKZE%'").fetchall()
+        for p in portfolios:
+            res = db.execute("""
+                SELECT SUM(total_value) as total 
+                FROM transactions 
+                WHERE portfolio_id = ? 
+                AND type = 'DEPOSIT' 
+                AND date >= ?
+            """, (p['id'], f"{current_year}-01-01")).fetchone()
+            if res and res['total']:
+                ikze_deposited += float(res['total'])
         
-        return results
+        return {
+            "year": current_year,
+            "IKE": {
+                "deposited": ike_deposited,
+                "limit": ike_limit,
+                "percentage": round((ike_deposited / ike_limit * 100), 2) if ike_limit > 0 else 0.0
+            },
+            "IKZE": {
+                "deposited": ikze_deposited,
+                "limit": ikze_limit,
+                "percentage": round((ikze_deposited / ikze_limit * 100), 2) if ikze_limit > 0 else 0.0
+            }
+        }
 
     @staticmethod
     def calculate_metrics(holdings, total_value, cash_value):

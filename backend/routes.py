@@ -13,8 +13,7 @@ portfolio_bp = Blueprint('portfolio', __name__)
 def get_tax_limits():
     try:
         limits = PortfolioService.get_tax_limits()
-        from datetime import date
-        return jsonify({'limits': limits, 'year': date.today().year}), 200
+        return jsonify({'limits': limits}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
