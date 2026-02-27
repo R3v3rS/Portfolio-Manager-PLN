@@ -77,3 +77,14 @@ def remove_watchlist(ticker):
         return jsonify({'message': 'Removed from watchlist'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@radar_bp.route('/analysis/<ticker>', methods=['GET'])
+def get_stock_analysis(ticker):
+    try:
+        analysis = PriceService.get_stock_analysis(ticker)
+        if not analysis:
+            return jsonify({'error': 'Analysis failed or no data found'}), 404
+        return jsonify(analysis)
+    except Exception as e:
+        print(f"Analysis error: {e}")
+        return jsonify({'error': str(e)}), 500

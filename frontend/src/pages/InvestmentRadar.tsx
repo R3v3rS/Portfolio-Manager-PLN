@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Radar, Plus, Trash2, TrendingUp, TrendingDown, Calendar, AlertCircle } from 'lucide-react';
 import { RadarItem } from '../types';
+import StockProfilerModal from '../components/StockProfilerModal';
 
 const InvestmentRadar: React.FC = () => {
   const [radarItems, setRadarItems] = useState<RadarItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newTicker, setNewTicker] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
 
   const fetchRadarData = async () => {
     setIsLoading(true);
@@ -204,7 +206,12 @@ const InvestmentRadar: React.FC = () => {
                 radarItems.map((item) => (
                   <tr key={item.ticker} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {item.ticker}
+                      <button 
+                        onClick={() => setSelectedTicker(item.ticker)}
+                        className="text-blue-600 hover:text-blue-900 hover:underline cursor-pointer focus:outline-none"
+                      >
+                        {item.ticker}
+                      </button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
                       {item.price !== null ? item.price.toFixed(2) : '-'}
@@ -286,6 +293,13 @@ const InvestmentRadar: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {selectedTicker && (
+        <StockProfilerModal
+          ticker={selectedTicker}
+          onClose={() => setSelectedTicker(null)}
+        />
+      )}
     </div>
   );
 };

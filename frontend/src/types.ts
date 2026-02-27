@@ -91,3 +91,22 @@ export interface RadarItem {
   quantity: number;
   is_watched: boolean;
 }
+
+export interface StockAnalysisData {
+  fundamentals: {
+    trailingPE: number | null;
+    priceToBook: number | null;
+    returnOnEquity: number | null;
+    payoutRatio: number | null;
+  };
+  analyst: {
+    targetMeanPrice: number | null;
+    recommendationKey: string | null;
+    upsidePotential: number | null;
+  };
+  technicals: {
+    sma50: number | null;
+    sma200: number | null;
+    rsi14: number | null;
+  };
+}

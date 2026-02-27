@@ -9,15 +9,15 @@ import time
 import random
 import logging
 
-# Force yfinance to use a cache directory in a temp folder to avoid permission issues
-cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_custom')
+# Force yfinance to use a cache directory in a local folder to avoid permission/concurrency issues
+cache_dir = os.path.join(os.getcwd(), 'yfinance_cache_custom')
 if not os.path.exists(cache_dir):
     try:
         os.makedirs(cache_dir, exist_ok=True)
     except Exception as e:
         print(f"Failed to create cache dir {cache_dir}: {e}")
-        # Fallback to local
-        cache_dir = os.path.join(os.getcwd(), 'yfinance_cache')
+        # Fallback to temp
+        cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_custom')
         os.makedirs(cache_dir, exist_ok=True)
 
 os.environ['YFINANCE_CACHE_DIR'] = cache_dir
@@ -388,3 +388,93 @@ class PriceService:
                     "dividend_yield": None
                 }
         return events
+
+    @classmethod
+    def get_stock_analysis(cls, ticker):
+        """
+        Fetches deep fundamental, analyst, and technical data for a single ticker.
+        """
+        try:
+            print(f"Analyzing {ticker}...")
+            t = yf.Ticker(ticker)
+            info = t.info
+            
+            # Helper to safely get value
+            def get_val(key, default=None):
+                val = info.get(key)
+                return val if val is not None and val != 'null' else default
+
+            # 1. Fundamentals
+            fundamentals = {
+                "trailingPE": get_val("trailingPE"),
+                "priceToBook": get_val("priceToBook"),
+                "returnOnEquity": get_val("returnOnEquity"),
+                "payoutRatio": get_val("payoutRatio")
+            }
+
+            # 2. Analyst Consensus
+            target_mean = get_val("targetMeanPrice")
+            current_price = get_val("currentPrice") or get_val("regularMarketPrice")
+            
+            upside_potential = None
+            if target_mean and current_price:
+                try:
+                    upside_potential = ((target_mean - current_price) / current_price) * 100
+                except:
+                    pass
+
+            analyst = {
+                "targetMeanPrice": target_mean,
+                "recommendationKey": get_val("recommendationKey"),
+                "upsidePotential": upside_potential
+            }
+
+            # 3. Technicals
+            technicals = {
+                "sma50": None,
+                "sma200": None,
+                "rsi14": None
+            }
+            
+            try:
+                # Fetch 1 year of history + extra buffer for MA/RSI calculation
+                hist = t.history(period="1y")
+                
+                if not hist.empty and len(hist) > 50:
+                    # SMA 50
+                    hist['SMA50'] = hist['Close'].rolling(window=50).mean()
+                    technicals["sma50"] = hist['SMA50'].iloc[-1]
+                    
+                    # SMA 200
+                    if len(hist) > 200:
+                        hist['SMA200'] = hist['Close'].rolling(window=200).mean()
+                        technicals["sma200"] = hist['SMA200'].iloc[-1]
+
+                    # RSI 14
+                    delta = hist['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    
+                    rs = gain / loss
+                    hist['RSI'] = 100 - (100 / (1 + rs))
+                    
+                    # Handle division by zero or NaN if loss is 0
+                    technicals["rsi14"] = hist['RSI'].iloc[-1]
+                    
+                    # Cleanup NaN/Infinite values just in case
+                    if pd.isna(technicals["rsi14"]): technicals["rsi14"] = None
+                    if pd.isna(technicals["sma50"]): technicals["sma50"] = None
+                    if pd.isna(technicals["sma200"]): technicals["sma200"] = None
+
+            except Exception as e:
+                print(f"Technical analysis failed for {ticker}: {e}")
+
+            return {
+                "fundamentals": fundamentals,
+                "analyst": analyst,
+                "technicals": technicals
+            }
+
+        except Exception as e:
+            print(f"Analysis failed for {ticker}: {e}")
+            return None
