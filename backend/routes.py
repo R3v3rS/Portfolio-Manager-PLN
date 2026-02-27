@@ -9,6 +9,15 @@ from database import get_db
 
 portfolio_bp = Blueprint('portfolio', __name__)
 
+@portfolio_bp.route('/limits', methods=['GET'])
+def get_tax_limits():
+    try:
+        limits = PortfolioService.get_tax_limits()
+        from datetime import date
+        return jsonify({'limits': limits, 'year': date.today().year}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @portfolio_bp.route('/create', methods=['POST'])
 def create_portfolio():
     data = request.json

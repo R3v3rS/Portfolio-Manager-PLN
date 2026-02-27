@@ -5,8 +5,23 @@ import api from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils';
 
+interface TaxLimitItem {
+  portfolio_id: number;
+  portfolio_name: string;
+  type: 'IKE' | 'IKZE';
+  deposited: number;
+  limit: number;
+  percentage: number;
+}
+
+interface TaxLimitsResponse {
+  year: number;
+  limits: TaxLimitItem[];
+}
+
 const PortfolioDashboard: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [taxLimits, setTaxLimits] = useState<TaxLimitsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -17,8 +32,16 @@ const PortfolioDashboard: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const response = await api.get('/list');
-      setPortfolios(response.data.portfolios);
+      const [listRes, limitsRes] = await Promise.all([
+        api.get('/list'),
+        api.get('/limits')
+      ]);
+      setPortfolios(listRes.data.portfolios);
+      // Backend returns { limits: [...], year: 2026 }
+      setTaxLimits({
+        year: limitsRes.data.year,
+        limits: limitsRes.data.limits
+      });
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error(err);
@@ -207,6 +230,33 @@ const PortfolioDashboard: React.FC = () => {
           );
         })}
       </div>
+
+      {taxLimits && taxLimits.limits.length > 0 && (
+        <div className="bg-white shadow rounded-lg p-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Limity Podatkowe ({taxLimits.year})</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {taxLimits.limits.map((item) => (
+              <div key={item.portfolio_id}>
+                <div className="flex justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-700">{item.portfolio_name}</span>
+                  <span className={cn("text-sm font-medium", item.percentage >= 100 ? "text-emerald-600 font-bold" : "text-gray-500")}>
+                    {item.percentage >= 100 ? "Limit wyczerpany!" : `${item.deposited.toFixed(2)} / ${item.limit.toFixed(2)} PLN`}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                  <div 
+                    className={cn("h-4 rounded-full transition-all duration-500", 
+                      item.percentage >= 100 ? "bg-emerald-500" : "bg-blue-600"
+                    )} 
+                    style={{ width: `${Math.min(item.percentage, 100)}%` }}
+                  ></div>
+                </div>
+                <div className="mt-1 text-xs text-right text-gray-500">{item.percentage.toFixed(1)}%</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white shadow rounded-lg p-6">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Twoje Portfele</h2>

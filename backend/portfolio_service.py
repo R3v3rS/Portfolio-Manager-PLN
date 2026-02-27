@@ -7,6 +7,59 @@ from math_utils import xirr
 
 class PortfolioService:
     @staticmethod
+    def get_tax_limits():
+        db = get_db()
+        current_year = date.today().year
+        start_date = f"{current_year}-01-01"
+        
+        # Hardcoded limits for 2026 (and default)
+        IKE_LIMIT = 28260.0
+        IKZE_LIMIT = 11304.0
+        
+        results = []
+        
+        # Fetch all portfolios to check names
+        portfolios = db.execute("SELECT id, name FROM portfolios").fetchall()
+        
+        for p in portfolios:
+            name_upper = p['name'].upper()
+            limit_type = None
+            limit_amount = 0.0
+            
+            # Check for IKZE first (more specific)
+            if 'IKZE' in name_upper:
+                limit_type = 'IKZE'
+                limit_amount = IKZE_LIMIT
+            # Then check for IKE (but implicitly not IKZE due to elif order)
+            elif 'IKE' in name_upper:
+                limit_type = 'IKE'
+                limit_amount = IKE_LIMIT
+            
+            if limit_type:
+                # Calculate YTD deposits for this specific portfolio
+                res = db.execute("""
+                    SELECT SUM(total_value) as total 
+                    FROM transactions 
+                    WHERE portfolio_id = ? 
+                    AND type = 'DEPOSIT' 
+                    AND date >= ?
+                """, (p['id'], start_date)).fetchone()
+                
+                deposited = float(res['total']) if res and res['total'] else 0.0
+                percentage = round((deposited / limit_amount * 100), 2) if limit_amount > 0 else 0.0
+                
+                results.append({
+                    "portfolio_id": p['id'],
+                    "portfolio_name": p['name'],
+                    "type": limit_type,
+                    "deposited": deposited,
+                    "limit": limit_amount,
+                    "percentage": percentage
+                })
+        
+        return results
+
+    @staticmethod
     def calculate_metrics(holdings, total_value, cash_value):
         """
         Oblicza wagi i dywersyfikację portfela.
