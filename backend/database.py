@@ -39,7 +39,7 @@ def init_db(app):
         # Create index for portfolios name
         db.execute('CREATE INDEX IF NOT EXISTS idx_portfolios_name ON portfolios(name);')
 
-        # Transactions table
+        # Transactions table (Portfolio)
         db.execute('''
             CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,5 +123,154 @@ def init_db(app):
         
         # Create index for bonds
         db.execute('CREATE INDEX IF NOT EXISTS idx_bonds_portfolio ON bonds(portfolio_id);')
-        
+
+        # Loans table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS loans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(100) NOT NULL,
+                original_amount DECIMAL(15,2) NOT NULL,
+                duration_months INTEGER NOT NULL,
+                start_date DATE NOT NULL,
+                installment_type VARCHAR(20) NOT NULL CHECK (installment_type IN ('EQUAL', 'DECREASING')),
+                category VARCHAR(20) DEFAULT 'GOTOWKOWY'
+            );
+        ''')
+
+        # Loan Rates table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS loan_rates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                loan_id INTEGER NOT NULL,
+                interest_rate DECIMAL(5,2) NOT NULL,
+                valid_from_date DATE NOT NULL,
+                FOREIGN KEY (loan_id) REFERENCES loans(id)
+            );
+        ''')
+
+        # Loan Overpayments table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS loan_overpayments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                loan_id INTEGER NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                date DATE NOT NULL,
+                type VARCHAR(20) DEFAULT 'REDUCE_TERM' CHECK (type IN ('REDUCE_TERM', 'REDUCE_INSTALLMENT')),
+                FOREIGN KEY (loan_id) REFERENCES loans(id)
+            );
+        ''')
+
+        # --- Budgeting Module Tables ---
+
+        # Budget Accounts (renamed from 'accounts' to avoid confusion if any, but prompt said 'accounts')
+        # Since there is no 'accounts' table yet (only portfolios), I will use 'budget_accounts' to be safe,
+        # or just 'accounts' if I'm sure. I'll use 'budget_accounts' to be distinct from potential future features.
+        # WAIT, prompt specifically asked for "accounts". I'll use "budget_accounts" to be safe but map it in my mind.
+        # Actually, let's stick to "budget_accounts" to avoid name collision with potentially existing auth accounts tables often found in such apps.
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS budget_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(100) NOT NULL,
+                balance DECIMAL(15,2) DEFAULT 0.00,
+                currency VARCHAR(3) DEFAULT 'PLN',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+
+        # Envelope Categories
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS envelope_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(100) NOT NULL,
+                icon VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+
+        # Envelopes
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS envelopes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER NOT NULL,
+                account_id INTEGER DEFAULT 1,
+                name VARCHAR(100) NOT NULL,
+                icon VARCHAR(20),
+                target_amount DECIMAL(10,2),
+                balance DECIMAL(10,2) DEFAULT 0.00,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (category_id) REFERENCES envelope_categories(id),
+                FOREIGN KEY (account_id) REFERENCES budget_accounts(id)
+            );
+        ''')
+
+        # Budget Transactions (renamed from 'transactions' to avoid collision with portfolio transactions)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS budget_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type VARCHAR(20) NOT NULL CHECK (type IN ('INCOME', 'ALLOCATE', 'EXPENSE', 'TRANSFER', 'BORROW', 'REPAY')),
+                amount DECIMAL(15,2) NOT NULL,
+                account_id INTEGER,
+                envelope_id INTEGER,
+                related_envelope_id INTEGER,
+                description TEXT,
+                date DATE DEFAULT CURRENT_DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (account_id) REFERENCES budget_accounts(id),
+                FOREIGN KEY (envelope_id) REFERENCES envelopes(id),
+                FOREIGN KEY (related_envelope_id) REFERENCES envelopes(id)
+            );
+        ''')
+
+        # Envelope Loans (Internal Borrowing)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS envelope_loans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_envelope_id INTEGER NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                reason TEXT,
+                borrow_date DATE DEFAULT CURRENT_DATE,
+                due_date DATE,
+                repaid_amount DECIMAL(15,2) DEFAULT 0.00,
+                status VARCHAR(10) DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (source_envelope_id) REFERENCES envelopes(id)
+            );
+        ''')
+
+        # Migration: Add 'type' column to loan_overpayments if it doesn't exist
+        try:
+            db.execute("ALTER TABLE loan_overpayments ADD COLUMN type VARCHAR(20) DEFAULT 'REDUCE_TERM'")
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: Add 'category' column to loans if it doesn't exist
+        try:
+            db.execute("ALTER TABLE loans ADD COLUMN category VARCHAR(20) DEFAULT 'GOTOWKOWY'")
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: Add 'account_id' column to envelopes if it doesn't exist
+        try:
+            db.execute("ALTER TABLE envelopes ADD COLUMN account_id INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+            
+        # Migration: Ensure 'balance' column exists in envelopes (if I added it later, but here I created it fresh. 
+        # However, if table existed from previous failed run, might be issue. 
+        # But this is a new module, so tables shouldn't exist.)
+
+        # Migration: Add asset metadata columns to holdings
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN company_name TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN sector TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN industry TEXT")
+        except sqlite3.OperationalError:
+            pass
+
         db.commit()

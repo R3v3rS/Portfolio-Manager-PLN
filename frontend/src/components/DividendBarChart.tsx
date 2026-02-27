@@ -28,7 +28,7 @@ const DividendBarChart: React.FC<DividendBarChartProps> = ({ data }) => {
     labels: data.map(d => d.label),
     datasets: [
       {
-        label: 'Monthly Dividend Income (PLN)',
+        label: 'Miesięczny Dochód z Dywidend (PLN)',
         data: data.map(d => d.amount),
         backgroundColor: '#10b981', // Emerald-500
         borderColor: '#059669', // Emerald-600

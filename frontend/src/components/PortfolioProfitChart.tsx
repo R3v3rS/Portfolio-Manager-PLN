@@ -29,12 +29,12 @@ interface PortfolioProfitChartProps {
   title?: string;
 }
 
-const PortfolioProfitChart: React.FC<PortfolioProfitChartProps> = ({ data, title = 'Profit/Loss Performance' }) => {
+const PortfolioProfitChart: React.FC<PortfolioProfitChartProps> = ({ data, title = 'Wyniki Zysku/Straty' }) => {
   const chartData = {
     labels: data.map(d => d.label),
     datasets: [
       {
-        label: 'Cumulative Profit (PLN)',
+        label: 'Skumulowany Zysk (PLN)',
         data: data.map(d => d.value),
         borderColor: (context: ScriptableContext<'line'>) => {
           const ctx = context.chart.ctx;

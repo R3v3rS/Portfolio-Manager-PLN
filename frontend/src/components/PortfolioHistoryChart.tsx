@@ -26,12 +26,12 @@ interface PortfolioHistoryChartProps {
   title?: string;
 }
 
-const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data, title = 'Portfolio Value Over Time' }) => {
+const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data, title = 'Wartość Portfela w Czasie' }) => {
   const chartData = {
     labels: data.map(d => d.label),
     datasets: [
       {
-        label: `Total Value (PLN)`,
+        label: `Całkowita Wartość (PLN)`,
         data: data.map(d => d.value),
         borderColor: '#10b981', // Emerald for savings
         backgroundColor: 'rgba(16, 185, 129, 0.5)',

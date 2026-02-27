@@ -12,7 +12,7 @@ interface PortfolioChartProps {
 
 const PortfolioChart: React.FC<PortfolioChartProps> = ({ holdings, cash }) => {
   const data = {
-    labels: ['Cash', ...holdings.map(h => h.ticker)],
+    labels: ['Gotówka', ...holdings.map(h => h.ticker)],
     datasets: [
       {
         data: [cash, ...holdings.map(h => (h.quantity * (h.current_price || h.average_buy_price)))],

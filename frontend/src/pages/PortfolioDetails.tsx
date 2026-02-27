@@ -1,13 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, ArrowDownRight, DollarSign, PieChart } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw } from 'lucide-react';
 import api from '../api';
+import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition } from '../types';
 import PortfolioChart from '../components/PortfolioChart';
+import PortfolioAnalytics from '../components/PortfolioAnalytics';
 import PriceHistoryChart from '../components/PriceHistoryChart';
 import DividendBarChart from '../components/DividendBarChart';
 import PortfolioHistoryChart from '../components/PortfolioHistoryChart';
 import PortfolioProfitChart from '../components/PortfolioProfitChart';
+import TransferModal from '../components/modals/TransferModal';
+import TransactionModal from '../components/modals/TransactionModal';
+import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
@@ -19,7 +24,6 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
     const formData = new FormData();
     formData.append('file', file);
     try {
-      // Poprawiony endpoint — NIE powiela /portfolio
       await api.post(`/${portfolioId}/import/xtb`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -56,8 +60,14 @@ const PortfolioDetails: React.FC = () => {
   const [bonds, setBonds] = useState<Bond[]>([]);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'holdings' | 'value_history' | 'history' | 'buy' | 'sell' | 'deposit' | 'withdraw' | 'dividend' | 'bonds' | 'savings' | 'closed'>('holdings');
+  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed'>('holdings');
   
+  // Modals state
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  const [selectedHoldingForSell, setSelectedHoldingForSell] = useState<Holding | null>(null);
+
   // History state
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [historyData, setHistoryData] = useState<{ date: string; close_price: number }[]>([]);
@@ -76,33 +86,26 @@ const PortfolioDetails: React.FC = () => {
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
   const [totalClosedProfit, setTotalClosedProfit] = useState(0);
 
-  // Form states
-  const [ticker, setTicker] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [price, setPrice] = useState('');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [interestRate, setInterestRate] = useState('');
-  const [bondName, setBondName] = useState('');
+  // Budget Integration
+  const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
 
   const initiateSell = (h: Holding) => {
-    setActiveTab('sell');
-    setTicker(h.ticker);
-    setQuantity(h.quantity.toString());
-    setPrice((h.current_price || h.average_buy_price).toString());
+    setSelectedHoldingForSell(h);
+    setIsSellModalOpen(true);
   };
 
   const fetchData = async () => {
     if (!id) return;
     setLoading(true);
     try {
-      const [pRes, hRes, vRes, mRes, tRes, cRes] = await Promise.all([
+      const [pRes, hRes, vRes, mRes, tRes, cRes, bAccRes] = await Promise.all([
         api.get(`/list`), 
         api.get(`/holdings/${id}`),
         api.get(`/value/${id}`),
         api.get(`/dividends/monthly/${id}`),
         api.get(`/transactions/${id}`),
-        api.get(`/${id}/closed-positions`)
+        api.get(`/${id}/closed-positions`),
+        budgetApi.getSummary() // Fetch budget accounts
       ]);
       
       const found = pRes.data.portfolios.find((p: Portfolio) => p.id === parseInt(id));
@@ -113,6 +116,7 @@ const PortfolioDetails: React.FC = () => {
       setPortfolioTransactions(tRes.data.transactions);
       setClosedPositions(cRes.data.positions);
       setTotalClosedProfit(cRes.data.total_historical_profit);
+      setBudgetAccounts(bAccRes.accounts || []);
 
       if (found?.account_type === 'BONDS') {
         const bRes = await api.get(`/bonds/${id}`);
@@ -124,18 +128,20 @@ const PortfolioDetails: React.FC = () => {
         setPortfolioHistory(histRes.data.history);
       }
       
-      // Default tab based on account type
-      if (found?.account_type === 'BONDS') setActiveTab('bonds');
-      else if (found?.account_type === 'SAVINGS') setActiveTab('savings');
-      else {
-        // Fetch history for standard portfolios too
+      // Only set active tab if it's the first load (to preserve tab on refresh)
+      // Actually, standard behavior is fine, but let's just ensure we don't overwrite user selection if we were to re-fetch periodically
+      if (activeTab === 'holdings' && found) {
+          if (found.account_type === 'BONDS') setActiveTab('bonds');
+          else if (found.account_type === 'SAVINGS') setActiveTab('savings');
+      }
+
+      // Fetch histories for standard portfolios
+      if (found?.account_type !== 'BONDS' && found?.account_type !== 'SAVINGS') {
         const histRes = await api.get(`/history/monthly/${id}`);
         setPortfolioHistory(histRes.data.history);
         
         const profitRes = await api.get(`/history/profit/${id}`);
         setPortfolioProfitHistory(profitRes.data.history);
-
-        setActiveTab('holdings');
       }
 
     } catch (err) {
@@ -175,66 +181,18 @@ const PortfolioDetails: React.FC = () => {
     fetchData();
   }, [id]);
 
-  const handleTransaction = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!id) return;
-
-    try {
-      let endpoint = '';
-      let payload: any = { portfolio_id: parseInt(id) };
-
-      if (activeTab === 'buy') {
-        endpoint = '/buy';
-        payload = { ...payload, ticker, quantity: parseFloat(quantity), price: parseFloat(price), date };
-      } else if (activeTab === 'sell') {
-        endpoint = '/sell';
-        payload = { ...payload, ticker, quantity: parseFloat(quantity), price: parseFloat(price) };
-      } else if (activeTab === 'deposit') {
-        endpoint = '/deposit';
-        payload = { ...payload, amount: parseFloat(amount), date };
-      } else if (activeTab === 'withdraw') {
-        endpoint = '/withdraw';
-        payload = { ...payload, amount: parseFloat(amount), date };
-      } else if (activeTab === 'dividend') {
-        endpoint = '/dividend';
-        payload = { ...payload, ticker, amount: parseFloat(amount), date };
-      } else if (activeTab === 'bonds') {
-        endpoint = '/bonds';
-        payload = { ...payload, name: bondName, principal: parseFloat(amount), interest_rate: parseFloat(interestRate), purchase_date: date };
-      } else if (activeTab === 'savings') {
-        if (interestRate) {
-           endpoint = '/savings/rate';
-           payload = { ...payload, rate: parseFloat(interestRate) };
-        } else {
-           endpoint = '/savings/interest/manual';
-           payload = { ...payload, amount: parseFloat(amount), date: date };
-        }
-      } else if (activeTab === 'closed') {
-        endpoint = '/closed-positions';
-        payload = { ...payload, portfolio_id: parseInt(id) };
-      }
-
-      await api.post(endpoint, payload);
-      
-      // Reset forms
-      setTicker('');
-      setQuantity('');
-      setPrice('');
-      setAmount('');
-      setBondName('');
-      setInterestRate('');
-      setDate(new Date().toISOString().split('T')[0]);
-      
-      // Refresh data
-      fetchData();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.error || 'Transaction failed');
-    }
+  const tabLabels: Record<string, string> = {
+    holdings: 'Aktywa',
+    analytics: 'Analiza',
+    value_history: 'Wartość Historyczna',
+    history: 'Historia Transakcji',
+    bonds: 'Obligacje',
+    savings: 'Oszczędności',
+    closed: 'Zamknięte Pozycje'
   };
 
-  if (loading) return <div className="p-4 text-center">Loading details...</div>;
-  if (!portfolio || !valueData) return <div className="p-4 text-center">Portfolio not found</div>;
+  if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
+  if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
 
   return (
     <div className="space-y-6">
@@ -263,20 +221,20 @@ const PortfolioDetails: React.FC = () => {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-5">
         <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-blue-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Total Value</dt>
+          <dt className="text-sm font-medium text-gray-500 truncate">Wartość Całkowita</dt>
           <dd className="mt-1 text-2xl font-semibold text-gray-900">{valueData.portfolio_value.toFixed(2)} PLN</dd>
         </div>
         <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-gray-400">
           <dt className="text-sm font-medium text-gray-500 truncate">
-            {portfolio.account_type === 'SAVINGS' ? 'Current Balance' : 'Cash Balance'}
+            {portfolio.account_type === 'SAVINGS' ? 'Obecne Saldo' : 'Gotówka'}
           </dt>
           <dd className="mt-1 text-2xl font-semibold text-gray-900">{valueData.cash_value.toFixed(2)} PLN</dd>
           {portfolio.account_type === 'SAVINGS' && valueData.live_interest && valueData.live_interest > 0 ? (
-            <dd className="text-xs text-emerald-600 font-medium">Incl. {valueData.live_interest.toFixed(2)} PLN live interest</dd>
+            <dd className="text-xs text-emerald-600 font-medium">w tym {valueData.live_interest.toFixed(2)} PLN odsetek</dd>
           ) : null}
         </div>
         <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-green-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Total Profit/Loss</dt>
+          <dt className="text-sm font-medium text-gray-500 truncate">Zysk/Strata</dt>
           <dd className={cn("mt-1 text-2xl font-semibold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
             {valueData.total_result.toFixed(2)} PLN
           </dd>
@@ -286,7 +244,7 @@ const PortfolioDetails: React.FC = () => {
         </div>
         {portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' ? (
           <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
-            <dt className="text-sm font-medium text-gray-500 truncate">Total Dividends</dt>
+            <dt className="text-sm font-medium text-gray-500 truncate">Dywidendy</dt>
             <dd className="mt-1 text-2xl font-semibold text-blue-600">
               {valueData.total_dividends.toFixed(2)} PLN
             </dd>
@@ -294,7 +252,7 @@ const PortfolioDetails: React.FC = () => {
         ) : (
           <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
             <dt className="text-sm font-medium text-gray-500 truncate">
-              {portfolio.account_type === 'SAVINGS' ? 'Interest Rate' : 'Principal'}
+              {portfolio.account_type === 'SAVINGS' ? 'Oprocentowanie' : 'Kapitał'}
             </dt>
             <dd className="mt-1 text-2xl font-semibold text-indigo-600">
               {portfolio.account_type === 'SAVINGS' ? `${portfolio.savings_rate}%` : `${(valueData.holdings_value || 0).toFixed(2)} PLN`}
@@ -302,54 +260,77 @@ const PortfolioDetails: React.FC = () => {
           </div>
         )}
         <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-amber-500">
-            <dt className="text-sm font-medium text-gray-500 truncate">Allocation</dt>
+            <dt className="text-sm font-medium text-gray-500 truncate">Alokacja</dt>
             <div className="h-24">
                  <PortfolioChart holdings={holdings} cash={valueData.cash_value} />
             </div>
         </div>
       </div>
 
-      {/* Action Tabs */}
+      {/* Navigation & Actions */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex overflow-x-auto">
+        <div className="border-b border-gray-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+          {/* Left: View Tabs */}
+          <nav className="flex space-x-4 overflow-x-auto">
             {(portfolio.account_type === 'SAVINGS' 
-                ? ['savings', 'history', 'deposit', 'withdraw'] 
+                ? ['savings', 'history'] 
                 : portfolio.account_type === 'BONDS'
-                  ? ['bonds', 'history', 'deposit', 'withdraw']
-                  : ['holdings', 'value_history', 'history', 'buy', 'sell', 'deposit', 'withdraw', 'dividend', 'bonds', 'savings', 'closed']
+                  ? ['bonds', 'history']
+                  : ['holdings', 'analytics', 'value_history', 'history', 'closed']
             ).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as any)}
                 className={cn(
                   activeTab === tab
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                  'flex-1 min-w-fit py-4 px-4 text-center border-b-2 font-medium text-sm capitalize whitespace-nowrap'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+                  'px-3 py-2 font-medium text-sm rounded-md transition-colors whitespace-nowrap'
                 )}
               >
-                {tab}
+                {tabLabels[tab] || tab}
               </button>
             ))}
           </nav>
+
+          {/* Right: Action Buttons */}
+          <div className="flex space-x-3">
+             <button
+                onClick={() => setIsTransferModalOpen(true)}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+             >
+                <RefreshCw className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
+                Transfer
+             </button>
+             <button
+                onClick={() => setIsTransactionModalOpen(true)}
+                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+             >
+                <Plus className="-ml-1 mr-2 h-4 w-4" />
+                Nowa Operacja
+             </button>
+          </div>
         </div>
 
         <div className="p-6">
+          {activeTab === 'analytics' && (
+            <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} />
+          )}
+
           {activeTab === 'holdings' && (
             <div className="space-y-6">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Price</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Current Price</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">P/L</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weight</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Śr. Cena</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Obecna Cena</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zysk/Strata</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Waga</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Akcje</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -359,7 +340,24 @@ const PortfolioDetails: React.FC = () => {
                         className={cn("cursor-pointer hover:bg-gray-50", selectedTicker === h.ticker && "bg-blue-50")}
                         onClick={() => fetchHistory(h.ticker)}
                       >
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{h.ticker}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          <div>
+                            <div className="font-bold">{h.company_name || h.ticker}</div>
+                            <div className="text-xs text-gray-500">{h.ticker}</div>
+                            <div className="flex gap-1 mt-1 flex-wrap">
+                              {h.sector && h.sector !== 'Unknown' && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                  🏢 {h.sector}
+                                </span>
+                              )}
+                              {h.industry && h.industry !== 'Unknown' && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                  💻 {h.industry}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                           {parseFloat(Number(h.quantity).toFixed(4))}
                         </td>
@@ -387,14 +385,14 @@ const PortfolioDetails: React.FC = () => {
                             }}
                             className="text-red-600 hover:text-red-900 bg-red-50 px-3 py-1 rounded-md transition-colors"
                           >
-                            Sell
+                            Sprzedaj
                           </button>
                         </td>
                       </tr>
                     ))}
                     {holdings.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">No holdings yet.</td>
+                        <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
                       </tr>
                     )}
                   </tbody>
@@ -405,18 +403,18 @@ const PortfolioDetails: React.FC = () => {
               {selectedTicker && (
                 <div className="mt-8 border-t pt-8">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">Performance History: {selectedTicker}</h3>
+                    <h3 className="text-lg font-medium text-gray-900">Historia Wyników: {selectedTicker}</h3>
                     {lastUpdated && (
-                      <span className="text-xs text-gray-500">Last Synced: {lastUpdated}</span>
+                      <span className="text-xs text-gray-500">Ostatnia aktualizacja: {lastUpdated}</span>
                     )}
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
                     {historyLoading ? (
-                      <div className="h-64 flex items-center justify-center">Loading history...</div>
+                      <div className="h-64 flex items-center justify-center">Ładowanie historii...</div>
                     ) : historyData.length > 0 ? (
                       <PriceHistoryChart ticker={selectedTicker} data={historyData} />
                     ) : (
-                      <div className="h-64 flex items-center justify-center text-gray-500">No historical data available.</div>
+                      <div className="h-64 flex items-center justify-center text-gray-500">Brak danych historycznych.</div>
                     )}
                   </div>
                 </div>
@@ -426,21 +424,21 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'value_history' && (
             <div className="space-y-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Portfolio Value History</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Historia Wartości Portfela</h3>
               {portfolioHistory.length > 0 ? (
                 <div className="space-y-8">
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                       <PortfolioHistoryChart data={portfolioHistory} />
                     </div>
                     
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Cumulative Profit/Loss History</h3>
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Historia Zysku/Straty</h3>
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                       <PortfolioProfitChart data={portfolioProfitHistory} />
                     </div>
                 </div>
               ) : (
                 <div className="h-64 flex items-center justify-center text-gray-500">
-                  Not enough data to display history.
+                  Zbyt mało danych do wyświetlenia historii.
                 </div>
               )}
             </div>
@@ -451,13 +449,13 @@ const PortfolioDetails: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Value</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Realized Profit</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Typ</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -496,7 +494,7 @@ const PortfolioDetails: React.FC = () => {
                   ))}
                   {portfolioTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">No transactions yet.</td>
+                      <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
                     </tr>
                   )}
                 </tbody>
@@ -510,12 +508,12 @@ const PortfolioDetails: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bond Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Purchase Date</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Principal</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Interest Rate</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Accrued</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Value</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nazwa Obligacji</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Zakupu</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Kapitał</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Oprocentowanie</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Naliczone</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość Całkowita</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -531,68 +529,11 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {bonds.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">No bonds added yet.</td>
+                        <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">Brak obligacji.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="bg-gray-50 p-6 rounded-lg border border-gray-200 max-w-lg mx-auto">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Bond</h3>
-                <form onSubmit={handleTransaction} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Bond Name</label>
-                    <input
-                      type="text"
-                      value={bondName}
-                      onChange={(e) => setBondName(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                      placeholder="e.g. EDO0234"
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Principal (PLN)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Interest Rate (%)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={interestRate}
-                        onChange={(e) => setInterestRate(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Purchase Date</label>
-                    <input
-                      type="date"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                      required
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 focus:outline-none"
-                  >
-                    Add Bond
-                  </button>
-                </form>
               </div>
             </div>
           )}
@@ -600,84 +541,27 @@ const PortfolioDetails: React.FC = () => {
           {activeTab === 'savings' && (
             <div className="space-y-8">
               <div className="bg-emerald-50 p-8 rounded-2xl border border-emerald-100 text-center max-w-2xl mx-auto shadow-sm">
-                <p className="text-emerald-600 font-semibold uppercase tracking-widest text-sm mb-2">Total Savings Balance</p>
+                <p className="text-emerald-600 font-semibold uppercase tracking-widest text-sm mb-2">Całkowite Oszczędności</p>
                 <h2 className="text-5xl font-bold text-emerald-900 mb-4">
                   {valueData.portfolio_value.toFixed(2)} <span className="text-2xl font-normal text-emerald-700">PLN</span>
                 </h2>
                 <div className="flex justify-center items-center space-x-6 text-emerald-700">
                    <div className="flex flex-col">
-                      <span className="text-xs uppercase font-medium">Interest Rate</span>
+                      <span className="text-xs uppercase font-medium">Oprocentowanie</span>
                       <span className="text-lg font-bold">{portfolio.savings_rate}%</span>
                    </div>
                    <div className="w-px h-8 bg-emerald-200"></div>
                    <div className="flex flex-col">
-                      <span className="text-xs uppercase font-medium">Accrued Interest</span>
+                      <span className="text-xs uppercase font-medium">Naliczone Odsetki</span>
                       <span className="text-lg font-bold">+{valueData.live_interest?.toFixed(2)} PLN</span>
                    </div>
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-lg border border-gray-200 max-w-lg mx-auto shadow-sm">
-                <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">Update Interest Rate</h3>
-                <form onSubmit={handleTransaction} className="space-y-4">
-                  <div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={interestRate}
-                      onChange={(e) => setInterestRate(e.target.value)}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2 border"
-                      placeholder="New rate %"
-                      required
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none"
-                  >
-                    Update
-                  </button>
-                </form>
-                <p className="mt-2 text-xs text-gray-500 italic text-center">Changing the rate will automatically capitalize your current interest.</p>
-              </div>
-
-              <div className="bg-white p-6 rounded-lg border border-gray-200 max-w-lg mx-auto shadow-sm">
-                <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">Add Manual Interest</h3>
-                <form onSubmit={handleTransaction} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Amount (PLN)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2 border"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Date Received</label>
-                    <input
-                      type="date"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2 border"
-                      required
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none"
-                  >
-                    Add Interest
-                  </button>
-                </form>
-              </div>
-
               {/* Monthly History Chart */}
               {portfolioHistory.length > 0 && (
                 <div className="mt-8 border-t pt-8">
-                  <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Balance History</h3>
+                  <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Historia Salda</h3>
                   <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                      <PortfolioHistoryChart data={portfolioHistory} />
                   </div>
@@ -689,7 +573,7 @@ const PortfolioDetails: React.FC = () => {
           {activeTab === 'closed' && (
             <div className="space-y-6">
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
-                <h3 className="text-lg font-medium text-gray-900">Total Realized Profit</h3>
+                <h3 className="text-lg font-medium text-gray-900">Całkowity Zrealizowany Zysk</h3>
                 <p className={cn("text-3xl font-bold mt-2", totalClosedProfit >= 0 ? "text-green-600" : "text-red-600")}>
                   {totalClosedProfit.toFixed(2)} PLN
                 </p>
@@ -699,8 +583,8 @@ const PortfolioDetails: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Realized Profit</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -717,7 +601,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {closedPositions.length === 0 && (
                       <tr>
-                        <td colSpan={2} className="px-6 py-4 text-center text-sm text-gray-500">No closed positions yet.</td>
+                        <td colSpan={2} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
                       </tr>
                     )}
                   </tbody>
@@ -725,164 +609,57 @@ const PortfolioDetails: React.FC = () => {
               </div>
             </div>
           )}
-
-          {(activeTab === 'buy' || activeTab === 'sell') && (
-            <form onSubmit={handleTransaction} className="max-w-lg mx-auto space-y-4">
-              <h3 className="text-lg font-medium text-gray-900 capitalize">{activeTab} Stock</h3>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Ticker Symbol</label>
-                <input
-                  type="text"
-                  value={ticker}
-                  onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Quantity</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Price per Share (PLN)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                className={cn(
-                  "w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2",
-                  activeTab === 'buy' ? "bg-green-600 hover:bg-green-700 focus:ring-green-500" : "bg-red-600 hover:bg-red-700 focus:ring-red-500"
-                )}
-              >
-                {activeTab === 'buy' ? 'Buy Stock' : 'Sell Stock'}
-              </button>
-            </form>
-          )}
-
-          {(activeTab === 'deposit' || activeTab === 'withdraw') && (
-            <form onSubmit={handleTransaction} className="max-w-lg mx-auto space-y-4">
-              <h3 className="text-lg font-medium text-gray-900 capitalize">{activeTab} Cash</h3>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Amount (PLN)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                className={cn(
-                  "w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2",
-                  activeTab === 'deposit' ? "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500" : "bg-orange-600 hover:bg-orange-700 focus:ring-orange-500"
-                )}
-              >
-                {activeTab === 'deposit' ? 'Deposit Funds' : 'Withdraw Funds'}
-              </button>
-            </form>
-          )}
-
-          {activeTab === 'dividend' && (
-            <>
-              <form onSubmit={handleTransaction} className="max-w-lg mx-auto space-y-4">
-                <h3 className="text-lg font-medium text-gray-900 capitalize">Record Dividend</h3>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Ticker Symbol</label>
-                  <select
-                    value={ticker}
-                    onChange={(e) => setTicker(e.target.value)}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                    required
-                  >
-                    <option value="">Select a stock</option>
-                    {holdings.map(h => (
-                      <option key={h.ticker} value={h.ticker}>{h.ticker}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Dividend Amount (Total PLN)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Date Received</label>
-                  <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                    required
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                >
-                  Record Dividend
-                </button>
-              </form>
-
-              {/* Monthly Dividend Chart */}
-              <div className="mt-12 border-t pt-8">
-                <h3 className="text-lg font-medium text-gray-900 mb-6">Monthly Dividend Income</h3>
+          
+          {/* Dividend Bar Chart - Only show in analytics or maybe create a specific view? 
+              Original code showed it under 'dividend' tab. 
+              Let's put it in Analytics for now or create a 'Dividends' View? 
+              For now, I'll add it to the Analytics tab if the portfolio type supports it. 
+              Actually, the prompt didn't specify where to put it, but Analytics is a good place.
+          */}
+          {activeTab === 'analytics' && portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' && (
+             <div className="mt-8 border-t pt-8">
+                <h3 className="text-lg font-medium text-gray-900 mb-6">Miesięczne Dywidendy</h3>
                 <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                   {monthlyDividends.length > 0 ? (
                     <DividendBarChart data={monthlyDividends} />
                   ) : (
                     <div className="h-64 flex items-center justify-center text-gray-500 italic">
-                      No dividends recorded yet.
+                      Brak zarejestrowanych dywidend.
                     </div>
                   )}
                 </div>
               </div>
-            </>
           )}
         </div>
       </div>
+
+      {/* Modals */}
+      <TransferModal
+        isOpen={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
+        onSuccess={fetchData}
+        portfolioId={portfolio.id}
+        budgetAccounts={budgetAccounts}
+        maxCash={valueData.cash_value}
+      />
+
+      <TransactionModal
+        isOpen={isTransactionModalOpen}
+        onClose={() => setIsTransactionModalOpen(false)}
+        onSuccess={fetchData}
+        portfolioId={portfolio.id}
+        portfolioType={portfolio.account_type}
+        holdings={holdings}
+      />
+
+      <SellModal
+        isOpen={isSellModalOpen}
+        onClose={() => setIsSellModalOpen(false)}
+        onSuccess={fetchData}
+        portfolioId={portfolio.id}
+        holding={selectedHoldingForSell}
+      />
+
     </div>
   );
 };

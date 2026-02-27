@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, History, PieChart } from 'lucide-react';
+import { LayoutDashboard, Wallet, History, PieChart, Landmark, PiggyBank } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface LayoutProps {
@@ -11,9 +11,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
 
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Portfolios', path: '/portfolios', icon: Wallet },
-    { name: 'Transactions', path: '/transactions', icon: History },
+    { name: 'Pulpit', path: '/', icon: LayoutDashboard },
+    { name: 'Inwestycje', path: '/portfolios', icon: Wallet },
+    { name: 'Transakcje', path: '/transactions', icon: History },
+    { name: 'Kredyty', path: '/loans', icon: Landmark },
+    { name: 'Budżet', path: '/budget', icon: PiggyBank },
   ];
 
   return (

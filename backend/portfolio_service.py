@@ -1,216 +1,10 @@
-import os
-import tempfile
-# Force yfinance to use a cache directory in user home to avoid path length/space issues
-cache_dir = os.path.join(os.path.expanduser('~'), 'yfinance_cache_custom')
-if not os.path.exists(cache_dir):
-    os.makedirs(cache_dir, exist_ok=True)
-os.environ['YFINANCE_CACHE_DIR'] = cache_dir
-print(f"Using yfinance cache at: {cache_dir}")
-
-import yfinance as yf
-import pandas as pd
+from price_service import PriceService
 from database import get_db
 import sqlite3
 from datetime import datetime, timedelta, date
-import time
-import random
-import logging
+from bond_service import BondService
 
-class PriceService:
-    _price_cache = {}
-
-    @classmethod
-    def _download_with_retry(cls, *args, **kwargs):
-        """Download wrapper with simple retry + exponential backoff."""
-        attempts = 3
-        delay = 1
-        for attempt in range(1, attempts + 1):
-            try:
-                return yf.download(*args, **kwargs)
-            except Exception as e:
-                logging.warning(f"yfinance download failed (attempt {attempt}/{attempts}): {e}")
-                if attempt == attempts:
-                    logging.error("yfinance download failed after retries")
-                    raise
-                sleep_time = delay + random.uniform(0, 0.5)
-                time.sleep(sleep_time)
-                delay *= 2
-
-    @classmethod
-    def get_prices(cls, tickers):
-        if not tickers:
-            return {}
-        
-        # Identify missing tickers in cache
-        missing_tickers = [t for t in tickers if t not in cls._price_cache]
-        
-        if missing_tickers:
-            print(f"Fetching prices for: {missing_tickers}")
-            
-            # Attempt 1: Bulk Download
-            try:
-                # Fetch 5 days of data to handle weekends/holidays/gaps (with retry)
-                data = cls._download_with_retry(missing_tickers, period="5d", group_by='ticker', threads=False)
-
-                if data.empty:
-                    print("[WARNING] Bulk download returned empty data. Trying individual fetch.")
-                    raise ValueError("Empty Data")
-
-                # Process bulk data
-                for ticker in missing_tickers:
-                    try:
-                        ticker_df = None
-                        if isinstance(data.columns, pd.MultiIndex):
-                            if ticker in data.columns.levels[0]:
-                                ticker_df = data[ticker]
-                        elif 'Close' in data.columns and len(missing_tickers) == 1:
-                            ticker_df = data
-
-                        if ticker_df is not None and 'Close' in ticker_df.columns:
-                            df_cleaned = ticker_df.dropna(subset=['Close'])
-                            if not df_cleaned.empty:
-                                price = df_cleaned['Close'].iloc[-1]
-                                if hasattr(price, 'item'):
-                                    price = price.item()
-                                cls._price_cache[ticker] = round(float(price), 2)
-                        
-                    except Exception as e:
-                        print(f"[ERROR] Failed to process bulk data for {ticker}: {e}")
-
-            except Exception as e:
-                print(f"[WARNING] Bulk fetch failed ({e}). Switching to individual fallback.")
-            
-            # Attempt 2: Individual Fetch (Fallback for any still missing)
-            remaining_tickers = [t for t in missing_tickers if t not in cls._price_cache]
-            if remaining_tickers:
-                print(f"Fallback fetching for: {remaining_tickers}")
-                for ticker in remaining_tickers:
-                    try:
-                        t = yf.Ticker(ticker)
-                        # Try history first
-                        hist = t.history(period="5d")
-                        if not hist.empty:
-                            price = hist['Close'].iloc[-1]
-                            cls._price_cache[ticker] = round(float(price), 2)
-                        else:
-                            # Try fast_info as last resort
-                            try:
-                                price = t.fast_info.last_price
-                                if price:
-                                    cls._price_cache[ticker] = round(float(price), 2)
-                            except:
-                                print(f"[WARNING] No data for {ticker}")
-                    except Exception as e:
-                         print(f"[ERROR] Individual fetch failed for {ticker}: {e}")
-
-            # Final Safety Step: Mark any missing tickers as None
-            for ticker in missing_tickers:
-                if ticker not in cls._price_cache:
-                    cls._price_cache[ticker] = None
-        
-        return cls._price_cache
-
-    @classmethod
-    def warmup_cache(cls):
-        db = get_db()
-        try:
-            holdings = db.execute('SELECT DISTINCT ticker FROM holdings').fetchall()
-            tickers = [h['ticker'] for h in holdings]
-            if tickers:
-                print(f"Warming up price cache for: {tickers}")
-                cls.get_prices(tickers)
-        except Exception as e:
-            print(f"Cache warmup failed: {e}")
-
-    @classmethod
-    def sync_stock_history(cls, ticker, required_start_date=None):
-        """
-        Incremental sync of stock prices from yfinance to local DB.
-        """
-        db = get_db()
-        
-        # 1. Find the latest date available in DB
-        result = db.execute(
-            'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
-            (ticker,)
-        ).fetchone()
-        
-        max_date_str = result['max_date']
-        max_date = None
-        if max_date_str:
-            if isinstance(max_date_str, str):
-                max_date = datetime.strptime(max_date_str, '%Y-%m-%d').date()
-            else:
-                max_date = max_date_str # Handle if sqlite returns date object
-
-        today = date.today()
-        yesterday = today - timedelta(days=1)
-        
-        # 2. Determine fetch start date
-        fetch_start = None
-        
-        if not max_date:
-            # If no data, use required_start_date or default to 1 year ago
-            if required_start_date:
-                if isinstance(required_start_date, str):
-                    fetch_start = datetime.strptime(required_start_date, '%Y-%m-%d').date()
-                else:
-                    fetch_start = required_start_date
-            else:
-                fetch_start = today - timedelta(days=365)
-        elif max_date < yesterday:
-            # If data exists but is old, start from the day after max_date
-            fetch_start = max_date + timedelta(days=1)
-        else:
-            # Already up to date
-            print(f"History for {ticker} is already up to date (last: {max_date})")
-            return max_date_str
-
-        if fetch_start >= today:
-             return max_date_str
-
-        print(f"Syncing {ticker} history starting from {fetch_start}...")
-
-        try:
-            # 3. Fetch from yfinance (with retry)
-            # Use fetch_start to today
-            data = cls._download_with_retry(ticker, start=fetch_start, interval="1d", threads=False)
-
-            if not data.empty:
-                # 4. Save to DB
-                cursor = db.cursor()
-                for timestamp, row in data.iterrows():
-                    price_date = timestamp.date()
-                    # Check if 'Close' exists (handle MultiIndex if necessary)
-                    price = None
-                    if 'Close' in data.columns:
-                        price = row['Close']
-                        if hasattr(price, 'item'):
-                            price = price.item()
-
-                    if price is not None and not pd.isna(price):
-                        cursor.execute(
-                            '''INSERT OR IGNORE INTO stock_prices (ticker, date, close_price)
-                               VALUES (?, ?, ?)''',
-                            (ticker, price_date.isoformat(), round(float(price), 2))
-                        )
-                db.commit()
-                print(f"Successfully synced {ticker} history.")
-            else:
-                print(f"No history data found for {ticker} from {fetch_start}")
-
-        except Exception as e:
-            print(f"Error syncing history for {ticker}: {e}")
-            db.rollback()
-
-        # Return latest date in DB
-        new_max = db.execute(
-            'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
-            (ticker,)
-        ).fetchone()
-        return new_max['max_date']
-
-class FinancialService:
+class PortfolioService:
     @staticmethod
     def calculate_metrics(holdings, total_value, cash_value):
         """
@@ -231,45 +25,6 @@ class FinancialService:
             
         return enriched
 
-class BondService:
-    @staticmethod
-    def add_bond(portfolio_id, name, principal, interest_rate, purchase_date):
-        db = get_db()
-        try:
-            db.execute(
-                '''INSERT INTO bonds (portfolio_id, name, principal, interest_rate, purchase_date)
-                   VALUES (?, ?, ?, ?, ?)''',
-                (portfolio_id, name, principal, interest_rate, purchase_date)
-            )
-            db.commit()
-            return True
-        except Exception as e:
-            db.rollback()
-            raise e
-
-    @staticmethod
-    def get_bonds(portfolio_id):
-        db = get_db()
-        bonds = db.execute('SELECT * FROM bonds WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
-        
-        results = []
-        today = date.today()
-        
-        for b in bonds:
-            b_dict = {key: b[key] for key in b.keys()}
-            p_date = datetime.strptime(b_dict['purchase_date'], '%Y-%m-%d').date()
-            days_passed = (today - p_date).days
-            if days_passed < 0: days_passed = 0
-            
-            # accrued_interest = principal * (interest_rate / 100) * (days_passed / 365)
-            accrued = float(b_dict['principal']) * (float(b_dict['interest_rate']) / 100) * (days_passed / 365.0)
-            b_dict['accrued_interest'] = round(accrued, 2)
-            b_dict['total_value'] = round(float(b_dict['principal']) + accrued, 2)
-            results.append(b_dict)
-            
-        return results
-
-class PortfolioService:
     @staticmethod
     def create_portfolio(name, initial_cash=0.0, account_type='STANDARD', created_at=None):
         db = get_db()
@@ -595,9 +350,23 @@ class PortfolioService:
         tickers = [h['ticker'] for h in holdings]
         current_prices = PriceService.get_prices(tickers)
         
+        updates_needed = False
+        
         holdings_value = 0.0
         for h in holdings:
             h_dict = {key: h[key] for key in h.keys()}
+            
+            # Enrich Metadata if missing
+            if not h_dict.get('company_name') or not h_dict.get('sector'):
+                meta = PriceService.fetch_metadata(h_dict['ticker'])
+                if meta:
+                    db.execute(
+                        'UPDATE holdings SET company_name = ?, sector = ?, industry = ? WHERE id = ?',
+                        (meta['company_name'], meta['sector'], meta['industry'], h_dict['id'])
+                    )
+                    h_dict.update(meta)
+                    updates_needed = True
+
             price = current_prices.get(h_dict['ticker'])
             
             if price is None:
@@ -609,13 +378,16 @@ class PortfolioService:
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
             holdings_value += h_dict['current_value']
             results.append(h_dict)
+            
+        if updates_needed:
+            db.commit()
         
         # Calculate weights using total value (including cash if we had it here, but we'll use total holdings value for now or fetch portfolio cash)
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         cash = portfolio['current_cash'] if portfolio else 0
         total_portfolio_value = holdings_value + cash
         
-        return FinancialService.calculate_metrics(results, total_portfolio_value, cash)
+        return PortfolioService.calculate_metrics(results, total_portfolio_value, cash)
 
     @staticmethod
     def get_transactions(portfolio_id):
@@ -733,11 +505,7 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def get_portfolio_history(portfolio_id):
-        """
-        Reconstructs portfolio value over time based on transactions.
-        Groups by month.
-        """
+    def _calculate_historical_metrics(portfolio_id):
         db = get_db()
         transactions = db.execute(
             'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC',
@@ -745,7 +513,7 @@ class PortfolioService:
         ).fetchall()
         
         if not transactions:
-            return []
+            return {}
             
         portfolio = db.execute('SELECT account_type, created_at FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         account_type = portfolio['account_type']
@@ -783,133 +551,6 @@ class PortfolioService:
             for ticker in tickers:
                 try:
                     # Force sync so we have the prices!
-                    PriceService.sync_stock_history(ticker, start_date)
-                except Exception as e:
-                    print(f"Failed to sync history for {ticker}: {e}")
-
-        # Load prices into memory
-        price_history = {}
-        if account_type not in ['SAVINGS', 'BONDS']:
-            for ticker in tickers:
-                rows = db.execute(
-                    'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
-                    (ticker,)
-                ).fetchall()
-                # Store dates as pure YYYY-MM-DD strings
-                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
-
-        def get_price_at_date(ticker, target_date):
-            if ticker not in price_history or not price_history[ticker]:
-                return 0
-            
-            target_str = target_date.strftime('%Y-%m-%d')
-            if target_str in price_history[ticker]:
-                return price_history[ticker][target_str]
-            
-            # Find closest available price BEFORE the target date
-            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
-            if past_dates:
-                return price_history[ticker][max(past_dates)]
-            return 0
-
-        monthly_data = {}
-        # Calculate values per month
-        for end_date in month_ends:
-            current_cash = 0.0
-            holdings_qty = {}
-            
-            for t in transactions:
-                t_date_str = str(t['date']).split(' ')[0].split('T')[0]
-                t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
-                
-                if t_date > end_date:
-                    continue
-                
-                t_val = float(t['total_value'])
-                t_qty = float(t['quantity'])
-                t_ticker = t['ticker']
-                
-                if t['type'] in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
-                    current_cash += t_val
-                elif t['type'] in ['WITHDRAW', 'BUY']:
-                    current_cash -= t_val
-                
-                if t_ticker != 'CASH':
-                    if t['type'] == 'BUY':
-                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
-                    elif t['type'] == 'SELL':
-                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
-            
-            total_value = current_cash
-            if account_type not in ['SAVINGS', 'BONDS']:
-                for ticker, qty in holdings_qty.items():
-                    if qty > 0.0001:
-                        total_value += qty * get_price_at_date(ticker, end_date)
-            
-            monthly_data[end_date.strftime('%Y-%m')] = total_value
-
-        sorted_keys = sorted(monthly_data.keys())
-        result = []
-        for k in sorted_keys:
-            dt = datetime.strptime(k, '%Y-%m')
-            result.append({
-                'date': k,
-                'label': dt.strftime('%b %Y'),
-                'value': round(monthly_data[k], 2)
-            })
-            
-        return result
-
-    @staticmethod
-    def get_portfolio_profit_history(portfolio_id):
-        """
-        Calculates cumulative profit over time (month-end).
-        Profit = Total Value - Net Invested Capital (Deposits - Withdrawals).
-        """
-        db = get_db()
-        transactions = db.execute(
-            'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC',
-            (portfolio_id,)
-        ).fetchall()
-        
-        if not transactions:
-            return []
-            
-        portfolio = db.execute('SELECT account_type, created_at FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
-        account_type = portfolio['account_type']
-        
-        first_trans_date = transactions[0]['date']
-        if isinstance(first_trans_date, str):
-            start_date = datetime.strptime(first_trans_date.split(' ')[0], '%Y-%m-%d').date()
-        else:
-            start_date = first_trans_date
-        
-        today = date.today()
-        
-        # Generate month-end dates
-        month_ends = []
-        curr_y, curr_m = start_date.year, start_date.month
-        while date(curr_y, curr_m, 1) <= today:
-            if curr_m == 12:
-                next_m, next_y = 1, curr_y + 1
-            else:
-                next_m, next_y = curr_m + 1, curr_y
-                
-            month_end = date(next_y, next_m, 1) - timedelta(days=1)
-            if month_end > today:
-                month_end = today
-            month_ends.append(month_end)
-            
-            if month_end == today:
-                break
-            curr_m, curr_y = next_m, next_y
-        
-        # Get unique tickers and SYNC their history first!
-        tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
-        
-        if account_type not in ['SAVINGS', 'BONDS']:
-            for ticker in tickers:
-                try:
                     PriceService.sync_stock_history(ticker, start_date)
                 except Exception as e:
                     print(f"Failed to sync history for {ticker}: {e}")
@@ -978,19 +619,23 @@ class PortfolioService:
                     if qty > 0.0001:
                         total_value += qty * get_price_at_date(ticker, end_date)
             
-            # For BONDS, we should ideally sum bond values, but sticking to current logic:
-            # Current logic in get_portfolio_value sums bond 'total_value' (principal + accrued).
-            # But here we don't have historical bond values easily unless we recalc.
-            # For now, let's assume BONDS portfolio value is mainly cash + principal (if we implemented it)
-            # The user previously noted BONDS logic is partial.
-            # However, if account_type is SAVINGS, we might want to add accrued interest to total_value if possible?
-            # The prompt says: "Ensure it includes gains from... interest already recorded in the transactions."
-            # Since 'INTEREST' transactions are recorded in 'current_cash', they are already in 'total_value'.
-            # So 'profit' = 'total_value' (includes interest) - 'invested_capital' (only deposits/withdraws).
-            # This is correct.
-            
             profit = total_value - invested_capital
-            monthly_data[end_date.strftime('%Y-%m')] = profit
+            monthly_data[end_date.strftime('%Y-%m')] = {
+                "total_value": total_value,
+                "profit": profit
+            }
+            
+        return monthly_data
+
+    @staticmethod
+    def get_portfolio_history(portfolio_id):
+        """
+        Reconstructs portfolio value over time based on transactions.
+        Groups by month.
+        """
+        monthly_data = PortfolioService._calculate_historical_metrics(portfolio_id)
+        if not monthly_data:
+            return []
 
         sorted_keys = sorted(monthly_data.keys())
         result = []
@@ -999,7 +644,29 @@ class PortfolioService:
             result.append({
                 'date': k,
                 'label': dt.strftime('%b %Y'),
-                'value': round(monthly_data[k], 2)
+                'value': round(monthly_data[k]['total_value'], 2)
+            })
+            
+        return result
+
+    @staticmethod
+    def get_portfolio_profit_history(portfolio_id):
+        """
+        Calculates cumulative profit over time (month-end).
+        Profit = Total Value - Net Invested Capital (Deposits - Withdrawals).
+        """
+        monthly_data = PortfolioService._calculate_historical_metrics(portfolio_id)
+        if not monthly_data:
+            return []
+
+        sorted_keys = sorted(monthly_data.keys())
+        result = []
+        for k in sorted_keys:
+            dt = datetime.strptime(k, '%Y-%m')
+            result.append({
+                'date': k,
+                'label': dt.strftime('%b %Y'),
+                'value': round(monthly_data[k]['profit'], 2)
             })
             
         return result

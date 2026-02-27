@@ -31,7 +31,7 @@ const PriceHistoryChart: React.FC<PriceHistoryChartProps> = ({ ticker, data }) =
     labels: data.map(d => d.date),
     datasets: [
       {
-        label: `${ticker} Price (PLN)`,
+        label: `Cena ${ticker} (PLN)`,
         data: data.map(d => d.close_price),
         borderColor: '#3b82f6',
         backgroundColor: 'rgba(59, 130, 246, 0.5)',
@@ -48,7 +48,7 @@ const PriceHistoryChart: React.FC<PriceHistoryChartProps> = ({ ticker, data }) =
       },
       title: {
         display: true,
-        text: `${ticker} Historical Performance`,
+        text: `Historia Wyników ${ticker}`,
       },
     },
     scales: {

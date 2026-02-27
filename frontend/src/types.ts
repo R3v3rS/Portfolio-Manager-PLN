@@ -58,6 +58,9 @@ export interface Holding {
   profit_loss?: number;
   profit_loss_percent?: number;
   weight_percent?: number;
+  company_name?: string;
+  sector?: string;
+  industry?: string;
 }
 
 export interface PortfolioValue {

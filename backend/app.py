@@ -4,7 +4,10 @@ import traceback
 from flask_cors import CORS
 from database import init_db
 from routes import portfolio_bp
-from services import PriceService
+from routes_loans import loans_bp
+from routes_budget import budget_bp
+from routes_dashboard import dashboard_bp
+from price_service import PriceService
 import os
 
 def create_app():
@@ -33,6 +36,9 @@ def create_app():
 
     # Register blueprints
     app.register_blueprint(portfolio_bp, url_prefix='/api/portfolio')
+    app.register_blueprint(loans_bp, url_prefix='/api/loans')
+    app.register_blueprint(budget_bp, url_prefix='/api/budget')
+    app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
 
     # Global error handler to return consistent JSON responses
 
@@ -51,4 +57,4 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', debug=True, port=5000)
