@@ -3,6 +3,7 @@ from database import get_db
 import sqlite3
 from datetime import datetime, timedelta, date
 from bond_service import BondService
+from math_utils import xirr
 
 class PortfolioService:
     @staticmethod
@@ -724,6 +725,39 @@ class PortfolioService:
         total_result = total_value - portfolio['total_deposits']
         total_result_percent = (total_result / portfolio['total_deposits'] * 100) if portfolio['total_deposits'] > 0 else 0.0
         
+        # Calculate XIRR
+        xirr_percent = 0.0
+        try:
+            # Fetch deposits and withdrawals for XIRR calculation
+            transactions = db.execute(
+                'SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND type IN (?, ?)',
+                (portfolio_id, 'DEPOSIT', 'WITHDRAW')
+            ).fetchall()
+            
+            cash_flows = []
+            for t in transactions:
+                try:
+                    t_date_str = str(t['date']).split(' ')[0] # Handle 'YYYY-MM-DD HH:MM:SS'
+                    t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
+                    amount = float(t['total_value'])
+                    
+                    if t['type'] == 'DEPOSIT':
+                        cash_flows.append((t_date, -amount))
+                    elif t['type'] == 'WITHDRAW':
+                        cash_flows.append((t_date, amount))
+                except Exception as e:
+                    print(f"Error parsing transaction for XIRR: {e}")
+                    continue
+            
+            # Add current portfolio value as final cash flow (treated as if we withdrew everything today)
+            if cash_flows:
+                cash_flows.append((date.today(), total_value))
+                xirr_percent = xirr(cash_flows)
+                
+        except Exception as e:
+            print(f"Error calculating XIRR: {e}")
+            xirr_percent = 0.0
+
         return {
             'portfolio_value': total_value,
             'cash_value': current_cash + live_interest, # Include live interest in cash display for SAVINGS
@@ -731,5 +765,99 @@ class PortfolioService:
             'total_dividends': total_dividends,
             'total_result': total_result,
             'total_result_percent': total_result_percent,
+            'xirr_percent': xirr_percent,
             'live_interest': live_interest # Just for informational purposes
         }
+
+    @staticmethod
+    def get_performance_matrix(portfolio_id):
+        """
+        Calculates monthly returns using Modified Dietz method (simplified).
+        Returns a matrix of returns by year and month.
+        """
+        # 1. Get month-end values
+        monthly_values_map = PortfolioService._calculate_historical_metrics(portfolio_id)
+        if not monthly_values_map:
+            return {}
+
+        # 2. Get all cash flow transactions (Deposit/Withdraw)
+        db = get_db()
+        transactions = db.execute(
+            '''SELECT date, type, total_value 
+               FROM transactions 
+               WHERE portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW')
+               ORDER BY date ASC''',
+            (portfolio_id,)
+        ).fetchall()
+        
+        # Group cash flows by month (YYYY-MM)
+        monthly_flows = {}
+        for t in transactions:
+            t_date_str = str(t['date']).split(' ')[0]
+            month_key = t_date_str[:7] # YYYY-MM
+            amount = float(t['total_value'])
+            
+            if month_key not in monthly_flows:
+                monthly_flows[month_key] = 0.0
+                
+            if t['type'] == 'DEPOSIT':
+                monthly_flows[month_key] += amount
+            elif t['type'] == 'WITHDRAW':
+                monthly_flows[month_key] -= amount
+
+        # 3. Calculate Monthly Returns
+        sorted_months = sorted(monthly_values_map.keys())
+        results = {} # { "2024": { "1": 2.5, "YTD": ... } }
+        
+        previous_end_value = 0.0
+        
+        # We need to process from the very first month found in transactions or values
+        # If the first month in monthly_values_map is say 2024-03, we assume 2024-02 end value was 0 (or strictly speaking, we start calculation from 2024-03)
+        
+        # To calculate YTD properly, we need to track cumulative return for each year
+        # Cumulative Return = (1 + r1) * (1 + r2) * ... - 1
+        
+        yearly_compounding = {} # Year -> running product (1.0 start)
+
+        for month_key in sorted_months:
+            year, month = month_key.split('-')
+            year_key = str(year)
+            month_int = str(int(month)) # "01" -> "1"
+            
+            if year_key not in results:
+                results[year_key] = {}
+                yearly_compounding[year_key] = 1.0
+
+            # Data for calculation
+            end_value = monthly_values_map[month_key]['total_value']
+            net_flows = monthly_flows.get(month_key, 0.0)
+            start_value = previous_end_value
+            
+            # Modified Dietz (Simplified)
+            # Return = (End - Start - NetFlows) / (Start + NetFlows/2)
+            
+            profit = end_value - start_value - net_flows
+            denominator = start_value + (net_flows / 2.0)
+            
+            if denominator <= 0:
+                # Edge case: if denominator is zero or negative (e.g. huge withdrawal matching start value), 
+                # usually return is 0 or undefined. If it's the first deposit, return is 0 (no gain on capital yet).
+                monthly_return = 0.0
+            else:
+                monthly_return = profit / denominator
+                
+            monthly_return_percent = round(monthly_return * 100, 2)
+            
+            results[year_key][month_int] = monthly_return_percent
+            
+            # Update YTD compounding
+            yearly_compounding[year_key] *= (1.0 + monthly_return)
+            
+            # Update YTD field
+            ytd_val = (yearly_compounding[year_key] - 1.0) * 100
+            results[year_key]['YTD'] = round(ytd_val, 2)
+            
+            # Prepare for next iteration
+            previous_end_value = end_value
+            
+        return results

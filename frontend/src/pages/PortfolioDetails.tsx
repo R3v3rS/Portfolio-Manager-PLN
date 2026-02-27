@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, HelpCircle } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition } from '../types';
@@ -10,6 +10,7 @@ import PriceHistoryChart from '../components/PriceHistoryChart';
 import DividendBarChart from '../components/DividendBarChart';
 import PortfolioHistoryChart from '../components/PortfolioHistoryChart';
 import PortfolioProfitChart from '../components/PortfolioProfitChart';
+import PerformanceHeatmap from '../components/portfolio/PerformanceHeatmap';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
@@ -60,7 +61,7 @@ const PortfolioDetails: React.FC = () => {
   const [bonds, setBonds] = useState<Bond[]>([]);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed'>('holdings');
+  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results'>('holdings');
   
   // Modals state
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -184,6 +185,7 @@ const PortfolioDetails: React.FC = () => {
   const tabLabels: Record<string, string> = {
     holdings: 'Aktywa',
     analytics: 'Analiza',
+    results: 'Wyniki',
     value_history: 'Wartość Historyczna',
     history: 'Historia Transakcji',
     bonds: 'Obligacje',
@@ -238,9 +240,30 @@ const PortfolioDetails: React.FC = () => {
           <dd className={cn("mt-1 text-2xl font-semibold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
             {valueData.total_result.toFixed(2)} PLN
           </dd>
-          <dd className={cn("text-sm font-medium", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
-            {valueData.total_result_percent.toFixed(2)}%
-          </dd>
+          
+          <div className="mt-2 flex justify-between items-end text-sm border-t pt-2">
+            <div className="flex flex-col">
+              <span className="text-xs text-gray-400 uppercase tracking-wide">Prosty</span>
+              <span className={cn("font-bold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
+                {valueData.total_result_percent.toFixed(2)}%
+              </span>
+            </div>
+            
+            {valueData.xirr_percent !== undefined && (
+              <div className="flex flex-col items-end">
+                <div className="flex items-center gap-1 group relative cursor-help">
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">XIRR</span>
+                  <HelpCircle className="w-3 h-3 text-gray-400" />
+                  <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-48 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-10">
+                    Roczna, zannualizowana stopa zwrotu (XIRR)
+                  </div>
+                </div>
+                <span className={cn("font-bold", (valueData.xirr_percent || 0) >= 0 ? "text-green-600" : "text-red-600")}>
+                  {(valueData.xirr_percent || 0).toFixed(2)}%
+                </span>
+              </div>
+            )}
+          </div>
         </div>
         {portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' ? (
           <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
@@ -276,7 +299,7 @@ const PortfolioDetails: React.FC = () => {
                 ? ['savings', 'history'] 
                 : portfolio.account_type === 'BONDS'
                   ? ['bonds', 'history']
-                  : ['holdings', 'analytics', 'value_history', 'history', 'closed']
+                  : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed']
             ).map((tab) => (
               <button
                 key={tab}
@@ -315,6 +338,13 @@ const PortfolioDetails: React.FC = () => {
         <div className="p-6">
           {activeTab === 'analytics' && (
             <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} />
+          )}
+
+          {activeTab === 'results' && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Macierz Wyników (MoM)</h3>
+              <PerformanceHeatmap portfolioId={portfolio.id} />
+            </div>
           )}
 
           {activeTab === 'holdings' && (

@@ -70,6 +70,7 @@ export interface PortfolioValue {
   total_dividends: number;
   total_result: number;
   total_result_percent: number;
+  xirr_percent?: number;
 }
 
 export interface ClosedPosition {

@@ -371,3 +371,11 @@ def closed_positions(portfolio_id):
         'positions': positions,
         'total_historical_profit': total
     })
+
+@portfolio_bp.route('/<int:portfolio_id>/performance', methods=['GET'])
+def get_performance_matrix(portfolio_id):
+    try:
+        matrix = PortfolioService.get_performance_matrix(portfolio_id)
+        return jsonify({'matrix': matrix}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
