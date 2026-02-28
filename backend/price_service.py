@@ -253,16 +253,82 @@ class PriceService:
         quotes = {}
         if not tickers:
             return quotes
-            
-        for ticker in tickers:
+
+        def calc_quote_from_history(hist):
+            if hist is None or hist.empty:
+                return None
+
+            close_series = hist.get('Close')
+            if close_series is None:
+                return None
+
+            close_series = close_series.dropna()
+            if close_series.empty:
+                return None
+
+            current_price = float(close_series.iloc[-1])
+
+            def calc_change(current, old):
+                if old == 0:
+                    return 0.0
+                return ((current - old) / old) * 100
+
+            change_1d = None
+            if len(close_series) >= 2:
+                change_1d = calc_change(current_price, float(close_series.iloc[-2]))
+
+            change_7d = None
+            if len(close_series) >= 6:
+                change_7d = calc_change(current_price, float(close_series.iloc[-6]))
+
+            change_1m = None
+            if len(close_series) >= 22:
+                change_1m = calc_change(current_price, float(close_series.iloc[-22]))
+
+            change_1y = calc_change(current_price, float(close_series.iloc[0]))
+
+            return {
+                'price': round(current_price, 2),
+                'change_1d': round(change_1d, 2) if change_1d is not None else None,
+                'change_7d': round(change_7d, 2) if change_7d is not None else None,
+                'change_1m': round(change_1m, 2) if change_1m is not None else None,
+                'change_1y': round(change_1y, 2) if change_1y is not None else None,
+            }
+
+        # First try to fetch all quotes in one request to reduce network overhead.
+        try:
+            data = cls._download_with_retry(tickers, period="1y", group_by='ticker', threads=False)
+
+            if not data.empty:
+                for ticker in tickers:
+                    ticker_df = None
+
+                    if isinstance(data.columns, pd.MultiIndex):
+                        if ticker in data.columns.levels[0]:
+                            ticker_df = data[ticker]
+                    else:
+                        # Single ticker response has flat columns.
+                        ticker_df = data if len(tickers) == 1 else None
+
+                    quote = calc_quote_from_history(ticker_df)
+                    if quote:
+                        quotes[ticker] = quote
+                        cls._price_cache[ticker] = quote['price']
+        except Exception as e:
+            print(f"Bulk quote fetch failed: {e}")
+
+        # Fallback for any ticker still missing after bulk fetch.
+        missing_tickers = [ticker for ticker in tickers if ticker not in quotes]
+        for ticker in missing_tickers:
             try:
                 t = yf.Ticker(ticker)
-                
-                # Fetch 1 year history to calculate all changes
                 hist = t.history(period="1y")
-                
-                if hist.empty:
-                     # Fallback if no history
+
+                quote = calc_quote_from_history(hist)
+                if quote:
+                    quotes[ticker] = quote
+                    cls._price_cache[ticker] = quote['price']
+                else:
                     quotes[ticker] = {
                         'price': 0.0,
                         'change_1d': None,
@@ -270,51 +336,6 @@ class PriceService:
                         'change_1m': None,
                         'change_1y': None
                     }
-                    continue
-
-                # Get latest price
-                current_price = hist['Close'].iloc[-1]
-                
-                # Helper to calculate percentage change safely
-                def calc_change(current, old):
-                    if old == 0: return 0.0
-                    return ((current - old) / old) * 100
-
-                # 1D Change (compare with previous row)
-                change_1d = None
-                if len(hist) >= 2:
-                    prev_close = hist['Close'].iloc[-2]
-                    change_1d = calc_change(current_price, prev_close)
-
-                # 7D Change (approx 5 trading days ago)
-                change_7d = None
-                if len(hist) >= 6:
-                    price_7d_ago = hist['Close'].iloc[-6]
-                    change_7d = calc_change(current_price, price_7d_ago)
-
-                # 1M Change (approx 21 trading days ago)
-                change_1m = None
-                if len(hist) >= 22:
-                    price_1m_ago = hist['Close'].iloc[-22]
-                    change_1m = calc_change(current_price, price_1m_ago)
-
-                # 1Y Change (approx start of the dataframe if it has enough data)
-                change_1y = None
-                # If we asked for 1y, the first row is roughly 1y ago
-                if len(hist) > 0:
-                     price_1y_ago = hist['Close'].iloc[0]
-                     change_1y = calc_change(current_price, price_1y_ago)
-
-                quotes[ticker] = {
-                    'price': round(float(current_price), 2),
-                    'change_1d': round(change_1d, 2) if change_1d is not None else None,
-                    'change_7d': round(change_7d, 2) if change_7d is not None else None,
-                    'change_1m': round(change_1m, 2) if change_1m is not None else None,
-                    'change_1y': round(change_1y, 2) if change_1y is not None else None,
-                }
-                
-                # Update cache while we are at it
-                cls._price_cache[ticker] = round(float(current_price), 2)
                     
             except Exception as e:
                 print(f"Error fetching quote for {ticker}: {e}")
