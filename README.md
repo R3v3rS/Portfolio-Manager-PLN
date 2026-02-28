@@ -1,106 +1,183 @@
 # 📈 Portfolio Manager (PLN)
 
-Profesjonalna aplikacja webowa do kompleksowego zarządzania finansami osobistymi, zbudowana w nowoczesnym stosie technologicznym **React + Flask**. System integruje zarządzanie portfelem inwestycyjnym, budżetem domowym oraz zobowiązaniami kredytowymi, oferując zaawansowaną analitykę i wizualizację danych.
+Aplikacja webowa do zarządzania finansami osobistymi oparta o **React + Flask**. Projekt łączy w jednym miejscu:
+- portfel inwestycyjny,
+- budżet domowy,
+- symulator kredytowy,
+- dashboard analityczny.
 
-## 🚀 Główne Funkcje
+Repozytorium jest podzielone na frontend (Vite + React + TypeScript) i backend (Flask + SQLite).
 
-### 💼 Portfel Inwestycyjny
-- **Zarządzanie Portfelami**: Tworzenie wielu niezależnych portfeli (np. Emerytalny, Akcyjny, Krypto, Obligacje).
-- **Inteligentne Pobieranie Cen**: Integracja z Yahoo Finance (`yfinance`) z obsługą GPW (`.WA`), rynków zagranicznych i kryptowalut.
-- **Pamięć Podręczna (Price Caching)**: Lokalna baza danych historycznych cen zamknięcia, eliminująca luki w danych i przyspieszająca działanie.
-- **System Dywidendowy**: Rejestrowanie wpływów z dywidend, automatyczna aktualizacja salda gotówkowego i wykresy dochodu pasywnego.
-- **Obsługa Różnych Aktywów**: Akcje, ETF-y, Kryptowaluty, Obligacje Skarbowe/Korporacyjne.
+---
 
-### 🏠 Budżet Domowy
-- **Śledzenie Wydatków**: Kategoryzacja transakcji (Jedzenie, Transport, Mieszkanie, itp.).
-- **Planowanie Budżetu**: Ustawianie miesięcznych limitów dla kategorii.
-- **Analiza Wydatków**: Wykresy struktury wydatków i trendów miesięcznych.
-- **Historia Transakcji**: Szczegółowy rejestr wpływów i wydatków.
+## ✨ Najważniejsze funkcje
 
-### 🏦 Symulator Kredytowy
-- **Kalkulator Rat**: Symulacja harmonogramu spłat kredytu hipotecznego/gotówkowego.
-- **Nadpłaty**: Analiza wpływu nadpłat na koszt całkowity i okres kredytowania.
-- **Wizualizacja**: Wykresy spłaty kapitału vs odsetek w czasie.
+### 💼 Portfel inwestycyjny
+- Tworzenie wielu portfeli (np. emerytalny, akcyjny, krypto).
+- Rejestrowanie operacji: wpłata, wypłata, kupno, sprzedaż, dywidendy.
+- Obsługa różnych klas aktywów: akcje, ETF-y, kryptowaluty, obligacje.
+- Historia wartości portfela i historia zysków.
+- Import transakcji (CSV XTB).
 
-### 📊 Analityka Wizualna
-- Interaktywne wykresy wydajności portfela (Recharts, Chart.js).
-- Wykresy kołowe alokacji aktywów i dywersyfikacji.
-- Statystyki Profit/Loss (Zysk/Strata) w czasie rzeczywistym.
-- Dashboard podsumowujący majątek netto (Net Worth).
+### 🏠 Budżet domowy
+- Konta budżetowe i historia transakcji.
+- Kategoryzacja wydatków i przychodów.
+- Limity miesięczne per kategoria.
+- Integracja przepływów pomiędzy budżetem i portfelem inwestycyjnym.
 
-## 🛠 Stos Technologiczny
+### 🏦 Kredyty
+- Tworzenie kredytów i harmonogram spłat.
+- Obsługa zmian oprocentowania w czasie.
+- Nadpłaty i analiza wpływu na koszt całkowity oraz okres kredytowania.
 
-- **Frontend**: 
-  - React 18, TypeScript, Vite
-  - Tailwind CSS (stylowanie)
-  - Recharts, Chart.js (wizualizacja danych)
-  - Zustand (zarządzanie stanem)
-  - React Router (nawigacja)
-  - Lucide Icons (ikony)
-- **Backend**: 
-  - Flask (Python 3.11+)
-  - SQLite (baza danych)
-  - Pandas (analiza danych finansowych)
-  - yfinance (dane giełdowe)
-- **Architektura**: Clean Code, separacja logiki biznesowej (Services) od warstwy prezentacji (Routes).
+### 📊 Dashboard i analityka
+- Widok majątku netto (Net Worth).
+- Zestawienie aktywów, gotówki i zobowiązań.
+- Wizualizacje danych finansowych na wykresach.
 
-## 📁 Struktura Projektu
+---
 
-```
+## 🧱 Stos technologiczny
+
+### Frontend
+- React 18 + TypeScript
+- Vite
+- Tailwind CSS
+- Recharts + Chart.js
+- React Router
+- Zustand
+
+### Backend
+- Flask
+- SQLite
+- Pandas
+- yfinance
+
+---
+
+## 📁 Struktura projektu
+
+```text
 .
-├── backend/            # Serwer Flask API
-│   ├── app.py          # Punkt wejścia aplikacji
-│   ├── database.py     # Definicje schematów SQLite
-│   ├── routes*.py      # Endpointy API (podział na moduły)
-│   ├── services.py     # Logika biznesowa portfela
-│   ├── budget_service.py # Logika budżetu domowego
-│   ├── loan_service.py   # Logika symulatora kredytowego
-│   └── bond_service.py   # Obsługa obligacji
-├── frontend/           # Aplikacja React (Vite)
+├── backend/
+│   ├── app.py                  # Uruchomienie aplikacji Flask
+│   ├── database.py             # Inicjalizacja i dostęp do SQLite
+│   ├── portfolio_service.py    # Logika domenowa portfela inwestycyjnego
+│   ├── budget_service.py       # Logika budżetu domowego
+│   ├── loan_service.py         # Logika kredytów
+│   ├── bond_service.py         # Obsługa obligacji
+│   ├── price_service.py        # Pobieranie i synchronizacja cen
+│   ├── watchlist_service.py    # Obsługa watchlisty
+│   ├── routes.py               # Endpointy portfela
+│   ├── routes_budget.py        # Endpointy budżetu
+│   ├── routes_loans.py         # Endpointy kredytów
+│   ├── routes_dashboard.py     # Endpointy dashboardu
+│   └── routes_radar.py         # Endpointy radaru inwestycyjnego
+├── frontend/
 │   ├── src/
-│   │   ├── components/ # Komponenty UI
-│   │   │   ├── budget/ # Komponenty budżetu
-│   │   │   ├── loans/  # Komponenty kredytowe
-│   │   │   └── ...
-│   │   ├── pages/      # Widoki (Dashboard, Portfele, Budżet)
-│   │   ├── lib/        # Narzędzia pomocnicze (utils)
-│   │   ├── hooks/      # Własne hooki React
-│   │   └── api*.ts     # Klienty API (Axios)
+│   │   ├── components/         # Komponenty UI
+│   │   ├── pages/              # Widoki aplikacji
+│   │   ├── hooks/              # Własne hooki React
+│   │   ├── lib/                # Utilsy
+│   │   └── *.ts                # Typy i warstwa API
 │   └── package.json
 └── README.md
 ```
 
-## ⚙️ Instalacja i Uruchomienie
+---
 
-### 1. Backend (Python)
-Wymagany Python 3.11+.
+## ⚙️ Wymagania
+
+- **Python** 3.11+
+- **Node.js** 18+
+- **npm** 9+
+
+---
+
+## 🚀 Szybki start (lokalnie)
+
+### 1) Backend
 
 ```bash
 cd backend
 python -m venv .venv
-
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
+source .venv/bin/activate   # Linux/Mac
+# .venv\Scripts\activate    # Windows PowerShell
 
 pip install -r requirements.txt
 python app.py
 ```
-API będzie dostępne pod adresem: `http://127.0.0.1:5000`
 
-### 2. Frontend (Node.js)
-Wymagany Node.js 18+.
+Backend uruchomi się domyślnie na: `http://127.0.0.1:5000`
+
+### 2) Frontend
+
+W osobnym terminalu:
 
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Aplikacja będzie dostępna pod adresem: `http://localhost:5173`
 
-## 📊 Zaawansowana Logika
-Aplikacja wykorzystuje algorytm **Incremental Sync** dla danych historycznych. Przy każdym zakupie lub wyświetleniu szczegółów, system sprawdza ostatnią datę zapisaną w lokalnej bazie i pobiera z Yahoo Finance tylko brakujący zakres dat. Chroni to przed limitami API i zapewnia błyskawiczne ładowanie wykresów.
+Frontend uruchomi się domyślnie na: `http://localhost:5173`
+
+---
+
+## 🧪 Przydatne komendy developerskie
+
+### Frontend
+
+```bash
+cd frontend
+npm run dev      # tryb developerski
+npm run build    # build produkcyjny
+npm run check    # TypeScript type-check
+npm run lint     # lint (ESLint)
+```
+
+### Backend
+
+```bash
+cd backend
+python app.py
+```
+
+> Uwaga: projekt nie zawiera jeszcze pełnego zestawu testów automatycznych backendu.
+
+---
+
+## 🔌 Główne endpointy API (przykłady)
+
+### Portfolio
+- `GET /api/portfolio/list`
+- `POST /api/portfolio/create`
+- `POST /api/portfolio/buy`
+- `POST /api/portfolio/sell`
+- `GET /api/portfolio/value/<portfolio_id>`
+
+### Budżet
+- `GET /api/budget/accounts`
+- `POST /api/budget/transactions`
+- `POST /api/budget/transfer`
+
+### Kredyty
+- `GET /api/loans`
+- `POST /api/loans`
+- `POST /api/loans/<loan_id>/overpayments`
+
+Dokładne payloady i odpowiedzi najlepiej sprawdzić bezpośrednio w plikach `routes_*.py`.
+
+---
+
+## 🧠 Notatki implementacyjne
+
+- Część danych rynkowych jest pobierana przez `yfinance`.
+- Backend korzysta z SQLite i warstwy usług (`*_service.py`) oddzielonej od warstwy endpointów (`routes*.py`).
+- Frontend komunikuje się z backendem przez moduły API i typy TypeScript.
+
+---
 
 ## 📝 Licencja
-Projekt udostępniany na licencji MIT.
+
+MIT.
