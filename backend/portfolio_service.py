@@ -230,7 +230,10 @@ class PortfolioService:
     @staticmethod
     def withdraw_cash(portfolio_id, amount, date_str=None):
         db = get_db()
-        portfolio = db.execute('SELECT current_cash, account_type FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        portfolio = db.execute(
+            'SELECT current_cash, account_type, last_interest_date, savings_rate FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
         
         # Note: If SAVINGS, we need to calculate live interest before checking balance
         live_interest = 0
