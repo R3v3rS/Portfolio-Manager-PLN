@@ -31,6 +31,8 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [bondName, setBondName] = useState('');
   const [interestRate, setInterestRate] = useState('');
+  const [commission, setCommission] = useState('');
+  const [autoFxFees, setAutoFxFees] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Set default type based on portfolio type
@@ -47,9 +49,21 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
       setAmount('');
       setBondName('');
       setInterestRate('');
+      setCommission('');
+      setAutoFxFees(false);
       setDate(new Date().toISOString().split('T')[0]);
     }
   }, [isOpen, portfolioType]);
+
+  // Auto-calculate commission for XTB PLN
+  useEffect(() => {
+    if (autoFxFees && quantity && price) {
+        const val = parseFloat(quantity) * parseFloat(price);
+        if (!isNaN(val)) {
+            setCommission((val * 0.005).toFixed(2));
+        }
+    }
+  }, [autoFxFees, quantity, price]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,7 +74,15 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
 
       if (type === 'BUY') {
         endpoint = '/buy';
-        payload = { ...payload, ticker, quantity: parseFloat(quantity), price: parseFloat(price), date };
+        payload = { 
+            ...payload, 
+            ticker, 
+            quantity: parseFloat(quantity), 
+            price: parseFloat(price), 
+            date,
+            commission: parseFloat(commission) || 0,
+            auto_fx_fees: autoFxFees
+        };
       } else if (type === 'DIVIDEND') {
         endpoint = '/dividend';
         payload = { ...payload, ticker, amount: parseFloat(amount), date };
@@ -204,6 +226,31 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
                   onChange={(e) => setPrice(e.target.value)}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
                   required
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 my-2">
+                <input
+                  id="autoFxFees"
+                  type="checkbox"
+                  checked={autoFxFees}
+                  onChange={(e) => setAutoFxFees(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="autoFxFees" className="text-sm font-medium text-gray-700">
+                  Konto PLN w XTB (Prowizja FX 0.5%)
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Prowizja (PLN)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={commission}
+                  onChange={(e) => setCommission(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                  placeholder="0.00"
                 />
               </div>
             </>

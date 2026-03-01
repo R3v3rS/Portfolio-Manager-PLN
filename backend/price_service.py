@@ -8,16 +8,17 @@ from datetime import datetime, timedelta, date
 import time
 import random
 import logging
+import uuid
 
-# Force yfinance to use a cache directory in a local folder to avoid permission/concurrency issues
-cache_dir = os.path.join(os.getcwd(), 'yfinance_cache_custom')
+# Force yfinance to use a persistent cache directory to reuse cookies/crumbs
+cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_portfel')
 if not os.path.exists(cache_dir):
     try:
         os.makedirs(cache_dir, exist_ok=True)
     except Exception as e:
         print(f"Failed to create cache dir {cache_dir}: {e}")
-        # Fallback to temp
-        cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_custom')
+        # Fallback
+        cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_fallback')
         os.makedirs(cache_dir, exist_ok=True)
 
 os.environ['YFINANCE_CACHE_DIR'] = cache_dir
@@ -234,11 +235,13 @@ class PriceService:
             company_name = clean(info.get('longName')) or clean(info.get('shortName')) or "Unknown"
             sector = clean(info.get('sector')) or "Unknown"
             industry = clean(info.get('industry')) or "Unknown"
+            currency = clean(info.get('currency')) or "PLN"
             
             return {
                 'company_name': company_name,
                 'sector': sector,
-                'industry': industry
+                'industry': industry,
+                'currency': currency
             }
         except Exception as e:
             print(f"Metadata fetch error for {ticker}: {e}")

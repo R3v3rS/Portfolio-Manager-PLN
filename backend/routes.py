@@ -134,7 +134,9 @@ def buy():
             data['ticker'], 
             data['quantity'], 
             data['price'],
-            data.get('date') # Accept optional custom date
+            data.get('date'), # Accept optional custom date
+            data.get('commission', 0.0),
+            data.get('auto_fx_fees', False)
         )
         return jsonify({'message': 'Buy successful'}), 200
     except Exception as e:

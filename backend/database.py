@@ -263,6 +263,24 @@ def init_db(app):
             db.execute("ALTER TABLE envelopes ADD COLUMN account_id INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
             pass
+
+        # Migration: Add 'type', 'target_month', 'status' to envelopes
+        try:
+            db.execute("ALTER TABLE envelopes ADD COLUMN type VARCHAR(20) DEFAULT 'MONTHLY'")
+        except sqlite3.OperationalError:
+            pass
+            
+        try:
+            db.execute("ALTER TABLE envelopes ADD COLUMN target_month VARCHAR(7)") 
+            # Set default target_month for existing Monthly envelopes to current month
+            db.execute("UPDATE envelopes SET target_month = strftime('%Y-%m', 'now') WHERE type = 'MONTHLY' AND target_month IS NULL")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            db.execute("ALTER TABLE envelopes ADD COLUMN status VARCHAR(10) DEFAULT 'ACTIVE'")
+        except sqlite3.OperationalError:
+            pass
             
         # Migration: Ensure 'balance' column exists in envelopes (if I added it later, but here I created it fresh. 
         # However, if table existed from previous failed run, might be issue. 
@@ -282,4 +300,47 @@ def init_db(app):
         except sqlite3.OperationalError:
             pass
 
+        # Migration: Add 'auto_fx_fees' and 'currency' to holdings
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN auto_fx_fees BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN currency VARCHAR(3) DEFAULT 'PLN'")
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: Add 'commission' to transactions
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN commission DECIMAL(10,2) DEFAULT 0.00")
+        except sqlite3.OperationalError:
+            pass
+
         db.commit()
+
+def reset_budget_data():
+    """
+    Resets all budget-related data for a fresh start.
+    Clears: budget_transactions, envelopes, envelope_loans, budget_accounts (balance reset? or delete?)
+    User prompt says: "CLEAR ALL DATA from the following tables: budget_transactions, envelopes, envelope_loans, and budget_accounts."
+    """
+    db = get_db()
+    # Disable foreign keys temporarily to avoid constraint errors during deletion
+    db.execute("PRAGMA foreign_keys = OFF")
+    
+    db.execute("DELETE FROM budget_transactions")
+    db.execute("DELETE FROM envelope_loans")
+    db.execute("DELETE FROM envelopes")
+    db.execute("DELETE FROM budget_accounts")
+    db.execute("DELETE FROM envelope_categories") # Optional, but maybe good for full reset? User didn't specify categories.
+    # User specified: budget_transactions, envelopes, envelope_loans, and budget_accounts.
+    # I will stick to those.
+    
+    # Reset sequences
+    db.execute("DELETE FROM sqlite_sequence WHERE name='budget_transactions'")
+    db.execute("DELETE FROM sqlite_sequence WHERE name='envelope_loans'")
+    db.execute("DELETE FROM sqlite_sequence WHERE name='envelopes'")
+    db.execute("DELETE FROM sqlite_sequence WHERE name='budget_accounts'")
+    
+    db.execute("PRAGMA foreign_keys = ON")
+    db.commit()

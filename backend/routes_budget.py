@@ -1,7 +1,16 @@
 from flask import Blueprint, request, jsonify
 from budget_service import BudgetService
+from database import reset_budget_data
 
 budget_bp = Blueprint('budget', __name__)
+
+@budget_bp.route('/reset', methods=['POST'])
+def reset_budget():
+    try:
+        reset_budget_data()
+        return jsonify({'message': 'Budget data reset successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @budget_bp.route('/transactions', methods=['GET'])
 def get_transactions():
@@ -22,7 +31,8 @@ def get_transactions():
 def get_summary():
     try:
         account_id = request.args.get('account_id', type=int)
-        summary = BudgetService.get_summary(account_id)
+        target_month = request.args.get('month') # Optional YYYY-MM
+        summary = BudgetService.get_summary(account_id, target_month)
         return jsonify(summary)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -93,7 +103,9 @@ def account_transfer():
             to_account_id=data['to_account_id'],
             amount=float(data['amount']),
             description=data.get('description', 'Transfer'),
-            date=data.get('date')
+            date=data.get('date'),
+            target_envelope_id=data.get('target_envelope_id'),
+            source_envelope_id=data.get('source_envelope_id')
         )
         return jsonify({'message': 'Transfer successful'})
     except Exception as e:
@@ -180,12 +192,53 @@ def manage_envelopes():
         if 'account_id' not in data:
             return jsonify({'error': 'account_id is required'}), 400
             
+        env_type = data.get('type', 'MONTHLY')
+        target_month = data.get('target_month')
+        
+        # If type is MONTHLY, target_month is required (or default to current?)
+        if env_type == 'MONTHLY' and not target_month:
+             from datetime import date
+             today = date.today()
+             target_month = f"{today.year}-{today.month:02d}"
+             
         db.execute("""
-            INSERT INTO envelopes (category_id, account_id, name, icon, target_amount) 
-            VALUES (?, ?, ?, ?, ?)
-        """, (data['category_id'], data['account_id'], data['name'], data.get('icon', '✉️'), data.get('target_amount')))
+            INSERT INTO envelopes (category_id, account_id, name, icon, target_amount, type, target_month, status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+        """, (data['category_id'], data['account_id'], data['name'], data.get('icon', '✉️'), data.get('target_amount'), env_type, target_month))
         db.commit()
         return jsonify({'message': 'Envelope created'})
+
+@budget_bp.route('/envelopes/<int:envelope_id>', methods=['PATCH'])
+def update_envelope(envelope_id):
+    data = request.json
+    try:
+        if 'target_amount' in data:
+            BudgetService.update_envelope_target(envelope_id, float(data['target_amount']))
+        return jsonify({'message': 'Envelope updated'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@budget_bp.route('/envelopes/close', methods=['POST'])
+def close_envelope():
+    data = request.json
+    try:
+        BudgetService.close_envelope(data['envelope_id'])
+        return jsonify({'message': 'Envelope closed'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@budget_bp.route('/budget/clone', methods=['POST'])
+def clone_budget():
+    data = request.json
+    try:
+        BudgetService.clone_budget_for_month(
+            data['account_id'],
+            data['from_month'],
+            data['to_month']
+        )
+        return jsonify({'message': 'Budget cloned successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 @budget_bp.route('/accounts', methods=['GET', 'POST'])
 def manage_accounts():

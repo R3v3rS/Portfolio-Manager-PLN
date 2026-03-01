@@ -407,7 +407,22 @@ const PortfolioDetails: React.FC = () => {
                           "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
                           (h.profit_loss || 0) >= 0 ? "text-green-600" : "text-red-600"
                         )}>
-                          {h.profit_loss ? `${h.profit_loss.toFixed(2)} PLN` : '-'}
+                          <div className="flex items-center justify-end gap-1">
+                              {h.profit_loss ? `${h.profit_loss.toFixed(2)} PLN` : '-'}
+                              {h.auto_fx_fees && (
+                                  <div className="group relative">
+                                      <HelpCircle className="w-3 h-3 text-gray-400 cursor-help" />
+                                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-56 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-20 text-left">
+                                          Zysk netto ("na rękę") uwzględniający szacowaną prowizję 0.5% przy sprzedaży.
+                                          {h.fx_rate_used && (
+                                              <div className="mt-1 text-gray-300">
+                                                  Kurs FX: {h.fx_rate_used.toFixed(4)}
+                                              </div>
+                                          )}
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 font-medium">
                           {h.weight_percent ? `${h.weight_percent}%` : '-'}

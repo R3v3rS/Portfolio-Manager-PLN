@@ -25,6 +25,7 @@ export interface Transaction {
   price: number;
   total_value: number;
   realized_profit?: number;
+  commission?: number;
 }
 
 export interface Bond {
@@ -61,6 +62,9 @@ export interface Holding {
   company_name?: string;
   sector?: string;
   industry?: string;
+  auto_fx_fees?: boolean;
+  fx_rate_used?: number;
+  currency?: string;
 }
 
 export interface PortfolioValue {

@@ -1,6 +1,6 @@
 import sqlite3
 from flask import g
-from datetime import date
+from datetime import date as date_cls
 from database import get_db
 
 class BudgetService:
@@ -15,13 +15,29 @@ class BudgetService:
         if not account:
             return 0.0
         
-        total_envelopes = db.execute("SELECT SUM(balance) FROM envelopes WHERE account_id = ?", (account_id,)).fetchone()[0] or 0.0
-        return float(account['balance']) - float(total_envelopes)
+        # New Logic: Free Pool = Account Balance - Sum(Positive Envelopes) - Sum(Abs(Negative Envelopes))
+        # This reserves funds to cover overspending immediately.
+        
+        sum_positive = db.execute("""
+            SELECT SUM(balance) FROM envelopes 
+            WHERE account_id = ? AND balance > 0 AND status = 'ACTIVE'
+        """, (account_id,)).fetchone()[0] or 0.0
+        
+        sum_negative = db.execute("""
+            SELECT SUM(ABS(balance)) FROM envelopes 
+            WHERE account_id = ? AND balance < 0 AND status = 'ACTIVE'
+        """, (account_id,)).fetchone()[0] or 0.0
+        
+        return float(account['balance']) - float(sum_positive) - float(sum_negative)
 
     @staticmethod
     def get_total_allocated(account_id):
         db = BudgetService.get_db()
-        return db.execute("SELECT SUM(balance) FROM envelopes WHERE account_id = ?", (account_id,)).fetchone()[0] or 0.0
+        # Only count positive balances as "Allocated"
+        return db.execute("""
+            SELECT SUM(balance) FROM envelopes 
+            WHERE account_id = ? AND balance > 0 AND status = 'ACTIVE'
+        """, (account_id,)).fetchone()[0] or 0.0
 
     @staticmethod
     def get_total_borrowed(account_id):
@@ -38,7 +54,7 @@ class BudgetService:
     @staticmethod
     def add_income(account_id, amount, description="Income", date=None):
         db = BudgetService.get_db()
-        transaction_date = date if date else date.today()
+        transaction_date = date if date else date_cls.today()
         db.execute("UPDATE budget_accounts SET balance = balance + ? WHERE id = ?", (amount, account_id))
         db.execute("""
             INSERT INTO budget_transactions (type, amount, account_id, description, date)
@@ -58,7 +74,7 @@ class BudgetService:
     @staticmethod
     def allocate_money(envelope_id, amount, date=None):
         db = BudgetService.get_db()
-        transaction_date = date if date else date.today()
+        transaction_date = date if date else date_cls.today()
         envelope = db.execute("SELECT account_id FROM envelopes WHERE id = ?", (envelope_id,)).fetchone()
         if not envelope:
             raise ValueError("Envelope not found")
@@ -79,7 +95,7 @@ class BudgetService:
     @staticmethod
     def spend(account_id, amount, description, envelope_id=None, date=None):
         db = BudgetService.get_db()
-        transaction_date = date if date else date.today()
+        transaction_date = date if date else date_cls.today()
         
         if envelope_id:
             # Spending from Envelope
@@ -111,38 +127,96 @@ class BudgetService:
         db.commit()
 
     @staticmethod
-    def transfer_between_accounts(from_account_id, to_account_id, amount, description, date=None):
+    def transfer_between_accounts(from_account_id, to_account_id, amount, description, date=None, target_envelope_id=None, source_envelope_id=None):
         db = BudgetService.get_db()
-        transaction_date = date if date else date.today()
+        transaction_date = date if date else date_cls.today()
         
-        # 1. Validate Source Free Pool
-        free_pool = BudgetService.get_free_pool(from_account_id)
-        if free_pool < amount:
-             raise ValueError(f"Insufficient free pool in source account. Available: {free_pool}, Requested: {amount}")
+        # 1. Validate Source Funds
+        source_env_name = None
+        if source_envelope_id:
+            source_env = db.execute("SELECT name, balance, account_id FROM envelopes WHERE id = ?", (source_envelope_id,)).fetchone()
+            if not source_env:
+                raise ValueError("Source envelope not found")
+            if source_env['account_id'] != from_account_id:
+                raise ValueError("Source envelope does not belong to the source account")
+            if source_env['balance'] < amount:
+                 raise ValueError(f"Insufficient funds in source envelope. Available: {source_env['balance']}, Requested: {amount}")
+            source_env_name = source_env['name']
+        else:
+            free_pool = BudgetService.get_free_pool(from_account_id)
+            if free_pool < amount:
+                 raise ValueError(f"Insufficient free pool in source account. Available: {free_pool}, Requested: {amount}")
 
-        # 2. Get Account Names for better descriptions (optional, but nice)
+        # 2. Get Account Names for better descriptions
         from_acc = db.execute("SELECT name FROM budget_accounts WHERE id = ?", (from_account_id,)).fetchone()
         to_acc = db.execute("SELECT name FROM budget_accounts WHERE id = ?", (to_account_id,)).fetchone()
         
         from_name = from_acc['name'] if from_acc else "Unknown"
         to_name = to_acc['name'] if to_acc else "Unknown"
 
+        # Check Target Envelope if provided
+        target_env_name = None
+        if target_envelope_id:
+            target_env = db.execute("SELECT name, account_id FROM envelopes WHERE id = ?", (target_envelope_id,)).fetchone()
+            if not target_env:
+                raise ValueError("Target envelope not found")
+            if target_env['account_id'] != to_account_id:
+                raise ValueError("Target envelope does not belong to the destination account")
+            target_env_name = target_env['name']
+
         # 3. Update Balances
         db.execute("UPDATE budget_accounts SET balance = balance - ? WHERE id = ?", (amount, from_account_id))
         db.execute("UPDATE budget_accounts SET balance = balance + ? WHERE id = ?", (amount, to_account_id))
         
+        if source_envelope_id:
+             db.execute("UPDATE envelopes SET balance = balance - ? WHERE id = ?", (amount, source_envelope_id))
+             
+        if target_envelope_id:
+             db.execute("UPDATE envelopes SET balance = balance + ? WHERE id = ?", (amount, target_envelope_id))
+
         # 4. Record Transactions
         # Source: EXPENSE (Transfer Out)
+        
+        # Construct Description for Source Transaction
+        # "Transfer to [DestAccount]" OR "Transfer to [DestAccount] (Env: [TargetEnv])"
+        source_base_desc = f"Transfer to {to_name}"
+        if target_env_name:
+             source_base_desc += f" (Target: {target_env_name})"
+        
+        # If source envelope is used, maybe we want to emphasize that?
+        # User requested: "Przelew: Paliwo -> Paliwo" style if possible, or clear indication.
+        # Let's try to be descriptive.
+        if source_envelope_id and target_envelope_id:
+             final_source_desc = f"Transfer: {source_env_name} -> {target_env_name} ({to_name})"
+        elif source_envelope_id:
+             final_source_desc = f"Transfer: {source_env_name} -> {to_name}"
+        elif target_envelope_id:
+             final_source_desc = f"Transfer to {to_name} (Target: {target_env_name})"
+        else:
+             final_source_desc = f"Transfer to {to_name}: {description}"
+
         db.execute("""
-            INSERT INTO budget_transactions (type, amount, account_id, description, date)
-            VALUES ('EXPENSE', ?, ?, ?, ?)
-        """, (amount, from_account_id, f"Transfer to {to_name}: {description}", transaction_date))
+            INSERT INTO budget_transactions (type, amount, account_id, envelope_id, description, date)
+            VALUES ('EXPENSE', ?, ?, ?, ?, ?)
+        """, (amount, from_account_id, source_envelope_id, final_source_desc, transaction_date))
         
         # Dest: INCOME (Transfer In)
+        # "Transfer from [SourceAccount]" OR "Transfer from [SourceAccount] (Source: [SourceEnv])"
+        dest_base_desc = f"Transfer from {from_name}"
+        
+        if source_envelope_id and target_envelope_id:
+             final_dest_desc = f"Transfer: {source_env_name} ({from_name}) -> {target_env_name}"
+        elif source_envelope_id:
+             final_dest_desc = f"Transfer from {from_name} (Source: {source_env_name})"
+        elif target_envelope_id:
+             final_dest_desc = f"Transfer from {from_name} -> {target_env_name}"
+        else:
+             final_dest_desc = f"Transfer from {from_name}: {description}"
+            
         db.execute("""
-            INSERT INTO budget_transactions (type, amount, account_id, description, date)
-            VALUES ('INCOME', ?, ?, ?, ?)
-        """, (amount, to_account_id, f"Transfer from {from_name}: {description}", transaction_date))
+            INSERT INTO budget_transactions (type, amount, account_id, envelope_id, description, date)
+            VALUES ('INCOME', ?, ?, ?, ?, ?)
+        """, (amount, to_account_id, target_envelope_id, final_dest_desc, transaction_date))
         
         db.commit()
 
@@ -153,7 +227,7 @@ class BudgetService:
         Executes in a SINGLE transaction to ensure atomicity.
         """
         db = BudgetService.get_db()
-        transaction_date = date if date else date.today()
+        transaction_date = date if date else date_cls.today()
         
         # Get names for descriptions
         account = db.execute("SELECT name, balance FROM budget_accounts WHERE id = ?", (budget_account_id,)).fetchone()
@@ -233,7 +307,7 @@ class BudgetService:
         Executes in a SINGLE transaction to ensure atomicity.
         """
         db = BudgetService.get_db()
-        transaction_date = date if date else date.today()
+        transaction_date = date if date else date_cls.today()
         
         # Get portfolio and account details
         portfolio = db.execute("SELECT name, current_cash FROM portfolios WHERE id = ?", (portfolio_id,)).fetchone()
@@ -302,12 +376,12 @@ class BudgetService:
         db.execute("""
             INSERT INTO envelope_loans (source_envelope_id, amount, reason, borrow_date, due_date, status)
             VALUES (?, ?, ?, ?, ?, 'OPEN')
-        """, (source_envelope_id, amount, reason, date.today(), due_date))
+        """, (source_envelope_id, amount, reason, date_cls.today(), due_date))
         
         db.execute("""
             INSERT INTO budget_transactions (type, amount, envelope_id, description, date)
             VALUES ('BORROW', ?, ?, ?, ?)
-        """, (amount, source_envelope_id, f"Borrowed: {reason}", date.today()))
+        """, (amount, source_envelope_id, f"Borrowed: {reason}", date_cls.today()))
         db.commit()
 
     @staticmethod
@@ -344,14 +418,86 @@ class BudgetService:
         db.execute("""
             INSERT INTO budget_transactions (type, amount, envelope_id, description, date)
             VALUES ('REPAY', ?, ?, ?, ?)
-        """, (amount, loan['source_envelope_id'], f"Repayment for loan {loan_id}", date.today()))
+        """, (amount, loan['source_envelope_id'], f"Repayment for loan {loan_id}", date_cls.today()))
         db.commit()
 
     @staticmethod
-    def get_summary(account_id=None):
+    def update_envelope_target(envelope_id, new_target):
+        db = BudgetService.get_db()
+        if new_target < 0:
+            raise ValueError("Target amount must be positive")
+            
+        db.execute("UPDATE envelopes SET target_amount = ? WHERE id = ?", (new_target, envelope_id))
+        db.commit()
+
+    @staticmethod
+    def close_envelope(envelope_id):
+        db = BudgetService.get_db()
+        envelope = db.execute("SELECT * FROM envelopes WHERE id = ?", (envelope_id,)).fetchone()
+        if not envelope:
+            raise ValueError("Envelope not found")
+            
+        env_type = envelope['type'] or 'MONTHLY'
+        balance = envelope['balance']
+        
+        # Logic:
+        # If balance > 0: Return to Free Pool (set to 0, create transaction).
+        # If balance <= 0: Just close (keep negative balance for history/reporting).
+        
+        if balance > 0:
+            db.execute("UPDATE envelopes SET balance = 0, status = 'CLOSED' WHERE id = ?", (envelope_id,))
+            
+            # Log it as a negative ALLOCATE (returning to pool)
+            db.execute("""
+                INSERT INTO budget_transactions (type, amount, account_id, envelope_id, description, date)
+                VALUES ('ALLOCATE', ?, ?, ?, ?, ?)
+            """, (-balance, envelope['account_id'], envelope_id, "Closed Envelope (Returned to Pool)", date_cls.today()))
+        else:
+            # Just mark as CLOSED. Balance remains negative (or zero).
+            db.execute("UPDATE envelopes SET status = 'CLOSED' WHERE id = ?", (envelope_id,))
+            
+        db.commit()
+
+    @staticmethod
+    def clone_budget_for_month(account_id, from_month, to_month):
         db = BudgetService.get_db()
         
+        # Check if target month already has envelopes? Maybe prevent duplicate cloning.
+        existing = db.execute("SELECT count(*) FROM envelopes WHERE account_id = ? AND type = 'MONTHLY' AND target_month = ?", (account_id, to_month)).fetchone()[0]
+        if existing > 0:
+            raise ValueError(f"Budget for {to_month} already exists.")
+
+        # Get source envelopes
+        source_envelopes = db.execute("""
+            SELECT * FROM envelopes 
+            WHERE account_id = ? AND type = 'MONTHLY' AND target_month = ? AND status != 'CLOSED'
+        """, (account_id, from_month)).fetchall()
+        
+        for env in source_envelopes:
+            db.execute("""
+                INSERT INTO envelopes (category_id, account_id, name, icon, target_amount, type, target_month, status, balance)
+                VALUES (?, ?, ?, ?, ?, 'MONTHLY', ?, 'ACTIVE', 0)
+            """, (env['category_id'], env['account_id'], env['name'], env['icon'], env['target_amount'], to_month))
+            
+        db.commit()
+
+    @staticmethod
+    def get_summary(account_id=None, target_month=None):
+        db = BudgetService.get_db()
+        
+        # Determine target month (YYYY-MM)
+        if not target_month:
+            today = date_cls.today()
+            target_month = f"{today.year}-{today.month:02d}"
+        
         accounts = db.execute("SELECT * FROM budget_accounts").fetchall()
+        
+        # Calculate free_pool for ALL accounts
+        accounts_data = []
+        for acc in accounts:
+            acc_dict = dict(acc)
+            acc_dict['free_pool'] = BudgetService.get_free_pool(acc['id'])
+            accounts_data.append(acc_dict)
         
         # If no account_id provided, default to the first account if exists
         if account_id is None and accounts:
@@ -365,7 +511,8 @@ class BudgetService:
                 "total_borrowed": 0.0,
                 "envelopes": [],
                 "loans": [],
-                "accounts": [dict(a) for a in accounts]
+                "accounts": accounts_data,
+                "flow_analysis": {"income": 0.0, "investment_transfers": 0.0, "savings_rate": 0.0}
             }
 
         # Calculate for specific account_id
@@ -376,28 +523,110 @@ class BudgetService:
         total_allocated = BudgetService.get_total_allocated(account_id)
         total_borrowed = BudgetService.get_total_borrowed(account_id)
         
-        envelopes = db.execute("""
-            SELECT e.id, e.name, e.balance, e.target_amount, c.name as category_name, c.icon as category_icon, e.icon, e.account_id, e.category_id
+        # Envelopes Query: Fetch BOTH Active and Closed for the target month
+        # We need Closed ones to show in "Rozliczone" section
+        envelopes_rows = db.execute("""
+            SELECT e.id, e.name, e.balance, e.target_amount, e.type, e.target_month, e.status, c.name as category_name, c.icon as category_icon, e.icon, e.account_id, e.category_id
             FROM envelopes e
             JOIN envelope_categories c ON e.category_id = c.id
             WHERE e.account_id = ?
-        """, (account_id,)).fetchall()
+            AND (
+                (e.type = 'MONTHLY' AND e.target_month = ?) OR
+                (e.type = 'LONG_TERM') -- For Long Term, we might want to see Closed ones too? Or just Active?
+                OR (e.type IS NULL)
+            )
+        """, (account_id, target_month)).fetchall()
         
-        loans = db.execute("""
-            SELECT el.id, e.name as source_envelope, el.amount, (el.amount - el.repaid_amount) as remaining, el.due_date, el.reason
+        # Filter Long Term: If Closed, maybe don't show unless explicitly asked?
+        # User only mentioned "Closing Logic... display these as 'ROZLICZONE' in a separate... history section."
+        # This likely applies to Monthly envelopes primarily.
+        # But let's fetch all and let frontend filter/group.
+        
+        loans_rows = db.execute("""
+            SELECT el.id, e.name as source_envelope, el.source_envelope_id, el.amount, (el.amount - el.repaid_amount) as remaining, el.due_date, el.reason
             FROM envelope_loans el
             JOIN envelopes e ON el.source_envelope_id = e.id
             WHERE el.status = 'OPEN' AND e.account_id = ?
         """, (account_id,)).fetchall()
+
+        # Process Envelopes to include loan info and calculate total_spent
+        envelopes = []
+        
+        # Get expenses for all envelopes in this month to avoid N+1 queries
+        try:
+            year_str, month_str = target_month.split('-')
+        except ValueError:
+            today = date_cls.today()
+            year_str = str(today.year)
+            month_str = f"{today.month:02d}"
+
+        expenses_rows = db.execute("""
+            SELECT envelope_id, SUM(amount) as spent
+            FROM budget_transactions
+            WHERE type = 'EXPENSE' 
+            AND envelope_id IS NOT NULL
+            AND strftime('%Y', date) = ? AND strftime('%m', date) = ?
+            GROUP BY envelope_id
+        """, (year_str, month_str)).fetchall()
+        
+        spent_map = {row['envelope_id']: row['spent'] for row in expenses_rows}
+
+        for env in envelopes_rows:
+            env_dict = dict(env)
+            # Calculate outstanding loans for this envelope
+            outstanding_loans = sum(l['remaining'] for l in loans_rows if l['source_envelope_id'] == env['id'])
+            env_dict['outstanding_loans'] = outstanding_loans
+            
+            # Add total_spent
+            env_dict['total_spent'] = spent_map.get(env['id'], 0.0)
+            
+            envelopes.append(env_dict)
+
+        # Flow Analysis (Target Month)
+        try:
+            year_str, month_str = target_month.split('-')
+        except ValueError:
+            # Fallback if format is wrong
+            today = date_cls.today()
+            year_str = str(today.year)
+            month_str = f"{today.month:02d}"
+        
+        total_income = db.execute("""
+            SELECT SUM(amount) FROM budget_transactions 
+            WHERE type = 'INCOME' AND account_id = ? 
+            AND strftime('%Y', date) = ? AND strftime('%m', date) = ?
+        """, (account_id, year_str, month_str)).fetchone()[0] or 0.0
+
+        total_investment_transfers = db.execute("""
+            SELECT SUM(amount) FROM budget_transactions 
+            WHERE type = 'EXPENSE' AND account_id = ? 
+            AND description LIKE 'Transfer to Investment%'
+            AND strftime('%Y', date) = ? AND strftime('%m', date) = ?
+        """, (account_id, year_str, month_str)).fetchone()[0] or 0.0
+        
+        # Savings Rate: (Investment Transfers + Remaining Free Pool) / Income
+        # Note: Remaining Free Pool is a snapshot, not a flow. 
+        # The prompt says: "Savings Rate" widget that calculates: (Transfers to Investment + Remaining Free Pool) / Monthly Income.
+        # This is a bit hybrid (Flow + Stock), but I will follow the formula.
+        
+        numerator = total_investment_transfers + free_pool
+        savings_rate = (numerator / total_income * 100) if total_income > 0 else 0.0
+
+        flow_analysis = {
+            "income": total_income,
+            "investment_transfers": total_investment_transfers,
+            "savings_rate": savings_rate
+        }
 
         return {
             "account_balance": total_account_balance,
             "free_pool": free_pool,
             "total_allocated": total_allocated,
             "total_borrowed": total_borrowed,
-            "envelopes": [dict(e) for e in envelopes],
-            "loans": [dict(l) for l in loans],
-            "accounts": [dict(a) for a in accounts]
+            "envelopes": envelopes,
+            "loans": [dict(l) for l in loans_rows],
+            "accounts": accounts_data,
+            "flow_analysis": flow_analysis
         }
 
     @staticmethod

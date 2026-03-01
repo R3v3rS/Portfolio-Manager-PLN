@@ -3,6 +3,7 @@ export interface BudgetAccount {
   name: string;
   balance: number;
   currency: string;
+  free_pool?: number;
 }
 
 export interface EnvelopeCategory {
@@ -18,7 +19,12 @@ export interface Envelope {
   icon: string;
   target_amount?: number;
   balance: number;
+  total_spent?: number;
   category_name?: string;
+  outstanding_loans?: number;
+  type?: 'MONTHLY' | 'LONG_TERM';
+  target_month?: string;
+  status?: 'ACTIVE' | 'CLOSED';
 }
 
 export interface EnvelopeLoan {
@@ -30,6 +36,12 @@ export interface EnvelopeLoan {
   reason: string;
 }
 
+export interface FlowAnalysis {
+  income: number;
+  investment_transfers: number;
+  savings_rate: number;
+}
+
 export interface BudgetSummary {
   account_balance: number;
   free_pool: number;
@@ -38,13 +50,15 @@ export interface BudgetSummary {
   envelopes: Envelope[];
   loans: EnvelopeLoan[];
   accounts: BudgetAccount[];
+  flow_analysis?: FlowAnalysis;
 }
 
 const API_URL = 'http://localhost:5000/api/budget';
 
 export const budgetApi = {
-  getSummary: async (accountId?: number): Promise<BudgetSummary> => {
-    const url = accountId ? `${API_URL}/summary?account_id=${accountId}` : `${API_URL}/summary`;
+  getSummary: async (accountId?: number, month?: string): Promise<BudgetSummary> => {
+    let url = accountId ? `${API_URL}/summary?account_id=${accountId}` : `${API_URL}/summary?`;
+    if (month) url += `&month=${month}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch summary');
     return res.json();
@@ -96,13 +110,20 @@ export const budgetApi = {
     return res.json();
   },
 
-  transferBetweenAccounts: async (fromAccountId: number, toAccountId: number, amount: number, description?: string, date?: string) => {
+  transferBetweenAccounts: async (fromAccountId: number, toAccountId: number, amount: number, description?: string, date?: string, targetEnvelopeId?: number | null, sourceEnvelopeId?: number | null) => {
     const res = await fetch(`${API_URL}/account-transfer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_account_id: fromAccountId, to_account_id: toAccountId, amount, description, date }),
+      body: JSON.stringify({ from_account_id: fromAccountId, to_account_id: toAccountId, amount, description, date, target_envelope_id: targetEnvelopeId, source_envelope_id: sourceEnvelopeId }),
     });
     if (!res.ok) throw new Error('Failed to transfer between accounts');
+    return res.json();
+  },
+
+  getEnvelopes: async (accountId?: number) => {
+    const url = accountId ? `${API_URL}/envelopes?account_id=${accountId}` : `${API_URL}/envelopes`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch envelopes');
     return res.json();
   },
 
@@ -156,13 +177,43 @@ export const budgetApi = {
     return res.json();
   },
 
-  createEnvelope: async (categoryId: number, accountId: number, name: string, icon?: string, targetAmount?: number) => {
+  createEnvelope: async (categoryId: number, accountId: number, name: string, icon?: string, targetAmount?: number, type: 'MONTHLY' | 'LONG_TERM' = 'MONTHLY', targetMonth?: string) => {
     const res = await fetch(`${API_URL}/envelopes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category_id: categoryId, account_id: accountId, name, icon, target_amount: targetAmount }),
+      body: JSON.stringify({ category_id: categoryId, account_id: accountId, name, icon, target_amount: targetAmount, type, target_month: targetMonth }),
     });
     if (!res.ok) throw new Error('Failed to create envelope');
+    return res.json();
+  },
+
+  updateEnvelope: async (envelopeId: number, targetAmount: number) => {
+    const res = await fetch(`${API_URL}/envelopes/${envelopeId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_amount: targetAmount }),
+    });
+    if (!res.ok) throw new Error('Failed to update envelope');
+    return res.json();
+  },
+
+  closeEnvelope: async (envelopeId: number) => {
+    const res = await fetch(`${API_URL}/envelopes/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ envelope_id: envelopeId }),
+    });
+    if (!res.ok) throw new Error('Failed to close envelope');
+    return res.json();
+  },
+
+  cloneBudget: async (accountId: number, fromMonth: string, toMonth: string) => {
+    const res = await fetch(`${API_URL}/budget/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accountId, from_month: fromMonth, to_month: toMonth }),
+    });
+    if (!res.ok) throw new Error('Failed to clone budget');
     return res.json();
   },
 
