@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Chart as ChartJS,
@@ -16,6 +16,60 @@ import { ArrowLeft, TrendingUp, DollarSign, Calendar, Calculator, List, Wallet }
 import { getSchedule, addOverpayment, addRate } from '../../api_loans';
 import { budgetApi, Envelope, BudgetAccount } from '../../api_budget';
 
+
+
+type OverpaymentType = 'REDUCE_TERM' | 'REDUCE_INSTALLMENT';
+
+interface ScheduleEntry {
+  month: number;
+  date: string;
+  interest_rate: number;
+  installment: number;
+  principal_part: number;
+  interest_part: number;
+  overpayment: number;
+  remaining_balance: number;
+  overpayment_type: OverpaymentType | null;
+}
+
+interface OverpaymentEntry {
+  amount: number;
+  date: string;
+  type?: OverpaymentType;
+}
+
+interface LoanScheduleResponse {
+  loan: {
+    id: number;
+    name: string;
+    category?: string;
+    initial_rate: number;
+  };
+  baseline: {
+    schedule: ScheduleEntry[];
+    total_interest: number;
+  };
+  simulation: {
+    schedule: ScheduleEntry[];
+    total_interest: number;
+  };
+  actual_metrics: {
+    interest_saved: number;
+    months_saved: number;
+    interest_saved_to_date: number;
+  };
+  simulated_metrics: {
+    interest_saved: number;
+    months_saved: number;
+    total_interest: number;
+  };
+  overpayments_list: OverpaymentEntry[];
+}
+
+interface ScheduleQueryParams {
+  monthly_overpayment?: number;
+  simulated_action?: OverpaymentType;
+}
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -30,12 +84,12 @@ const LoanSimulator: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<LoanScheduleResponse | null>(null);
   
   // Forms state
   const [overpaymentAmount, setOverpaymentAmount] = useState('');
   const [overpaymentDate, setOverpaymentDate] = useState(new Date().toISOString().split('T')[0]);
-  const [overpaymentType, setOverpaymentType] = useState<'REDUCE_TERM' | 'REDUCE_INSTALLMENT'>('REDUCE_TERM');
+  const [overpaymentType, setOverpaymentType] = useState<OverpaymentType>('REDUCE_TERM');
   
   const [newRate, setNewRate] = useState('');
   const [rateDate, setRateDate] = useState(new Date().toISOString().split('T')[0]);
@@ -43,7 +97,7 @@ const LoanSimulator: React.FC = () => {
   // Monthly Simulation State
   const [monthlyOverpayment, setMonthlyOverpayment] = useState<number>(0);
   const [debouncedMonthlyOverpayment, setDebouncedMonthlyOverpayment] = useState<number>(0);
-  const [simulatedAction, setSimulatedAction] = useState<'REDUCE_TERM' | 'REDUCE_INSTALLMENT'>('REDUCE_TERM');
+  const [simulatedAction, setSimulatedAction] = useState<OverpaymentType>('REDUCE_TERM');
 
   // Budget Integration State
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
@@ -82,28 +136,28 @@ const LoanSimulator: React.FC = () => {
     return () => clearTimeout(timer);
   }, [monthlyOverpayment]);
 
-  useEffect(() => {
-    if (id) {
-      fetchData(parseInt(id));
-    }
-  }, [id, debouncedMonthlyOverpayment, simulatedAction]);
-
-  const fetchData = async (loanId: number) => {
+  const fetchData = useCallback(async (loanId: number) => {
     try {
       setLoading(true);
-      const params: any = {};
+      const params: ScheduleQueryParams = {};
       if (debouncedMonthlyOverpayment > 0) {
         params.monthly_overpayment = debouncedMonthlyOverpayment;
         params.simulated_action = simulatedAction;
       }
       const response = await getSchedule(loanId, params);
-      setData(response.data);
+      setData(response.data as LoanScheduleResponse);
     } catch (error) {
       console.error('Error fetching loan schedule:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedMonthlyOverpayment, simulatedAction]);
+
+  useEffect(() => {
+    if (id) {
+      fetchData(parseInt(id));
+    }
+  }, [id, fetchData]);
 
   const handleAddOverpayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,8 +199,9 @@ const LoanSimulator: React.FC = () => {
           );
           setPayInstallmentModalOpen(false);
           alert('Rata została opłacona z budżetu (Wydatek zarejestrowany).');
-      } catch (err: any) {
-          alert(`Błąd płatności: ${err.message}`);
+      } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'Nieznany błąd';
+          alert(`Błąd płatności: ${errorMessage}`);
       }
   };
 
@@ -176,16 +231,16 @@ const LoanSimulator: React.FC = () => {
 
   // Unified Chart Data Logic
   const allDates = Array.from(new Set([
-    ...baseline.schedule.map((s: any) => s.date),
-    ...simulation.schedule.map((s: any) => s.date)
+    ...baseline.schedule.map((entry) => entry.date),
+    ...simulation.schedule.map((entry) => entry.date)
   ])).sort();
 
   let lastBaseline = baseline.schedule[0]?.remaining_balance || 0;
   let lastSimulated = simulation.schedule[0]?.remaining_balance || 0;
 
-  const unifiedChartData = allDates.map((date: any) => {
-    const basePoint = baseline.schedule.find((s: any) => s.date === date);
-    const simPoint = simulation.schedule.find((s: any) => s.date === date);
+  const unifiedChartData = allDates.map((date) => {
+    const basePoint = baseline.schedule.find((entry) => entry.date === date);
+    const simPoint = simulation.schedule.find((entry) => entry.date === date);
 
     if (basePoint) lastBaseline = basePoint.remaining_balance;
     if (simPoint) lastSimulated = simPoint.remaining_balance;
@@ -244,7 +299,7 @@ const LoanSimulator: React.FC = () => {
 
   // Current Stats
   const today = new Date();
-  const currentEntry = simulation.schedule.find((entry: any) => new Date(entry.date) > today) || simulation.schedule[simulation.schedule.length - 1];
+  const currentEntry = simulation.schedule.find((entry) => new Date(entry.date) > today) || simulation.schedule[simulation.schedule.length - 1];
   
   const currentBalance = currentEntry ? currentEntry.remaining_balance : 0;
   const currentRate = currentEntry ? currentEntry.interest_rate : loan.initial_rate; 
@@ -365,7 +420,7 @@ const LoanSimulator: React.FC = () => {
                         <select
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                             value={simulatedAction}
-                            onChange={(e) => setSimulatedAction(e.target.value as 'REDUCE_TERM' | 'REDUCE_INSTALLMENT')}
+                            onChange={(e) => setSimulatedAction(e.target.value as OverpaymentType)}
                         >
                             <option value="REDUCE_TERM">Skrócenie okresu</option>
                             <option value="REDUCE_INSTALLMENT">Zmniejszenie raty</option>
@@ -408,7 +463,7 @@ const LoanSimulator: React.FC = () => {
                                  </tr>
                              </thead>
                              <tbody className="bg-white divide-y divide-gray-200">
-                                {overpayments_list.map((op: any, idx: number) => (
+                                {overpayments_list.map((op, idx: number) => (
                                     <tr key={idx}>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                             {new Date(op.date).toLocaleDateString('pl-PL')}
@@ -471,7 +526,7 @@ const LoanSimulator: React.FC = () => {
                 <select
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                   value={overpaymentType}
-                  onChange={(e) => setOverpaymentType(e.target.value as 'REDUCE_TERM' | 'REDUCE_INSTALLMENT')}
+                  onChange={(e) => setOverpaymentType(e.target.value as OverpaymentType)}
                 >
                   <option value="REDUCE_TERM">Skrócenie Okresu</option>
                   <option value="REDUCE_INSTALLMENT">Zmniejszenie Raty</option>
