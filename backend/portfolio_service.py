@@ -817,8 +817,20 @@ class PortfolioService:
         ).fetchone()
         total_dividends = div_result['total_div'] or 0.0
         
-        total_result = total_value - portfolio['total_deposits']
-        total_result_percent = (total_result / portfolio['total_deposits'] * 100) if portfolio['total_deposits'] > 0 else 0.0
+        # Use net contributed capital (deposits - withdrawals) as the performance baseline.
+        # This keeps profit/loss meaningful after partial withdrawals.
+        flows_result = db.execute(
+            '''SELECT
+                   COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN total_value ELSE 0 END), 0) AS deposits,
+                   COALESCE(SUM(CASE WHEN type = 'WITHDRAW' THEN total_value ELSE 0 END), 0) AS withdrawals
+               FROM transactions
+               WHERE portfolio_id = ?''',
+            (portfolio_id,)
+        ).fetchone()
+        net_contributions = float(flows_result['deposits']) - float(flows_result['withdrawals'])
+
+        total_result = total_value - net_contributions
+        total_result_percent = (total_result / net_contributions * 100) if net_contributions > 0 else 0.0
         
         # Calculate XIRR
         xirr_percent = 0.0
