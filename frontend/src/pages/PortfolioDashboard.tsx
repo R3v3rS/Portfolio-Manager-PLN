@@ -77,8 +77,9 @@ const PortfolioDashboard: React.FC = () => {
   const totalValue = portfolios.reduce((sum, p) => sum + (p.portfolio_value || 0), 0);
   const totalDeposits = portfolios.reduce((sum, p) => sum + (p.total_deposits || 0), 0);
   const totalDividends = portfolios.reduce((sum, p) => sum + (p.total_dividends || 0), 0);
-  const totalResult = totalValue - totalDeposits;
-  const totalResultPercent = totalDeposits > 0 ? (totalResult / totalDeposits) * 100 : 0;
+  const totalResult = portfolios.reduce((sum, p) => sum + (p.total_result || 0), 0);
+  const totalNetContributions = totalValue - totalResult;
+  const totalResultPercent = totalNetContributions > 0 ? (totalResult / totalNetContributions) * 100 : 0;
 
   const cards = [
     {
