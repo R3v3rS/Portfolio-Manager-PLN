@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Chart as ChartJS,
+  ChartData,
   CategoryScale,
   LinearScale,
   PointElement,
@@ -197,7 +198,7 @@ const LoanSimulator: React.FC = () => {
     };
   });
 
-  const chartData = {
+  const chartData: ChartData<'line', number[], string> = {
     labels: unifiedChartData.map(d => d.formattedDate),
     datasets: [
       {
