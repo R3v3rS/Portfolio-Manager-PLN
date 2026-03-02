@@ -25,7 +25,7 @@ const PortfolioDashboard: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [initialCash, setInitialCash] = useState('');
-  const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS'>('STANDARD');
+  const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK'>('STANDARD');
   const [createdAt, setCreatedAt] = useState(new Date().toISOString().split('T')[0]);
 
   const fetchData = async () => {
@@ -165,6 +165,7 @@ const PortfolioDashboard: React.FC = () => {
                       <option value="IKE">IKE (Akcje)</option>
                       <option value="BONDS">Obligacje</option>
                       <option value="SAVINGS">Konto Oszczędnościowe</option>
+                      <option value="PPK">PPK</option>
                     </select>
                   </div>
                   <div>

@@ -1,7 +1,7 @@
 export interface Portfolio {
   id: number;
   name: string;
-  account_type: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS';
+  account_type: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
   current_cash: number;
   total_deposits: number;
   savings_rate: number;

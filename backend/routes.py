@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from portfolio_service import PortfolioService
 from bond_service import BondService
 from price_service import PriceService
+from ppk_service import PPKService
 import re
 import pandas as pd
 from werkzeug.utils import secure_filename
@@ -173,6 +174,34 @@ def get_holdings(portfolio_id):
         return jsonify({'holdings': holdings}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+
+@portfolio_bp.route('/ppk/transactions/<int:portfolio_id>', methods=['GET'])
+def get_ppk_transactions(portfolio_id):
+    try:
+        transactions = PPKService.get_transactions(portfolio_id)
+        summary = PPKService.get_portfolio_summary(portfolio_id)
+        return jsonify({'transactions': transactions, 'summary': summary}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@portfolio_bp.route('/ppk/transactions', methods=['POST'])
+def add_ppk_transaction():
+    data = request.json
+    try:
+        PPKService.add_transaction(
+            data['portfolio_id'],
+            data.get('date'),
+            data['unitsPurchased'],
+            data['pricePerUnit'],
+            data['employeeContribution'],
+            data['employerContribution']
+        )
+        return jsonify({'message': 'PPK transaction added successfully'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 @portfolio_bp.route('/transactions/<int:portfolio_id>', methods=['GET'])
 def get_transactions(portfolio_id):
