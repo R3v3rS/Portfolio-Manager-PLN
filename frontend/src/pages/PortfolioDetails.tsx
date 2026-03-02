@@ -654,6 +654,7 @@ const PortfolioDetails: React.FC = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nazwa spółki</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
                     </tr>
                   </thead>
@@ -661,6 +662,7 @@ const PortfolioDetails: React.FC = () => {
                     {closedPositions.map((p) => (
                       <tr key={p.ticker}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.ticker}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.company_name || "-"}</td>
                         <td className={cn(
                           "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
                           p.realized_profit >= 0 ? "text-green-600" : "text-red-600"
@@ -671,7 +673,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {closedPositions.length === 0 && (
                       <tr>
-                        <td colSpan={2} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
+                        <td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
                       </tr>
                     )}
                   </tbody>
