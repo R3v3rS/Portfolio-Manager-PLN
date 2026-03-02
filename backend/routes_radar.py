@@ -14,11 +14,11 @@ def get_radar():
         if not tickers:
             return jsonify([])
 
-        # 2. Get Quotes (Price + Change)
-        quotes = PriceService.get_quotes(tickers)
-        
-        # 3. Get Market Events
-        events = PriceService.fetch_market_events(tickers)
+        should_refresh = request.args.get('refresh') == '1'
+        if should_refresh:
+            radar_data_map = PriceService.refresh_radar_data(tickers)
+        else:
+            radar_data_map = PriceService.get_cached_radar_data(tickers)
         
         # 4. Get Holdings Quantity
         # Get total quantity per ticker across all portfolios
@@ -32,20 +32,20 @@ def get_radar():
         
         result = []
         for ticker in tickers:
-            quote = quotes.get(ticker, {})
-            event = events.get(ticker, {})
+            radar_data = radar_data_map.get(ticker, {})
             qty = holdings_map.get(ticker, 0)
             
             result.append({
                 'ticker': ticker,
-                'price': quote.get('price'),
-                'change_1d': quote.get('change_1d'),
-                'change_7d': quote.get('change_7d'),
-                'change_1m': quote.get('change_1m'),
-                'change_1y': quote.get('change_1y'),
-                'next_earnings': event.get('next_earnings'),
-                'ex_dividend_date': event.get('ex_dividend_date'),
-                'dividend_yield': event.get('dividend_yield'),
+                'price': radar_data.get('price'),
+                'change_1d': radar_data.get('change_1d'),
+                'change_7d': radar_data.get('change_7d'),
+                'change_1m': radar_data.get('change_1m'),
+                'change_1y': radar_data.get('change_1y'),
+                'next_earnings': radar_data.get('next_earnings'),
+                'ex_dividend_date': radar_data.get('ex_dividend_date'),
+                'dividend_yield': radar_data.get('dividend_yield'),
+                'last_updated_at': radar_data.get('last_updated_at'),
                 'quantity': qty,
                 'is_held': qty > 0,
                 'is_watched': ticker in watchlist_map,
@@ -55,6 +55,29 @@ def get_radar():
         return jsonify(result)
     except Exception as e:
         print(f"Radar error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@radar_bp.route('/refresh', methods=['POST'])
+def refresh_radar_tickers():
+    try:
+        data = request.get_json(silent=True) or {}
+        requested_tickers = data.get('tickers') or []
+
+        if requested_tickers:
+            tickers = [ticker.upper() for ticker in requested_tickers if ticker]
+        else:
+            tickers = WatchlistService.get_radar_tickers()
+
+        if not tickers:
+            return jsonify({'message': 'No tickers to refresh', 'tickers': []}), 200
+
+        refreshed = PriceService.refresh_radar_data(tickers)
+        return jsonify({
+            'message': 'Radar data refreshed',
+            'tickers': list(refreshed.keys())
+        }), 200
+    except Exception as e:
+        print(f"Radar refresh error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @radar_bp.route('/watchlist', methods=['POST'])

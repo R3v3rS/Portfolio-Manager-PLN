@@ -332,6 +332,83 @@ class PriceService:
         return quotes
 
     @classmethod
+    def get_cached_radar_data(cls, tickers):
+        if not tickers:
+            return {}
+
+        placeholders = ','.join(['?'] * len(tickers))
+        db = get_db()
+        rows = db.execute(
+            f'''SELECT ticker, price, change_1d, change_7d, change_1m, change_1y,
+                       next_earnings, ex_dividend_date, dividend_yield, last_updated_at
+                FROM radar_cache
+                WHERE ticker IN ({placeholders})''',
+            tickers
+        ).fetchall()
+
+        return {
+            row['ticker']: {
+                'price': row['price'],
+                'change_1d': row['change_1d'],
+                'change_7d': row['change_7d'],
+                'change_1m': row['change_1m'],
+                'change_1y': row['change_1y'],
+                'next_earnings': row['next_earnings'],
+                'ex_dividend_date': row['ex_dividend_date'],
+                'dividend_yield': row['dividend_yield'],
+                'last_updated_at': row['last_updated_at']
+            }
+            for row in rows
+        }
+
+    @classmethod
+    def refresh_radar_data(cls, tickers):
+        if not tickers:
+            return {}
+
+        quotes = cls.get_quotes(tickers)
+        events = cls.fetch_market_events(tickers)
+
+        db = get_db()
+        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+
+        for ticker in tickers:
+            quote = quotes.get(ticker, {})
+            event = events.get(ticker, {})
+
+            db.execute(
+                '''INSERT INTO radar_cache
+                   (ticker, price, change_1d, change_7d, change_1m, change_1y,
+                    next_earnings, ex_dividend_date, dividend_yield, last_updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(ticker) DO UPDATE SET
+                     price = excluded.price,
+                     change_1d = excluded.change_1d,
+                     change_7d = excluded.change_7d,
+                     change_1m = excluded.change_1m,
+                     change_1y = excluded.change_1y,
+                     next_earnings = excluded.next_earnings,
+                     ex_dividend_date = excluded.ex_dividend_date,
+                     dividend_yield = excluded.dividend_yield,
+                     last_updated_at = excluded.last_updated_at''',
+                (
+                    ticker,
+                    quote.get('price'),
+                    quote.get('change_1d'),
+                    quote.get('change_7d'),
+                    quote.get('change_1m'),
+                    quote.get('change_1y'),
+                    event.get('next_earnings'),
+                    event.get('ex_dividend_date'),
+                    event.get('dividend_yield'),
+                    now
+                )
+            )
+
+        db.commit()
+        return cls.get_cached_radar_data(tickers)
+
+    @classmethod
     def fetch_market_events(cls, tickers):
         """
         Fetches upcoming earnings and dividend info.

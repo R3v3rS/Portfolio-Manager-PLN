@@ -101,6 +101,22 @@ def init_db(app):
         # Create index for stock prices
         db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_date ON stock_prices(date);')
+
+        # Radar cache table (snapshot to avoid frequent API calls)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS radar_cache (
+                ticker VARCHAR(10) PRIMARY KEY,
+                price DECIMAL(10,2),
+                change_1d DECIMAL(10,2),
+                change_7d DECIMAL(10,2),
+                change_1m DECIMAL(10,2),
+                change_1y DECIMAL(10,2),
+                next_earnings DATE,
+                ex_dividend_date DATE,
+                dividend_yield DECIMAL(10,6),
+                last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
         
         # Dividends table
         db.execute('''
