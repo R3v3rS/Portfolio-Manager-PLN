@@ -74,8 +74,12 @@ class PPKService:
     def calculate_summary(transactions, current_price: float | None = None):
         total_units = Decimal('0')
         weighted_cost = Decimal('0')
-        employee_sum = Decimal('0')
-        employer_weighted_sum = Decimal('0')
+        employee_purchase_value = Decimal('0')
+        employer_purchase_value = Decimal('0')
+        employee_current_value = Decimal('0')
+        employer_current_value = Decimal('0')
+
+        effective_price = _to_decimal(current_price) if current_price is not None else None
 
         for t in transactions:
             employee_units = _to_decimal(t['employee_units'])
@@ -85,16 +89,20 @@ class PPKService:
             employee_amount = employee_units * price
             employer_amount = employer_units * price
 
+            current_leg_price = effective_price if effective_price is not None else price
+            employee_leg_current_value = employee_units * current_leg_price
+            employer_leg_current_value = employer_units * current_leg_price
+
             total_units += units
             weighted_cost += units * price
-            employee_sum += employee_amount
-            employer_weighted_sum += employer_amount * EMPLOYER_WEIGHT
+            employee_purchase_value += employee_amount
+            employer_purchase_value += employer_amount * EMPLOYER_WEIGHT
+            employee_current_value += employee_leg_current_value
+            employer_current_value += employer_leg_current_value * EMPLOYER_WEIGHT
 
         avg_price = (weighted_cost / total_units) if total_units > 0 else Decimal('0')
-        weighted_contribution = employee_sum + employer_weighted_sum
-
-        effective_price = _to_decimal(current_price) if current_price is not None else avg_price
-        current_value = total_units * effective_price
+        weighted_contribution = employee_purchase_value + employer_purchase_value
+        current_value = employee_current_value + employer_current_value
         profit = current_value - weighted_contribution
         tax = profit * TAX_RATE if profit > 0 else Decimal('0')
         net_profit = profit - tax
