@@ -19,8 +19,7 @@ class PPKService:
     def get_transactions(portfolio_id: int):
         db = get_db()
         rows = db.execute(
-            '''SELECT id, portfolio_id, date, units_purchased, price_per_unit,
-                      employee_contribution, employer_contribution
+            '''SELECT id, portfolio_id, date, employee_units, employer_units, price_per_unit
                FROM ppk_transactions
                WHERE portfolio_id = ?
                ORDER BY date DESC, id DESC''',
@@ -29,17 +28,16 @@ class PPKService:
         return [dict(r) for r in rows]
 
     @staticmethod
-    def add_transaction(portfolio_id: int, tx_date: str, units_purchased: float, price_per_unit: float,
-                        employee_contribution: float, employer_contribution: float):
+    def add_transaction(portfolio_id: int, tx_date: str, employee_units: float, employer_units: float, price_per_unit: float):
         db = get_db()
         if not tx_date:
             tx_date = date.today().isoformat()
 
         db.execute(
             '''INSERT INTO ppk_transactions
-               (portfolio_id, date, units_purchased, price_per_unit, employee_contribution, employer_contribution)
-               VALUES (?, ?, ?, ?, ?, ?)''',
-            (portfolio_id, tx_date, units_purchased, price_per_unit, employee_contribution, employer_contribution)
+               (portfolio_id, date, employee_units, employer_units, price_per_unit)
+               VALUES (?, ?, ?, ?, ?)''',
+            (portfolio_id, tx_date, employee_units, employer_units, price_per_unit)
         )
         db.commit()
         return True
@@ -52,15 +50,17 @@ class PPKService:
         employer_weighted_sum = Decimal('0')
 
         for t in transactions:
-            units = _to_decimal(t['units_purchased'])
+            employee_units = _to_decimal(t['employee_units'])
+            employer_units = _to_decimal(t['employer_units'])
+            units = employee_units + employer_units
             price = _to_decimal(t['price_per_unit'])
-            employee = _to_decimal(t['employee_contribution'])
-            employer = _to_decimal(t['employer_contribution'])
+            employee_amount = employee_units * price
+            employer_amount = employer_units * price
 
             total_units += units
             weighted_cost += units * price
-            employee_sum += employee
-            employer_weighted_sum += employer * EMPLOYER_WEIGHT
+            employee_sum += employee_amount
+            employer_weighted_sum += employer_amount * EMPLOYER_WEIGHT
 
         avg_price = (weighted_cost / total_units) if total_units > 0 else Decimal('0')
         weighted_contribution = employee_sum + employer_weighted_sum
@@ -72,13 +72,13 @@ class PPKService:
         net_profit = profit - tax
 
         return {
-            'total_units': _q(total_units, '0.0001'),
-            'average_price': _q(avg_price),
-            'weighted_contribution': _q(weighted_contribution),
-            'current_value': _q(current_value),
+            'totalUnits': _q(total_units, '0.0001'),
+            'averagePrice': _q(avg_price),
+            'totalContribution': _q(weighted_contribution),
+            'currentValue': _q(current_value),
             'profit': _q(profit),
             'tax': _q(tax),
-            'net_profit': _q(net_profit),
+            'netProfit': _q(net_profit),
         }
 
     @staticmethod

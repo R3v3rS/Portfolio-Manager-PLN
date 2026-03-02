@@ -15,7 +15,7 @@ import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
-import { PPKTransaction as PPKTx, calculateTotalUnits, calculateAveragePrice } from '../services/ppkCalculator';
+import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -58,37 +58,33 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
 
 function PPKContributionForm({ portfolioId, onSuccess }: { portfolioId: number; onSuccess: () => void }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [units, setUnits] = useState('');
+  const [employeeUnits, setEmployeeUnits] = useState('');
+  const [employerUnits, setEmployerUnits] = useState('');
   const [price, setPrice] = useState('');
-  const [employee, setEmployee] = useState('');
-  const [employer, setEmployer] = useState('');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     await api.post('/ppk/transactions', {
       portfolio_id: portfolioId,
       date,
-      unitsPurchased: parseFloat(units),
+      employeeUnits: parseFloat(employeeUnits),
+      employerUnits: parseFloat(employerUnits),
       pricePerUnit: parseFloat(price),
-      employeeContribution: parseFloat(employee),
-      employerContribution: parseFloat(employer),
     });
-    setUnits('');
+    setEmployeeUnits('');
+    setEmployerUnits('');
     setPrice('');
-    setEmployee('');
-    setEmployer('');
     onSuccess();
   };
 
   return (
     <form onSubmit={submit} className="bg-white border border-purple-100 rounded-lg p-4 space-y-3">
       <button type="submit" className="px-3 py-2 text-sm bg-purple-600 text-white rounded">+ Add Monthly Contribution</button>
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="p-2 border rounded" required />
-        <input type="number" step="0.0001" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="Units" className="p-2 border rounded" required />
-        <input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Price" className="p-2 border rounded" required />
-        <input type="number" step="0.01" value={employee} onChange={(e) => setEmployee(e.target.value)} placeholder="Employee contribution" className="p-2 border rounded" required />
-        <input type="number" step="0.01" value={employer} onChange={(e) => setEmployer(e.target.value)} placeholder="Employer contribution" className="p-2 border rounded" required />
+        <input type="number" step="0.0001" value={employeeUnits} onChange={(e) => setEmployeeUnits(e.target.value)} placeholder="Employee units" className="p-2 border rounded" required />
+        <input type="number" step="0.0001" value={employerUnits} onChange={(e) => setEmployerUnits(e.target.value)} placeholder="Employer units" className="p-2 border rounded" required />
+        <input type="number" step="0.0001" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Price per unit" className="p-2 border rounded" required />
       </div>
     </form>
   );
@@ -100,6 +96,7 @@ const PortfolioDetails: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [bonds, setBonds] = useState<Bond[]>([]);
   const [ppkTransactions, setPpkTransactions] = useState<PPKTx[]>([]);
+  const [ppkSummary, setPpkSummary] = useState<PPKSummary | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results' | 'ppk'>('holdings');
@@ -173,6 +170,7 @@ const PortfolioDetails: React.FC = () => {
       if (found?.account_type === 'PPK') {
         const ppkRes = await api.get(`/ppk/transactions/${id}`);
         setPpkTransactions(ppkRes.data.transactions || []);
+        setPpkSummary(ppkRes.data.summary || null);
       }
       
       // Only set active tab if it's the first load (to preserve tab on refresh)
@@ -696,11 +694,11 @@ const PortfolioDetails: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
                   <p className="text-sm text-purple-700">Total units</p>
-                  <p className="text-2xl font-bold text-purple-900">{calculateTotalUnits(ppkTransactions).toFixed(4)}</p>
+                  <p className="text-2xl font-bold text-purple-900">{(ppkSummary?.totalUnits ?? 0).toFixed(4)}</p>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
                   <p className="text-sm text-purple-700">Average price</p>
-                  <p className="text-2xl font-bold text-purple-900">{calculateAveragePrice(ppkTransactions).toFixed(2)} PLN</p>
+                  <p className="text-2xl font-bold text-purple-900">{(ppkSummary?.averagePrice ?? 0).toFixed(2)} PLN</p>
                 </div>
               </div>
 
@@ -711,20 +709,22 @@ const PortfolioDetails: React.FC = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Units</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employee</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employer</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employee units</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employer units</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price / unit</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employee amount</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employer amount</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {ppkTransactions.map((tx) => (
                       <tr key={tx.id}>
                         <td className="px-4 py-3 text-sm text-gray-900">{tx.date}</td>
-                        <td className="px-4 py-3 text-sm text-right">{Number(tx.units_purchased).toFixed(4)}</td>
-                        <td className="px-4 py-3 text-sm text-right">{Number(tx.price_per_unit).toFixed(2)} PLN</td>
-                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employee_contribution).toFixed(2)} PLN</td>
-                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employer_contribution).toFixed(2)} PLN</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employee_units).toFixed(4)}</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employer_units).toFixed(4)}</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.price_per_unit).toFixed(4)} PLN</td>
+                        <td className="px-4 py-3 text-sm text-right">{(Number(tx.employee_units) * Number(tx.price_per_unit)).toFixed(2)} PLN</td>
+                        <td className="px-4 py-3 text-sm text-right">{(Number(tx.employer_units) * Number(tx.price_per_unit)).toFixed(2)} PLN</td>
                       </tr>
                     ))}
                   </tbody>
