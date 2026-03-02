@@ -380,8 +380,27 @@ def closed_positions(portfolio_id):
            ORDER BY realized_profit DESC''',
         (portfolio_id,)
     ).fetchall()
+
+    metadata_cache = {}
+
+    def get_company_name(ticker):
+        if ticker in metadata_cache:
+            return metadata_cache[ticker]
+
+        metadata = PriceService.fetch_metadata(ticker)
+        company_name = metadata.get('company_name') if metadata else None
+        metadata_cache[ticker] = company_name
+        return company_name
+
     total = sum(r['realized_profit'] or 0 for r in rows)
-    positions = [{'ticker': r['ticker'], 'realized_profit': float(r['realized_profit'] or 0)} for r in rows]
+    positions = [
+        {
+            'ticker': r['ticker'],
+            'company_name': get_company_name(r['ticker']),
+            'realized_profit': float(r['realized_profit'] or 0)
+        }
+        for r in rows
+    ]
     return jsonify({
         'positions': positions,
         'total_historical_profit': total

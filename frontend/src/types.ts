@@ -79,6 +79,7 @@ export interface PortfolioValue {
 
 export interface ClosedPosition {
   ticker: string;
+  company_name?: string | null;
   realized_profit: number;
 }
 
