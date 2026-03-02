@@ -16,6 +16,7 @@ import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
+import { getCurrentPPKPrice } from '../services/priceProvider';
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -97,6 +98,7 @@ const PortfolioDetails: React.FC = () => {
   const [bonds, setBonds] = useState<Bond[]>([]);
   const [ppkTransactions, setPpkTransactions] = useState<PPKTx[]>([]);
   const [ppkSummary, setPpkSummary] = useState<PPKSummary | null>(null);
+  const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string } | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results' | 'ppk'>('holdings');
@@ -168,7 +170,10 @@ const PortfolioDetails: React.FC = () => {
         setPortfolioHistory(histRes.data.history);
       }
       if (found?.account_type === 'PPK') {
-        const ppkRes = await api.get(`/ppk/transactions/${id}`);
+        const currentPpkPrice = await getCurrentPPKPrice();
+        setPpkCurrentPrice(currentPpkPrice);
+
+        const ppkRes = await api.get(`/ppk/transactions/${id}?current_price=${currentPpkPrice.price}`);
         setPpkTransactions(ppkRes.data.transactions || []);
         setPpkSummary(ppkRes.data.summary || null);
       }
@@ -699,6 +704,18 @@ const PortfolioDetails: React.FC = () => {
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
                   <p className="text-sm text-purple-700">Average price</p>
                   <p className="text-2xl font-bold text-purple-900">{(ppkSummary?.averagePrice ?? 0).toFixed(2)} PLN</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <p className="text-sm text-purple-700">Aktualna cena pakietu PPK</p>
+                  <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice ? `${ppkCurrentPrice.price.toFixed(2)} PLN` : '-'}</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <p className="text-sm text-purple-700">Ostatnia aktualizacja ceny</p>
+                  <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice?.date || '-'}</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100 md:col-span-2">
+                  <p className="text-sm text-purple-700">Wartość bieżąca (wg aktualnej ceny)</p>
+                  <p className="text-2xl font-bold text-purple-900">{ppkSummary ? `${ppkSummary.currentValue.toFixed(2)} PLN` : '-'}</p>
                 </div>
               </div>
 
