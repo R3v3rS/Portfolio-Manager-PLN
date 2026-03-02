@@ -11,6 +11,8 @@ export interface PPKSummary {
   totalUnits: number;
   averagePrice: number;
   totalContribution: number;
+  currentValue: number;
   profit: number;
+  tax: number;
   netProfit: number;
 }
