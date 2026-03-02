@@ -44,6 +44,33 @@ def init_db(app):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+
+        # PPK portfolios table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS ppk_portfolios (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (id) REFERENCES portfolios(id)
+            );
+        ''')
+
+        # PPK transactions table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS ppk_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                portfolio_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                units_purchased DECIMAL(14,6) NOT NULL,
+                price_per_unit DECIMAL(14,6) NOT NULL,
+                employee_contribution DECIMAL(14,2) NOT NULL,
+                employer_contribution DECIMAL(14,2) NOT NULL,
+                FOREIGN KEY (portfolio_id) REFERENCES ppk_portfolios(id)
+            );
+        ''')
+
+        db.execute('CREATE INDEX IF NOT EXISTS idx_ppk_transactions_portfolio ON ppk_transactions(portfolio_id);')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_ppk_transactions_date ON ppk_transactions(date);')
         
         # Create index for portfolios name
         db.execute('CREATE INDEX IF NOT EXISTS idx_portfolios_name ON portfolios(name);')

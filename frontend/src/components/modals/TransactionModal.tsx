@@ -9,7 +9,7 @@ interface TransactionModalProps {
   onClose: () => void;
   onSuccess: () => void;
   portfolioId: number;
-  portfolioType: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS';
+  portfolioType: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
   holdings: Holding[];
 }
 

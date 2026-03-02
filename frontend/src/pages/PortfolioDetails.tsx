@@ -15,6 +15,7 @@ import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
+import { PPKTransaction as PPKTx, calculateTotalUnits, calculateAveragePrice } from '../services/ppkCalculator';
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -54,14 +55,54 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
   );
 }
 
+
+function PPKContributionForm({ portfolioId, onSuccess }: { portfolioId: number; onSuccess: () => void }) {
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [units, setUnits] = useState('');
+  const [price, setPrice] = useState('');
+  const [employee, setEmployee] = useState('');
+  const [employer, setEmployer] = useState('');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await api.post('/ppk/transactions', {
+      portfolio_id: portfolioId,
+      date,
+      unitsPurchased: parseFloat(units),
+      pricePerUnit: parseFloat(price),
+      employeeContribution: parseFloat(employee),
+      employerContribution: parseFloat(employer),
+    });
+    setUnits('');
+    setPrice('');
+    setEmployee('');
+    setEmployer('');
+    onSuccess();
+  };
+
+  return (
+    <form onSubmit={submit} className="bg-white border border-purple-100 rounded-lg p-4 space-y-3">
+      <button type="submit" className="px-3 py-2 text-sm bg-purple-600 text-white rounded">+ Add Monthly Contribution</button>
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="p-2 border rounded" required />
+        <input type="number" step="0.0001" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="Units" className="p-2 border rounded" required />
+        <input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Price" className="p-2 border rounded" required />
+        <input type="number" step="0.01" value={employee} onChange={(e) => setEmployee(e.target.value)} placeholder="Employee contribution" className="p-2 border rounded" required />
+        <input type="number" step="0.01" value={employer} onChange={(e) => setEmployer(e.target.value)} placeholder="Employer contribution" className="p-2 border rounded" required />
+      </div>
+    </form>
+  );
+}
+
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [bonds, setBonds] = useState<Bond[]>([]);
+  const [ppkTransactions, setPpkTransactions] = useState<PPKTx[]>([]);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results'>('holdings');
+  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results' | 'ppk'>('holdings');
   
   // Modals state
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -129,12 +170,17 @@ const PortfolioDetails: React.FC = () => {
         const histRes = await api.get(`/history/monthly/${id}`);
         setPortfolioHistory(histRes.data.history);
       }
+      if (found?.account_type === 'PPK') {
+        const ppkRes = await api.get(`/ppk/transactions/${id}`);
+        setPpkTransactions(ppkRes.data.transactions || []);
+      }
       
       // Only set active tab if it's the first load (to preserve tab on refresh)
       // Actually, standard behavior is fine, but let's just ensure we don't overwrite user selection if we were to re-fetch periodically
       if (activeTab === 'holdings' && found) {
           if (found.account_type === 'BONDS') setActiveTab('bonds');
           else if (found.account_type === 'SAVINGS') setActiveTab('savings');
+          else if (found.account_type === 'PPK') setActiveTab('ppk');
       }
 
       // Fetch histories for standard portfolios
@@ -195,7 +241,8 @@ const PortfolioDetails: React.FC = () => {
     history: 'Historia Transakcji',
     bonds: 'Obligacje',
     savings: 'Oszczędności',
-    closed: 'Zamknięte Pozycje'
+    closed: 'Zamknięte Pozycje',
+    ppk: 'PPK'
   };
 
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
@@ -218,6 +265,7 @@ const PortfolioDetails: React.FC = () => {
             portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
             portfolio.account_type === 'BONDS' ? "bg-amber-100 text-amber-800" :
             portfolio.account_type === 'IKE' ? "bg-indigo-100 text-indigo-800" :
+            portfolio.account_type === 'PPK' ? "bg-purple-100 text-purple-800" :
             "bg-gray-100 text-gray-800"
           )}>
             {portfolio.account_type}
@@ -304,7 +352,9 @@ const PortfolioDetails: React.FC = () => {
                 ? ['savings', 'history'] 
                 : portfolio.account_type === 'BONDS'
                   ? ['bonds', 'history']
-                  : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed']
+                  : portfolio.account_type === 'PPK'
+                    ? ['ppk']
+                    : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed']
             ).map((tab) => (
               <button
                 key={tab}
@@ -637,6 +687,49 @@ const PortfolioDetails: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+
+          {activeTab === 'ppk' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <p className="text-sm text-purple-700">Total units</p>
+                  <p className="text-2xl font-bold text-purple-900">{calculateTotalUnits(ppkTransactions).toFixed(4)}</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <p className="text-sm text-purple-700">Average price</p>
+                  <p className="text-2xl font-bold text-purple-900">{calculateAveragePrice(ppkTransactions).toFixed(2)} PLN</p>
+                </div>
+              </div>
+
+              <PPKContributionForm portfolioId={portfolio.id} onSuccess={fetchData} />
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Units</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employee</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employer</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {ppkTransactions.map((tx) => (
+                      <tr key={tx.id}>
+                        <td className="px-4 py-3 text-sm text-gray-900">{tx.date}</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.units_purchased).toFixed(4)}</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.price_per_unit).toFixed(2)} PLN</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employee_contribution).toFixed(2)} PLN</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employer_contribution).toFixed(2)} PLN</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
