@@ -95,6 +95,7 @@ export interface RadarItem {
   dividend_yield: number | null;
   quantity: number;
   is_watched: boolean;
+  last_updated_at: string | null;
 }
 
 export interface StockAnalysisData {
