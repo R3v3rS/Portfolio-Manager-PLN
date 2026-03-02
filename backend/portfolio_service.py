@@ -807,7 +807,7 @@ class PortfolioService:
             total_value = current_cash + holdings_value
         elif account_type == 'PPK':
             ppk_summary = PPKService.get_portfolio_summary(portfolio_id)
-            holdings_value = ppk_summary['current_value']
+            holdings_value = ppk_summary['currentValue']
             total_value = current_cash + holdings_value
         else:
             # STANDARD or IKE

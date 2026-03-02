@@ -61,10 +61,9 @@ def init_db(app):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 portfolio_id INTEGER NOT NULL,
                 date TEXT NOT NULL,
-                units_purchased DECIMAL(14,6) NOT NULL,
+                employee_units DECIMAL(14,6) NOT NULL,
+                employer_units DECIMAL(14,6) NOT NULL,
                 price_per_unit DECIMAL(14,6) NOT NULL,
-                employee_contribution DECIMAL(14,2) NOT NULL,
-                employer_contribution DECIMAL(14,2) NOT NULL,
                 FOREIGN KEY (portfolio_id) REFERENCES ppk_portfolios(id)
             );
         ''')
@@ -288,6 +287,73 @@ def init_db(app):
                 FOREIGN KEY (source_envelope_id) REFERENCES envelopes(id)
             );
         ''')
+
+
+        # Migration: move PPK transaction model from contribution amounts to units
+        ppk_columns = {row['name'] for row in db.execute("PRAGMA table_info(ppk_transactions)").fetchall()}
+        if ppk_columns and 'employee_contribution' in ppk_columns:
+            db.execute('''
+                CREATE TABLE IF NOT EXISTS ppk_transactions_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    portfolio_id INTEGER NOT NULL,
+                    date TEXT NOT NULL,
+                    employee_units DECIMAL(14,6) NOT NULL,
+                    employer_units DECIMAL(14,6) NOT NULL,
+                    price_per_unit DECIMAL(14,6) NOT NULL,
+                    FOREIGN KEY (portfolio_id) REFERENCES ppk_portfolios(id)
+                );
+            ''')
+
+            db.execute('''
+                INSERT INTO ppk_transactions_new (id, portfolio_id, date, employee_units, employer_units, price_per_unit)
+                SELECT
+                    id,
+                    portfolio_id,
+                    date,
+                    CASE
+                        WHEN COALESCE(price_per_unit, 0) > 0 THEN
+                            (
+                                COALESCE(employee_contribution, 0) / price_per_unit
+                            )
+                            *
+                            CASE
+                                WHEN (COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)) > 0
+                                THEN COALESCE(units_purchased, 0) / ((COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)) / price_per_unit)
+                                ELSE 1
+                            END
+                        ELSE
+                            CASE
+                                WHEN (COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)) > 0
+                                THEN COALESCE(units_purchased, 0) * (COALESCE(employee_contribution, 0) / (COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)))
+                                ELSE COALESCE(units_purchased, 0) / 2.0
+                            END
+                    END AS employee_units,
+                    CASE
+                        WHEN COALESCE(price_per_unit, 0) > 0 THEN
+                            (
+                                COALESCE(employer_contribution, 0) / price_per_unit
+                            )
+                            *
+                            CASE
+                                WHEN (COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)) > 0
+                                THEN COALESCE(units_purchased, 0) / ((COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)) / price_per_unit)
+                                ELSE 1
+                            END
+                        ELSE
+                            CASE
+                                WHEN (COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)) > 0
+                                THEN COALESCE(units_purchased, 0) * (COALESCE(employer_contribution, 0) / (COALESCE(employee_contribution, 0) + COALESCE(employer_contribution, 0)))
+                                ELSE COALESCE(units_purchased, 0) / 2.0
+                            END
+                    END AS employer_units,
+                    COALESCE(price_per_unit, 0)
+                FROM ppk_transactions;
+            ''')
+
+            db.execute('DROP TABLE ppk_transactions')
+            db.execute('ALTER TABLE ppk_transactions_new RENAME TO ppk_transactions')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_ppk_transactions_portfolio ON ppk_transactions(portfolio_id);')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_ppk_transactions_date ON ppk_transactions(date);')
 
         # Migration: Add 'type' column to loan_overpayments if it doesn't exist
         try:

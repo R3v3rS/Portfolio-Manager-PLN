@@ -194,10 +194,9 @@ def add_ppk_transaction():
         PPKService.add_transaction(
             data['portfolio_id'],
             data.get('date'),
-            data['unitsPurchased'],
-            data['pricePerUnit'],
-            data['employeeContribution'],
-            data['employerContribution']
+            data['employeeUnits'],
+            data['employerUnits'],
+            data['pricePerUnit']
         )
         return jsonify({'message': 'PPK transaction added successfully'}), 201
     except Exception as e:
