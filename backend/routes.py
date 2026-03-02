@@ -181,10 +181,21 @@ def get_holdings(portfolio_id):
 def get_ppk_transactions(portfolio_id):
     try:
         current_price_raw = request.args.get('current_price')
-        current_price = float(current_price_raw) if current_price_raw is not None else None
+        current_price_data = None
+        current_price = None
+
+        if current_price_raw is not None:
+            current_price = float(current_price_raw)
+        else:
+            try:
+                current_price_data = PPKService.fetch_current_price()
+                current_price = current_price_data['price']
+            except Exception:
+                current_price_data = None
+
         transactions = PPKService.get_transactions(portfolio_id)
         summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
-        return jsonify({'transactions': transactions, 'summary': summary}), 200
+        return jsonify({'transactions': transactions, 'summary': summary, 'currentPrice': current_price_data}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
