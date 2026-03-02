@@ -16,7 +16,6 @@ import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
-import { getCurrentPPKPrice } from '../services/priceProvider';
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -170,12 +169,10 @@ const PortfolioDetails: React.FC = () => {
         setPortfolioHistory(histRes.data.history);
       }
       if (found?.account_type === 'PPK') {
-        const currentPpkPrice = await getCurrentPPKPrice();
-        setPpkCurrentPrice(currentPpkPrice);
-
-        const ppkRes = await api.get(`/ppk/transactions/${id}?current_price=${currentPpkPrice.price}`);
+        const ppkRes = await api.get(`/ppk/transactions/${id}`);
         setPpkTransactions(ppkRes.data.transactions || []);
         setPpkSummary(ppkRes.data.summary || null);
+        setPpkCurrentPrice(ppkRes.data.currentPrice || null);
       }
       
       // Only set active tab if it's the first load (to preserve tab on refresh)
@@ -254,7 +251,7 @@ const PortfolioDetails: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Import XTB CSV button */}
-      {portfolio && (
+      {portfolio && portfolio.account_type !== 'PPK' && (
         <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchData} />
       )}
       <div className="flex items-center space-x-4">
@@ -375,22 +372,24 @@ const PortfolioDetails: React.FC = () => {
           </nav>
 
           {/* Right: Action Buttons */}
-          <div className="flex space-x-3">
-             <button
-                onClick={() => setIsTransferModalOpen(true)}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-             >
-                <RefreshCw className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
-                Transfer
-             </button>
-             <button
-                onClick={() => setIsTransactionModalOpen(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-             >
-                <Plus className="-ml-1 mr-2 h-4 w-4" />
-                Nowa Operacja
-             </button>
-          </div>
+          {portfolio.account_type !== 'PPK' && (
+            <div className="flex space-x-3">
+               <button
+                  onClick={() => setIsTransferModalOpen(true)}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+               >
+                  <RefreshCw className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
+                  Transfer
+               </button>
+               <button
+                  onClick={() => setIsTransactionModalOpen(true)}
+                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+               >
+                  <Plus className="-ml-1 mr-2 h-4 w-4" />
+                  Nowa Operacja
+               </button>
+            </div>
+          )}
         </div>
 
         <div className="p-6">

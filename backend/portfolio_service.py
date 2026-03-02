@@ -806,7 +806,13 @@ class PortfolioService:
             holdings_value = sum(b['total_value'] for b in bonds)
             total_value = current_cash + holdings_value
         elif account_type == 'PPK':
-            ppk_summary = PPKService.get_portfolio_summary(portfolio_id)
+            current_price = None
+            try:
+                current_price = PPKService.fetch_current_price()['price']
+            except Exception:
+                current_price = None
+
+            ppk_summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
             holdings_value = ppk_summary['currentValue']
             total_value = current_cash + holdings_value
         else:

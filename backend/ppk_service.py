@@ -1,9 +1,12 @@
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
+import re
+from urllib.request import Request, urlopen
 from database import get_db
 
 TAX_RATE = Decimal('0.19')
 EMPLOYER_WEIGHT = Decimal('0.7')
+PPK_PRICE_URL = 'https://mojefundusze.pl/Fundusze/PPK/Nationale-Nederlanden-DFE-Nasze-Jutro-2055-PPK'
 
 
 def _to_decimal(value) -> Decimal:
@@ -15,6 +18,31 @@ def _q(value: Decimal, places: str = '0.01') -> float:
 
 
 class PPKService:
+    @staticmethod
+    def fetch_current_price():
+        request = Request(
+            PPK_PRICE_URL,
+            headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': 'text/html',
+            },
+        )
+
+        with urlopen(request, timeout=8) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+
+        date_match = re.search(r'<strong>\s*(\d{4}-\d{2}-\d{2})\s*</strong>', html, re.IGNORECASE)
+        price_match = re.search(r'<h1>\s*([0-9\s,\.]+)\s*PLN\s*</h1>', html, re.IGNORECASE)
+
+        if not date_match or not price_match:
+            raise ValueError('Nie udało się pobrać aktualnej ceny PPK ze strony źródłowej.')
+
+        price = float(price_match.group(1).replace(' ', '').replace(',', '.'))
+        return {
+            'price': _q(Decimal(str(price))),
+            'date': date_match.group(1),
+        }
+
     @staticmethod
     def get_transactions(portfolio_id: int):
         db = get_db()
