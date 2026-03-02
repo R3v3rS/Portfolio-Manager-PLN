@@ -16,6 +16,17 @@ import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
 import { PPKTransaction as PPKTx, calculateTotalUnits, calculateAveragePrice } from '../services/ppkCalculator';
+import { getCurrentPPKPrice } from '../services/priceProvider';
+
+type PPKSummary = {
+  total_units: number;
+  average_price: number;
+  weighted_contribution: number;
+  current_value: number;
+  profit: number;
+  tax: number;
+  net_profit: number;
+};
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -100,6 +111,8 @@ const PortfolioDetails: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [bonds, setBonds] = useState<Bond[]>([]);
   const [ppkTransactions, setPpkTransactions] = useState<PPKTx[]>([]);
+  const [ppkSummary, setPpkSummary] = useState<PPKSummary | null>(null);
+  const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string } | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results' | 'ppk'>('holdings');
@@ -171,8 +184,12 @@ const PortfolioDetails: React.FC = () => {
         setPortfolioHistory(histRes.data.history);
       }
       if (found?.account_type === 'PPK') {
-        const ppkRes = await api.get(`/ppk/transactions/${id}`);
+        const currentPpkPrice = await getCurrentPPKPrice();
+        setPpkCurrentPrice(currentPpkPrice);
+
+        const ppkRes = await api.get(`/ppk/transactions/${id}?current_price=${currentPpkPrice.price}`);
         setPpkTransactions(ppkRes.data.transactions || []);
+        setPpkSummary(ppkRes.data.summary || null);
       }
       
       // Only set active tab if it's the first load (to preserve tab on refresh)
@@ -701,6 +718,18 @@ const PortfolioDetails: React.FC = () => {
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
                   <p className="text-sm text-purple-700">Average price</p>
                   <p className="text-2xl font-bold text-purple-900">{calculateAveragePrice(ppkTransactions).toFixed(2)} PLN</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <p className="text-sm text-purple-700">Aktualna cena pakietu PPK</p>
+                  <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice ? `${ppkCurrentPrice.price.toFixed(2)} PLN` : '-'}</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <p className="text-sm text-purple-700">Ostatnia aktualizacja ceny</p>
+                  <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice?.date || '-'}</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100 md:col-span-2">
+                  <p className="text-sm text-purple-700">Wartość bieżąca (wg aktualnej ceny)</p>
+                  <p className="text-2xl font-bold text-purple-900">{ppkSummary ? `${ppkSummary.current_value.toFixed(2)} PLN` : '-'}</p>
                 </div>
               </div>
 

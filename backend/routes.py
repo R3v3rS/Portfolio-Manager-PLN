@@ -180,8 +180,10 @@ def get_holdings(portfolio_id):
 @portfolio_bp.route('/ppk/transactions/<int:portfolio_id>', methods=['GET'])
 def get_ppk_transactions(portfolio_id):
     try:
+        current_price_raw = request.args.get('current_price')
+        current_price = float(current_price_raw) if current_price_raw is not None else None
         transactions = PPKService.get_transactions(portfolio_id)
-        summary = PPKService.get_portfolio_summary(portfolio_id)
+        summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
         return jsonify({'transactions': transactions, 'summary': summary}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
