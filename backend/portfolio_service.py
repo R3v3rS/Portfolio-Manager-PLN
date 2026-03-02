@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta, date
 from bond_service import BondService
 from math_utils import xirr
+from ppk_service import PPKService
 
 class PortfolioService:
     @staticmethod
@@ -105,6 +106,13 @@ class PortfolioService:
                 (name, initial_cash, initial_cash, account_type, interest_date, created_at)
             )
             portfolio_id = cursor.lastrowid
+
+            if account_type == 'PPK':
+                cursor.execute(
+                    '''INSERT INTO ppk_portfolios (id, name, created_at)
+                       VALUES (?, ?, ?)''',
+                    (portfolio_id, name, created_at)
+                )
             
             if initial_cash > 0:
                 cursor.execute(
@@ -796,6 +804,10 @@ class PortfolioService:
             # Get bonds and their accrued interest
             bonds = BondService.get_bonds(portfolio_id)
             holdings_value = sum(b['total_value'] for b in bonds)
+            total_value = current_cash + holdings_value
+        elif account_type == 'PPK':
+            ppk_summary = PPKService.get_portfolio_summary(portfolio_id)
+            holdings_value = ppk_summary['current_value']
             total_value = current_cash + holdings_value
         else:
             # STANDARD or IKE

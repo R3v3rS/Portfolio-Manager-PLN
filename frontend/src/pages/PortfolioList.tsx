@@ -11,7 +11,7 @@ const PortfolioList: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [initialCash, setInitialCash] = useState('');
-  const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS'>('STANDARD');
+  const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK'>('STANDARD');
   const [createdAt, setCreatedAt] = useState(new Date().toISOString().split('T')[0]);
 
   const fetchPortfolios = async () => {
@@ -108,6 +108,7 @@ const PortfolioList: React.FC = () => {
                 <option value="IKE">IKE (Stocks)</option>
                 <option value="BONDS">Bonds (Obligacje)</option>
                 <option value="SAVINGS">Savings Account</option>
+                <option value="PPK">PPK</option>
               </select>
             </div>
             <div>
@@ -159,6 +160,7 @@ const PortfolioList: React.FC = () => {
                       portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
                       portfolio.account_type === 'BONDS' ? "bg-amber-100 text-amber-800" :
                       portfolio.account_type === 'IKE' ? "bg-indigo-100 text-indigo-800" :
+                      portfolio.account_type === 'PPK' ? "bg-purple-100 text-purple-800" :
                       "bg-gray-100 text-gray-800"
                     )}>
                       {portfolio.account_type}
