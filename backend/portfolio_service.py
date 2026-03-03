@@ -785,7 +785,9 @@ class PortfolioService:
         holdings_value = 0.0
         live_interest = 0.0
         extra_data = {}
-        
+        ppk_total_contribution = None
+        ppk_total_result = None
+
         if account_type == 'SAVINGS':
             # Calculate live accrued interest from last_interest_date to today
             last_date_str = portfolio['last_interest_date']
@@ -810,9 +812,11 @@ class PortfolioService:
                 current_price = None
 
             ppk_summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
-            # Use totalCurrentValue as holdings value (market value)
-            holdings_value = ppk_summary['totalCurrentValue']
+            # For PPK show withdrawable value (employee 100%, employer 70%, reduced by 19% tax on gains).
+            holdings_value = ppk_summary['totalNetValue']
             total_value = current_cash + holdings_value
+            ppk_total_contribution = float(ppk_summary['totalPurchaseValue'])
+            ppk_total_result = float(ppk_summary['netProfit'])
             extra_data = ppk_summary
         else:
             # STANDARD or IKE
@@ -848,8 +852,11 @@ class PortfolioService:
             (portfolio_id,)
         ).fetchone()
         net_contributions = float(flows_result['deposits']) - float(flows_result['withdrawals'])
+        if account_type == 'PPK':
+            # PPK contribution baseline comes from PPK unit purchases, not generic cash flows.
+            net_contributions = ppk_total_contribution or 0.0
 
-        total_result = total_value - net_contributions
+        total_result = ppk_total_result if (account_type == 'PPK' and ppk_total_result is not None) else (total_value - net_contributions)
         total_result_percent = (total_result / net_contributions * 100) if net_contributions > 0 else 0.0
         
         # Calculate XIRR
