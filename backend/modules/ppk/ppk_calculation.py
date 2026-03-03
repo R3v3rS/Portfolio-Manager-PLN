@@ -4,6 +4,8 @@ from .ppk_tax import PPKTaxCalculator
 from .ppk_dto import PPKSummaryDTO
 
 class PPKCalculation:
+    EMPLOYER_WITHDRAWAL_REDUCTION_WEIGHT = Decimal('0.30')
+
     @staticmethod
     def _to_decimal(value) -> Decimal:
         return Decimal(str(value or 0))
@@ -59,19 +61,24 @@ class PPKCalculation:
         # 5. Net Value (Purchase + Net Profit)
         emp_net_val = emp_purchase_val + emp_net_profit
         empr_net_val = empr_purchase_val + empr_net_profit
-        
+
+        # 6. PPK withdrawal reduction (30% from employer purchase value)
+        employer_withdrawal_reduction = empr_purchase_val * PPKCalculation.EMPLOYER_WITHDRAWAL_REDUCTION_WEIGHT
+        employer_withdrawable_val = empr_net_val - employer_withdrawal_reduction
+
         # Totals
         total_purchase_val = emp_purchase_val + empr_purchase_val
         total_current_val = emp_current_val + empr_current_val
         total_net_val = emp_net_val + empr_net_val
         total_tax = emp_tax + empr_tax
         total_profit = emp_profit + empr_profit
+        total_withdrawable_val = emp_net_val + employer_withdrawable_val
         
         # Legacy / Extra fields for compatibility
         total_units = emp_units + empr_units
         avg_price = (total_purchase_val / total_units) if total_units > 0 else Decimal('0')
-        # For UI compatibility, net profit reflects the withdrawable amount
-        # after applying capital gains tax.
+        # For UI compatibility, net profit shows investment growth after tax
+        # without applying employer 30% withdrawal reduction.
         net_profit_amount = total_net_val - total_purchase_val
 
         return {
@@ -89,7 +96,7 @@ class PPKCalculation:
             
             "totalPurchaseValue": PPKCalculation._q(total_purchase_val),
             "totalCurrentValue": PPKCalculation._q(total_current_val),
-            "totalNetValue": PPKCalculation._q(total_net_val),
+            "totalNetValue": PPKCalculation._q(total_withdrawable_val),
             "totalTax": PPKCalculation._q(total_tax),
             "totalProfit": PPKCalculation._q(total_profit),
 
@@ -97,8 +104,8 @@ class PPKCalculation:
             "totalUnits": PPKCalculation._q(total_units, '0.0001'),
             "averagePrice": PPKCalculation._q(avg_price),
             "totalContribution": PPKCalculation._q(total_purchase_val),
-            # For PPK UI we expose withdrawable value after 19% capital gains tax.
-            "currentValue": PPKCalculation._q(total_net_val),
+            # For PPK UI we expose withdrawable value after tax and PPK employer reduction.
+            "currentValue": PPKCalculation._q(total_withdrawable_val),
             "profit": PPKCalculation._q(net_profit_amount),
             "tax": PPKCalculation._q(total_tax),
             "netProfit": PPKCalculation._q(net_profit_amount)
