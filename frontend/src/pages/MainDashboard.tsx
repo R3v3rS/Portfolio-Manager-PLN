@@ -15,6 +15,7 @@ interface GlobalSummary {
     savings: number;
     bonds: number;
     stocks: number;
+    ppk: number;
   };
   quick_stats: {
     free_pool: number;
@@ -53,6 +54,7 @@ const MainDashboard: React.FC = () => {
     { name: 'Konta Oszcz.', value: data.assets_breakdown.savings, color: '#6366F1' }, // indigo-500
     { name: 'Obligacje', value: data.assets_breakdown.bonds, color: '#F59E0B' }, // amber-500
     { name: 'Akcje / ETF', value: data.assets_breakdown.stocks, color: '#3B82F6' }, // blue-500
+    { name: 'PPK', value: data.assets_breakdown.ppk, color: '#A855F7' }, // purple-500
   ].filter(item => item.value > 0);
 
   return (

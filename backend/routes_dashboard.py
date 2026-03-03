@@ -32,6 +32,7 @@ def global_summary():
     breakdown_savings = 0.0
     breakdown_bonds = 0.0
     breakdown_stocks = 0.0
+    breakdown_ppk = 0.0
     
     for p in portfolios:
         p_val = PortfolioService.get_portfolio_value(p['id'])
@@ -43,6 +44,9 @@ def global_summary():
             if p_type == 'SAVINGS':
                 # For SAVINGS, the entire value is considered "Konta Oszczędnościowe"
                 breakdown_savings += p_val['portfolio_value']
+            elif p_type == 'PPK':
+                # Keep PPK as separate bucket in global assets structure
+                breakdown_ppk += p_val['portfolio_value']
             elif p_type == 'BONDS':
                 # For BONDS, split cash and holdings
                 breakdown_cash_invest += p_val['cash_value']
@@ -119,7 +123,8 @@ def global_summary():
             "invest_cash": round(breakdown_cash_invest, 2),
             "savings": round(breakdown_savings, 2),
             "bonds": round(breakdown_bonds, 2),
-            "stocks": round(breakdown_stocks, 2)
+            "stocks": round(breakdown_stocks, 2),
+            "ppk": round(breakdown_ppk, 2)
         },
         "quick_stats": {
             "free_pool": round(total_free_pool, 2),
