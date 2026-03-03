@@ -4,6 +4,8 @@ from .ppk_tax import PPKTaxCalculator
 from .ppk_dto import PPKSummaryDTO
 
 class PPKCalculation:
+    EMPLOYER_WITHDRAWAL_REDUCTION_WEIGHT = Decimal('0.30')
+
     @staticmethod
     def _to_decimal(value) -> Decimal:
         return Decimal(str(value or 0))
@@ -52,11 +54,16 @@ class PPKCalculation:
         emp_tax = PPKTaxCalculator.calculate_tax(emp_profit, is_employer=False)
         empr_tax = PPKTaxCalculator.calculate_tax(empr_profit, is_employer=True)
         
-        # 4. Net Profit
+        # 4. Reduction on early withdrawal in PPK
+        # 30% of employer contributions is transferred to ZUS,
+        # and should be calculated on contribution value at purchase price.
+        employer_withdrawal_reduction = empr_purchase_val * PPKCalculation.EMPLOYER_WITHDRAWAL_REDUCTION_WEIGHT
+
+        # 5. Net Profit
         emp_net_profit = emp_profit - emp_tax
-        empr_net_profit = empr_profit - empr_tax
-        
-        # 5. Net Value (Purchase + Net Profit)
+        empr_net_profit = empr_profit - empr_tax - employer_withdrawal_reduction
+
+        # 6. Net Value (Purchase + Net Profit)
         emp_net_val = emp_purchase_val + emp_net_profit
         empr_net_val = empr_purchase_val + empr_net_profit
         
@@ -70,7 +77,9 @@ class PPKCalculation:
         # Legacy / Extra fields for compatibility
         total_units = emp_units + empr_units
         avg_price = (total_purchase_val / total_units) if total_units > 0 else Decimal('0')
-        net_profit_amount = total_profit - total_tax
+        # For UI compatibility, net profit should reflect final withdrawable amount
+        # after tax and employer 30% reduction.
+        net_profit_amount = total_net_val - total_purchase_val
 
         return {
             "purchaseValueEmployee": PPKCalculation._q(emp_purchase_val),
