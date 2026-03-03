@@ -26,6 +26,7 @@ print(f"Using yfinance cache at: {cache_dir}")
 
 class PriceService:
     _price_cache = {}
+    _price_cache_updated_at = {}
 
     @classmethod
     def _download_with_retry(cls, *args, **kwargs):
@@ -81,6 +82,7 @@ class PriceService:
                                 if hasattr(price, 'item'):
                                     price = price.item()
                                 cls._price_cache[ticker] = round(float(price), 2)
+                                cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
                         
                     except Exception as e:
                         print(f"[ERROR] Failed to process bulk data for {ticker}: {e}")
@@ -100,12 +102,14 @@ class PriceService:
                         if not hist.empty:
                             price = hist['Close'].iloc[-1]
                             cls._price_cache[ticker] = round(float(price), 2)
+                            cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
                         else:
                             # Try fast_info as last resort
                             try:
                                 price = t.fast_info.last_price
                                 if price:
                                     cls._price_cache[ticker] = round(float(price), 2)
+                                    cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
                             except:
                                 print(f"[WARNING] No data for {ticker}")
                     except Exception as e:
@@ -115,8 +119,17 @@ class PriceService:
             for ticker in missing_tickers:
                 if ticker not in cls._price_cache:
                     cls._price_cache[ticker] = None
+                    cls._price_cache_updated_at[ticker] = None
         
         return cls._price_cache
+
+    @classmethod
+    def get_price_updates(cls, tickers):
+        if not tickers:
+            return {}
+
+        cls.get_prices(tickers)
+        return {ticker: cls._price_cache_updated_at.get(ticker) for ticker in tickers}
 
     @classmethod
     def warmup_cache(cls):

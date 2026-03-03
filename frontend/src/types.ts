@@ -65,6 +65,7 @@ export interface Holding {
   auto_fx_fees?: boolean;
   fx_rate_used?: number;
   currency?: string;
+  price_last_updated_at?: string | null;
 }
 
 export interface PortfolioValue {

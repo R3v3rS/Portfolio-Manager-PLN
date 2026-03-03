@@ -414,6 +414,7 @@ class PortfolioService:
             
         tickers = [h['ticker'] for h in holdings]
         current_prices = PriceService.get_prices(tickers)
+        price_updates = PriceService.get_price_updates(tickers)
         
         updates_needed = False
         
@@ -438,6 +439,7 @@ class PortfolioService:
                 price = h_dict['average_buy_price']
             
             h_dict['current_price'] = price
+            h_dict['price_last_updated_at'] = price_updates.get(h_dict['ticker'])
             h_dict['current_value'] = h_dict['quantity'] * price
             h_dict['profit_loss'] = h_dict['current_value'] - h_dict['total_cost']
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
