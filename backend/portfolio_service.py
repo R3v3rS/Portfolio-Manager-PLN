@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta, date
 from bond_service import BondService
 from math_utils import xirr
-from ppk_service import PPKService
+from modules.ppk.ppk_service import PPKService
 
 class PortfolioService:
     @staticmethod
@@ -106,13 +106,9 @@ class PortfolioService:
                 (name, initial_cash, initial_cash, account_type, interest_date, created_at)
             )
             portfolio_id = cursor.lastrowid
-
+            
             if account_type == 'PPK':
-                cursor.execute(
-                    '''INSERT INTO ppk_portfolios (id, name, created_at)
-                       VALUES (?, ?, ?)''',
-                    (portfolio_id, name, created_at)
-                )
+                PPKService.create_portfolio_entry(portfolio_id, name, created_at)
             
             if initial_cash > 0:
                 cursor.execute(
@@ -788,6 +784,7 @@ class PortfolioService:
         current_cash = float(portfolio['current_cash'])
         holdings_value = 0.0
         live_interest = 0.0
+        extra_data = {}
         
         if account_type == 'SAVINGS':
             # Calculate live accrued interest from last_interest_date to today
@@ -813,8 +810,10 @@ class PortfolioService:
                 current_price = None
 
             ppk_summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
-            holdings_value = ppk_summary['currentValue']
+            # Use totalCurrentValue as holdings value (market value)
+            holdings_value = ppk_summary['totalCurrentValue']
             total_value = current_cash + holdings_value
+            extra_data = ppk_summary
         else:
             # STANDARD or IKE
             holdings = PortfolioService.get_holdings(portfolio_id)
@@ -886,7 +885,7 @@ class PortfolioService:
             print(f"Error calculating XIRR: {e}")
             xirr_percent = 0.0
 
-        return {
+        result = {
             'portfolio_value': total_value,
             'cash_value': current_cash + live_interest, # Include live interest in cash display for SAVINGS
             'holdings_value': holdings_value,
@@ -896,6 +895,11 @@ class PortfolioService:
             'xirr_percent': xirr_percent,
             'live_interest': live_interest # Just for informational purposes
         }
+        
+        if extra_data:
+            result.update(extra_data)
+            
+        return result
 
     @staticmethod
     def get_performance_matrix(portfolio_id):

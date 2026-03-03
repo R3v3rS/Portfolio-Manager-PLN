@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from portfolio_service import PortfolioService
 from bond_service import BondService
 from price_service import PriceService
-from ppk_service import PPKService
+from modules.ppk.ppk_service import PPKService
 import re
 import pandas as pd
 from werkzeug.utils import secure_filename
