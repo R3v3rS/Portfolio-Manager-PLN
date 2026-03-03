@@ -713,8 +713,8 @@ const PortfolioDetails: React.FC = () => {
                   <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice?.date || '-'}</p>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100 md:col-span-2">
-                  <p className="text-sm text-purple-700">Wartość bieżąca (wg aktualnej ceny)</p>
-                  <p className="text-2xl font-bold text-purple-900">{ppkSummary ? `${ppkSummary.currentValue.toFixed(2)} PLN` : '-'}</p>
+                  <p className="text-sm text-purple-700">Wartość możliwa do wypłaty (po podatku)</p>
+                  <p className="text-2xl font-bold text-purple-900">{ppkSummary ? `${ppkSummary.totalNetValue.toFixed(2)} PLN` : '-'}</p>
                 </div>
               </div>
 

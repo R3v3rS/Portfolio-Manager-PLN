@@ -95,8 +95,9 @@ class PPKCalculation:
             "totalUnits": PPKCalculation._q(total_units, '0.0001'),
             "averagePrice": PPKCalculation._q(avg_price),
             "totalContribution": PPKCalculation._q(total_purchase_val),
-            "currentValue": PPKCalculation._q(total_current_val),
-            "profit": PPKCalculation._q(total_profit),
+            # For PPK UI we expose withdrawable value (after PPK withdrawal weights and 19% tax).
+            "currentValue": PPKCalculation._q(total_net_val),
+            "profit": PPKCalculation._q(net_profit_amount),
             "tax": PPKCalculation._q(total_tax),
             "netProfit": PPKCalculation._q(net_profit_amount)
         }
