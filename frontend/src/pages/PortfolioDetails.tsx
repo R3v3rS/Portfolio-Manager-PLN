@@ -135,6 +135,33 @@ const PortfolioDetails: React.FC = () => {
     setIsSellModalOpen(true);
   };
 
+  const closePositionAtLastPrice = async (holding: Holding) => {
+    if (!id) return;
+
+    if (!holding.current_price || holding.current_price <= 0) {
+      alert(`Brak aktualnej ceny dla ${holding.ticker}. Najpierw odśwież ceny.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Zamknąć całą pozycję ${holding.ticker} (${Number(holding.quantity).toFixed(4)} szt.) po ${holding.current_price.toFixed(4)} PLN?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await api.post('/sell', {
+        portfolio_id: parseInt(id),
+        ticker: holding.ticker,
+        quantity: holding.quantity,
+        price: holding.current_price,
+      });
+      await fetchData();
+    } catch (err: any) {
+      alert('Nie udało się zamknąć pozycji: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   const fetchData = async () => {
     if (!id) return;
     setLoading(true);
@@ -502,15 +529,29 @@ const PortfolioDetails: React.FC = () => {
                           {h.weight_percent ? `${h.weight_percent}%` : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              initiateSell(h);
-                            }}
-                            className="text-red-600 hover:text-red-900 bg-red-50 px-3 py-1 rounded-md transition-colors"
-                          >
-                            Sprzedaj
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                initiateSell(h);
+                              }}
+                              className="text-red-600 hover:text-red-900 bg-red-50 px-3 py-1 rounded-md transition-colors"
+                            >
+                              Sprzedaj
+                            </button>
+                            {(portfolio.account_type === 'IKE' || portfolio.account_type === 'STANDARD') && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  closePositionAtLastPrice(h);
+                                }}
+                                className="text-orange-700 hover:text-orange-900 bg-orange-100 px-3 py-1 rounded-md transition-colors"
+                                title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
+                              >
+                                Zamknij
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
