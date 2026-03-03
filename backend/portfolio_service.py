@@ -292,9 +292,10 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None):
+    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
         db = get_db()
-        total_cost = quantity * price
+        commission = float(commission or 0.0)
+        total_cost = (quantity * price) + commission
         
         # Default to today if no date provided
         if not purchase_date:
@@ -317,9 +318,9 @@ class PortfolioService:
             # Record transaction
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, purchase_date)
+                   (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, purchase_date, commission)
             )
 
             # Update holdings
@@ -354,8 +355,12 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def sell_stock(portfolio_id, ticker, quantity, price):
+    def sell_stock(portfolio_id, ticker, quantity, price, sell_date=None, commission=0.0):
         db = get_db()
+        commission = float(commission or 0.0)
+        if not sell_date:
+            sell_date = date.today().isoformat()
+
         holding = db.execute(
             'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
             (portfolio_id, ticker)
@@ -364,9 +369,10 @@ class PortfolioService:
         if not holding or holding['quantity'] < quantity:
             raise ValueError("Insufficient shares")
 
-        total_value = quantity * price
+        gross_value = quantity * price
+        total_value = gross_value - commission
         cost_basis = quantity * holding['average_buy_price']
-        realized_profit = (price - holding['average_buy_price']) * quantity
+        realized_profit = total_value - cost_basis
 
         try:
             # Update cash
@@ -378,9 +384,9 @@ class PortfolioService:
             # Record transaction with realized_profit
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, price, total_value, realized_profit)
+                   (portfolio_id, ticker, type, quantity, price, total_value, date, realized_profit, commission) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'SELL', quantity, price, total_value, sell_date, realized_profit, commission)
             )
 
             # Update holdings

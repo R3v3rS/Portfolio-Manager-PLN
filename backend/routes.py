@@ -151,7 +151,9 @@ def sell():
             data['portfolio_id'], 
             data['ticker'], 
             data['quantity'], 
-            data['price']
+            data['price'],
+            data.get('date'),
+            data.get('commission', 0.0)
         )
         return jsonify({'message': 'Sell successful'}), 200
     except Exception as e:
