@@ -2,7 +2,7 @@ from decimal import Decimal
 
 class PPKTaxCalculator:
     TAX_RATE = Decimal('0.19')
-    EMPLOYER_TAXABLE_WEIGHT = Decimal('0.7')
+    EMPLOYER_TAXABLE_WEIGHT = Decimal('1.0')
     EMPLOYEE_TAXABLE_WEIGHT = Decimal('1.0')
 
     @staticmethod
