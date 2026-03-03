@@ -12,3 +12,40 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+body {
+  @apply bg-gray-50 text-gray-900 transition-colors duration-200;
+}
+
+.dark body {
+  @apply bg-gray-900 text-gray-100;
+}
+
+@layer base {
+  .dark .bg-white,
+  .dark .bg-gray-50,
+  .dark .bg-gray-100 {
+    @apply bg-gray-800;
+  }
+
+  .dark .border-gray-200,
+  .dark .border-gray-300 {
+    @apply border-gray-700;
+  }
+
+  .dark .text-gray-900,
+  .dark .text-gray-800,
+  .dark .text-gray-700 {
+    @apply text-gray-100;
+  }
+
+  .dark .text-gray-600,
+  .dark .text-gray-500 {
+    @apply text-gray-300;
+  }
+
+  .dark .hover\:bg-gray-50:hover,
+  .dark .hover\:bg-gray-100:hover {
+    @apply bg-gray-700;
+  }
+}
