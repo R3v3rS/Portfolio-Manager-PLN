@@ -100,7 +100,7 @@ const PortfolioDetails: React.FC = () => {
   const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string } | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results' | 'ppk'>('holdings');
+  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results' | 'ppk' | 'ppk_history'>('holdings');
   
   // Modals state
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -242,7 +242,8 @@ const PortfolioDetails: React.FC = () => {
     bonds: 'Obligacje',
     savings: 'Oszczędności',
     closed: 'Zamknięte Pozycje',
-    ppk: 'PPK'
+    ppk: 'PPK',
+    ppk_history: 'Historia wpłat'
   };
 
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
@@ -353,7 +354,7 @@ const PortfolioDetails: React.FC = () => {
                 : portfolio.account_type === 'BONDS'
                   ? ['bonds', 'history']
                   : portfolio.account_type === 'PPK'
-                    ? ['ppk']
+                    ? ['ppk', 'ppk_history']
                     : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed']
             ).map((tab) => (
               <button
@@ -721,28 +722,46 @@ const PortfolioDetails: React.FC = () => {
               <PPKContributionForm portfolioId={portfolio.id} onSuccess={fetchData} />
 
               <div className="overflow-x-auto">
+                <p className="text-sm text-gray-500 mb-3">Szczegóły wpłat znajdziesz w zakładce „Historia wpłat”.</p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'ppk_history' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Historia wpłat PPK</h3>
+                <p className="text-sm text-gray-500">Podsumowanie każdej wpłaty: data, łączna suma, jednostki i cena.</p>
+              </div>
+
+              <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employee units</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employer units</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price / unit</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employee amount</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Employer amount</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Suma wpłaty</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ilość jednostek pracodawcy</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ilość jednostek pracownika</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cena</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {ppkTransactions.map((tx) => (
                       <tr key={tx.id}>
                         <td className="px-4 py-3 text-sm text-gray-900">{tx.date}</td>
-                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employee_units).toFixed(4)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                          {((Number(tx.employee_units) + Number(tx.employer_units)) * Number(tx.price_per_unit)).toFixed(2)} PLN
+                        </td>
                         <td className="px-4 py-3 text-sm text-right">{Number(tx.employer_units).toFixed(4)}</td>
+                        <td className="px-4 py-3 text-sm text-right">{Number(tx.employee_units).toFixed(4)}</td>
                         <td className="px-4 py-3 text-sm text-right">{Number(tx.price_per_unit).toFixed(4)} PLN</td>
-                        <td className="px-4 py-3 text-sm text-right">{(Number(tx.employee_units) * Number(tx.price_per_unit)).toFixed(2)} PLN</td>
-                        <td className="px-4 py-3 text-sm text-right">{(Number(tx.employer_units) * Number(tx.price_per_unit)).toFixed(2)} PLN</td>
                       </tr>
                     ))}
+                    {ppkTransactions.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-3 text-center text-sm text-gray-500">Brak historii wpłat.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
