@@ -11,6 +11,7 @@ interface TransactionModalProps {
   portfolioId: number;
   portfolioType: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
   holdings: Holding[];
+  dividendTickers?: string[];
 }
 
 type TransactionType = 'BUY' | 'DIVIDEND' | 'BONDS' | 'SAVINGS_RATE' | 'SAVINGS_INTEREST';
@@ -22,6 +23,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   portfolioId,
   portfolioType,
   holdings,
+  dividendTickers = [],
 }) => {
   const [type, setType] = useState<TransactionType>('BUY');
   const [ticker, setTicker] = useState('');
@@ -109,6 +111,13 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   };
 
   if (!isOpen) return null;
+
+  const dividendTickerOptions = Array.from(
+    new Set([
+      ...holdings.map((h) => h.ticker),
+      ...dividendTickers,
+    ])
+  ).sort((a, b) => a.localeCompare(b));
 
   const renderTypeSelector = () => {
     if (portfolioType === 'BONDS') return null; // Only one action for Bonds (Add Bond)
@@ -268,8 +277,8 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
                   required
                 >
                   <option value="">Wybierz akcję</option>
-                  {holdings.map(h => (
-                    <option key={h.ticker} value={h.ticker}>{h.ticker}</option>
+                  {dividendTickerOptions.map((symbol) => (
+                    <option key={symbol} value={symbol}>{symbol}</option>
                   ))}
                 </select>
               </div>

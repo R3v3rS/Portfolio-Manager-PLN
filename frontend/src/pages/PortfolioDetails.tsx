@@ -127,6 +127,13 @@ const PortfolioDetails: React.FC = () => {
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
   const [totalClosedProfit, setTotalClosedProfit] = useState(0);
 
+  const dividendTickers = Array.from(
+    new Set([
+      ...holdings.map((h) => h.ticker),
+      ...closedPositions.map((p) => p.ticker),
+    ])
+  );
+
   // Budget Integration
   const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
 
@@ -871,6 +878,7 @@ const PortfolioDetails: React.FC = () => {
         portfolioId={portfolio.id}
         portfolioType={portfolio.account_type}
         holdings={holdings}
+        dividendTickers={dividendTickers}
       />
 
       <SellModal
