@@ -233,6 +233,23 @@ const PortfolioDetails: React.FC = () => {
     fetchData();
   }, [id]);
 
+
+  const formatPriceUpdateTimestamp = (timestamp?: string | null) => {
+    if (!timestamp) return '-';
+
+    const parsedDate = new Date(timestamp);
+    if (Number.isNaN(parsedDate.getTime())) return timestamp;
+
+    return parsedDate.toLocaleString('pl-PL', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
   const tabLabels: Record<string, string> = {
     holdings: 'Aktywa',
     analytics: 'Analiza',
@@ -415,6 +432,7 @@ const PortfolioDetails: React.FC = () => {
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Śr. Cena</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Obecna Cena</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktualizacja Ceny</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zysk/Strata</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Waga</th>
@@ -452,6 +470,9 @@ const PortfolioDetails: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{h.average_buy_price.toFixed(2)} PLN</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                           {h.current_price ? `${h.current_price.toFixed(2)} PLN` : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                          {formatPriceUpdateTimestamp(h.price_last_updated_at)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                           {h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}
@@ -495,7 +516,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {holdings.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
+                        <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
                       </tr>
                     )}
                   </tbody>
