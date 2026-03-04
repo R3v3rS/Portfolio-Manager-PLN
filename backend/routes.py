@@ -414,7 +414,7 @@ def import_xtb_csv(portfolio_id):
 def closed_positions(portfolio_id):
     db = get_db()
     rows = db.execute(
-        '''SELECT ticker, SUM(realized_profit) as realized_profit
+        '''SELECT ticker, SUM(realized_profit) as realized_profit, MAX(date) as last_sell_date
            FROM transactions
            WHERE portfolio_id = ? AND type = 'SELL'
            GROUP BY ticker
@@ -438,7 +438,8 @@ def closed_positions(portfolio_id):
         {
             'ticker': r['ticker'],
             'company_name': get_company_name(r['ticker']),
-            'realized_profit': float(r['realized_profit'] or 0)
+            'realized_profit': float(r['realized_profit'] or 0),
+            'last_sell_date': str(r['last_sell_date']) if r['last_sell_date'] else None
         }
         for r in rows
     ]
