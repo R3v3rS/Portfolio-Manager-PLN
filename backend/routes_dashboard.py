@@ -57,8 +57,10 @@ def global_summary():
                 breakdown_stocks += p_val['holdings_value']
 
     # 3. Total Liabilities (Loans Module)
-    loans_rows = db.execute("SELECT id, name FROM loans").fetchall()
+    loans_rows = db.execute("SELECT id, name, category FROM loans").fetchall()
     total_liabilities = 0.0
+    short_term_liabilities = 0.0
+    long_term_liabilities = 0.0
     next_installment_amount = 0.0
     next_installment_date = None
     
@@ -96,6 +98,13 @@ def global_summary():
                 current_loan_balance = sorted_schedule[0]['remaining_balance'] # Month 0
         
         total_liabilities += current_loan_balance
+
+        category = loan_row['category'] if loan_row['category'] else 'GOTOWKOWY'
+        if category == 'HIPOTECZNY':
+            long_term_liabilities += current_loan_balance
+        else:
+            # Short-term: cash loans + 0% installments (and fallback for unknown categories)
+            short_term_liabilities += current_loan_balance
         
         # Find next installment
         future_payments = [p for p in sorted_schedule if p['date'] > today.isoformat()]
@@ -118,6 +127,10 @@ def global_summary():
         "net_worth": round(net_worth, 2),
         "total_assets": round(total_assets, 2),
         "total_liabilities": round(total_liabilities, 2),
+        "liabilities_breakdown": {
+            "short_term": round(short_term_liabilities, 2),
+            "long_term": round(long_term_liabilities, 2)
+        },
         "assets_breakdown": {
             "budget_cash": round(breakdown_cash_budget, 2),
             "invest_cash": round(breakdown_cash_invest, 2),
