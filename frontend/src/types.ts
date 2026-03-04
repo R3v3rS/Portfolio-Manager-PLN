@@ -82,6 +82,7 @@ export interface ClosedPosition {
   ticker: string;
   company_name?: string | null;
   realized_profit: number;
+  last_sell_date?: string | null;
 }
 
 export interface RadarItem {

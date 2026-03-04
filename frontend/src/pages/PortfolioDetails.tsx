@@ -1,21 +1,24 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition } from '../types';
-import PortfolioChart from '../components/PortfolioChart';
-import PortfolioAnalytics from '../components/PortfolioAnalytics';
-import PriceHistoryChart from '../components/PriceHistoryChart';
-import DividendBarChart from '../components/DividendBarChart';
-import PortfolioHistoryChart from '../components/PortfolioHistoryChart';
-import PortfolioProfitChart from '../components/PortfolioProfitChart';
-import PerformanceHeatmap from '../components/portfolio/PerformanceHeatmap';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
+
+
+const PortfolioChart = lazy(() => import('../components/PortfolioChart'));
+const PortfolioAnalytics = lazy(() => import('../components/PortfolioAnalytics'));
+const PriceHistoryChart = lazy(() => import('../components/PriceHistoryChart'));
+const DividendBarChart = lazy(() => import('../components/DividendBarChart'));
+const PortfolioHistoryChart = lazy(() => import('../components/PortfolioHistoryChart'));
+const PortfolioProfitChart = lazy(() => import('../components/PortfolioProfitChart'));
+const PerformanceHeatmap = lazy(() => import('../components/portfolio/PerformanceHeatmap'));
+
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -89,6 +92,13 @@ function PPKContributionForm({ portfolioId, onSuccess }: { portfolioId: number; 
     </form>
   );
 }
+
+const formatSellDate = (value?: string | null) => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('pl-PL');
+};
 
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -647,7 +657,8 @@ const PortfolioDetails: React.FC = () => {
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ostatnia sprzedaż</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -852,6 +863,7 @@ const PortfolioDetails: React.FC = () => {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nazwa spółki</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ostatnia sprzedaż</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
                     </tr>
                   </thead>
@@ -860,6 +872,7 @@ const PortfolioDetails: React.FC = () => {
                       <tr key={p.ticker}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.ticker}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.company_name || "-"}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatSellDate(p.last_sell_date)}</td>
                         <td className={cn(
                           "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
                           p.realized_profit >= 0 ? "text-green-600" : "text-red-600"
@@ -870,7 +883,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {closedPositions.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
+                        <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
                       </tr>
                     )}
                   </tbody>
