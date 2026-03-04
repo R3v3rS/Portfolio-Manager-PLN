@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CreditCard, Calendar, TrendingDown, Trash2 } from 'lucide-react';
-import { getLoans, createLoan, deleteLoan } from '../../api_loans';
+import { getLoans, createLoan, deleteLoan, getSchedule } from '../../api_loans';
 
 interface Loan {
   id: number;
@@ -106,7 +106,7 @@ const LoansDashboard: React.FC = () => {
         // Let's rely on the schedule endpoint for now.
         // Or maybe I should update the backend to return current status?
         // Let's try to just fetch schedule for each loan to get current balance.
-         import('../../api_loans').then(api => api.getSchedule(loan.id))
+         getSchedule(loan.id)
       );
       
       try {
