@@ -292,9 +292,10 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None):
+    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
         db = get_db()
-        total_cost = quantity * price
+        commission = float(commission or 0.0)
+        total_cost = (quantity * price) + commission
         
         # Default to today if no date provided
         if not purchase_date:
@@ -317,9 +318,9 @@ class PortfolioService:
             # Record transaction
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, purchase_date)
+                   (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, purchase_date, commission)
             )
 
             # Update holdings
@@ -335,16 +336,16 @@ class PortfolioService:
                 
                 db.execute(
                     '''UPDATE holdings 
-                       SET quantity = ?, total_cost = ?, average_buy_price = ? 
+                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?
                        WHERE id = ?''',
-                    (new_quantity, new_total_cost, new_avg_price, holding['id'])
+                    (new_quantity, new_total_cost, new_avg_price, 1 if auto_fx_fees else holding['auto_fx_fees'], holding['id'])
                 )
             else:
                 db.execute(
                     '''INSERT INTO holdings 
-                       (portfolio_id, ticker, quantity, average_buy_price, total_cost) 
-                       VALUES (?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, quantity, price, total_cost)
+                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees) 
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (portfolio_id, ticker, quantity, price, total_cost, 1 if auto_fx_fees else 0)
                 )
 
             db.commit()
