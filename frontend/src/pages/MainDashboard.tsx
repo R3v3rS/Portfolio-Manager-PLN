@@ -9,6 +9,10 @@ interface GlobalSummary {
   net_worth: number;
   total_assets: number;
   total_liabilities: number;
+  liabilities_breakdown: {
+    short_term: number;
+    long_term: number;
+  };
   assets_breakdown: {
     budget_cash: number;
     invest_cash: number;
@@ -92,7 +96,20 @@ const MainDashboard: React.FC = () => {
           </div>
           <div>
             <p className="text-3xl font-bold text-gray-900">{data.total_liabilities.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN</p>
-            <p className="text-xs text-gray-400 mt-1">Kredyty i pożyczki</p>
+            <div className="mt-2 space-y-1">
+              <p className="text-xs text-gray-500">
+                Krótkoterminowe (pożyczka gotówkowa, raty 0%):{' '}
+                <span className="font-semibold text-gray-700">
+                  {data.liabilities_breakdown.short_term.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
+                </span>
+              </p>
+              <p className="text-xs text-gray-500">
+                Długoterminowe (kredyt hipoteczny):{' '}
+                <span className="font-semibold text-gray-700">
+                  {data.liabilities_breakdown.long_term.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
+                </span>
+              </p>
+            </div>
           </div>
         </div>
 
