@@ -1,21 +1,24 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition } from '../types';
-import PortfolioChart from '../components/PortfolioChart';
-import PortfolioAnalytics from '../components/PortfolioAnalytics';
-import PriceHistoryChart from '../components/PriceHistoryChart';
-import DividendBarChart from '../components/DividendBarChart';
-import PortfolioHistoryChart from '../components/PortfolioHistoryChart';
-import PortfolioProfitChart from '../components/PortfolioProfitChart';
-import PerformanceHeatmap from '../components/portfolio/PerformanceHeatmap';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
+
+
+const PortfolioChart = lazy(() => import('../components/PortfolioChart'));
+const PortfolioAnalytics = lazy(() => import('../components/PortfolioAnalytics'));
+const PriceHistoryChart = lazy(() => import('../components/PriceHistoryChart'));
+const DividendBarChart = lazy(() => import('../components/DividendBarChart'));
+const PortfolioHistoryChart = lazy(() => import('../components/PortfolioHistoryChart'));
+const PortfolioProfitChart = lazy(() => import('../components/PortfolioProfitChart'));
+const PerformanceHeatmap = lazy(() => import('../components/portfolio/PerformanceHeatmap'));
+
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
