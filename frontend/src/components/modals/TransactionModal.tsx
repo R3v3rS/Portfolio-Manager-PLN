@@ -112,7 +112,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const dividendTickerOptions = Array.from(
+  const tickerOptions = Array.from(
     new Set([
       ...holdings.map((h) => h.ticker),
       ...dividendTickers,
@@ -211,9 +211,16 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
                   type="text"
                   value={ticker}
                   onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                  list="known-ticker-options"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                  placeholder="np. AAPL"
                   required
                 />
+                <datalist id="known-ticker-options">
+                  {tickerOptions.map((symbol) => (
+                    <option key={symbol} value={symbol} />
+                  ))}
+                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Ilość</label>
@@ -277,7 +284,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
                   required
                 >
                   <option value="">Wybierz akcję</option>
-                  {dividendTickerOptions.map((symbol) => (
+                  {tickerOptions.map((symbol) => (
                     <option key={symbol} value={symbol}>{symbol}</option>
                   ))}
                 </select>
