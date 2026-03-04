@@ -613,13 +613,8 @@ class PortfolioService:
         
         # Sync only currently open stock tickers (quantity > 0).
         # This avoids unnecessary refreshes for fully closed positions.
-        open_holdings = db.execute(
-            '''SELECT DISTINCT ticker
-               FROM holdings
-               WHERE portfolio_id = ? AND quantity > 0''',
-            (portfolio_id,)
-        ).fetchall()
-        tickers = {row['ticker'] for row in open_holdings if row['ticker'] not in ['CASH', '']}
+# Get unique tickers and SYNC their history first!
+        tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
         if benchmark_ticker:
             tickers.add(benchmark_ticker)
         
