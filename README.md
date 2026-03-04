@@ -1,92 +1,127 @@
 # 📈 Portfolio Manager (PLN)
 
-Aplikacja webowa do zarządzania finansami osobistymi oparta o **React + Flask**. Projekt łączy w jednym miejscu:
-- portfel inwestycyjny,
-- budżet domowy,
-- symulator kredytowy,
-- dashboard analityczny.
+Portfolio Manager (PLN) to aplikacja webowa do zarządzania finansami osobistymi i inwestycjami.
+Projekt łączy w jednym miejscu:
 
-Repozytorium jest podzielone na frontend (Vite + React + TypeScript) i backend (Flask + SQLite).
+- portfele inwestycyjne,
+- budżet domowy,
+- kredyty i symulacje nadpłat,
+- dashboard majątku netto,
+- radar inwestycyjny,
+- moduł PPK.
+
+Aplikacja działa w architekturze **frontend + backend**:
+
+- **Frontend**: React + TypeScript (Vite),
+- **Backend**: Flask + SQLite.
 
 ---
 
-## ✨ Najważniejsze funkcje
+## 🎯 Co potrafi aplikacja
 
 ### 💼 Portfel inwestycyjny
 - Tworzenie wielu portfeli (np. emerytalny, akcyjny, krypto).
-- Rejestrowanie operacji: wpłata, wypłata, kupno, sprzedaż, dywidendy.
-- Obsługa różnych klas aktywów: akcje, ETF-y, kryptowaluty, obligacje.
-- Historia wartości portfela i historia zysków.
-- Import transakcji (CSV XTB).
+- Operacje gotówkowe i transakcyjne: wpłata, wypłata, kupno, sprzedaż, dywidendy.
+- Obsługa różnych klas aktywów (akcje, ETF-y, krypto, obligacje, oszczędności).
+- Historia wartości portfela i historii zysku.
+- Watchlista oraz aktualizacja cen rynkowych.
+- Import transakcji z plików CSV (XTB).
+
+### 👷 PPK
+- Rejestracja transakcji PPK,
+- Podsumowanie wartości jednostek,
+- Obliczenia podatkowe i kalkulacyjne w module dedykowanym (`backend/modules/ppk`).
 
 ### 🏠 Budżet domowy
-- Konta budżetowe i historia transakcji.
-- Kategoryzacja wydatków i przychodów.
+- Zarządzanie kontami i historią transakcji.
+- Kategorie przychodów i wydatków.
 - Limity miesięczne per kategoria.
-- Integracja przepływów pomiędzy budżetem i portfelem inwestycyjnym.
+- Transfery pomiędzy budżetem a portfelem inwestycyjnym.
 
 ### 🏦 Kredyty
-- Tworzenie kredytów i harmonogram spłat.
-- Obsługa zmian oprocentowania w czasie.
-- Nadpłaty i analiza wpływu na koszt całkowity oraz okres kredytowania.
+- Tworzenie i zarządzanie kredytami.
+- Harmonogramy spłat.
+- Obsługa zmian oprocentowania i nadpłat.
+- Analiza kosztu całkowitego i skrócenia okresu kredytowania.
 
-### 📊 Dashboard i analityka
-- Widok majątku netto (Net Worth).
-- Zestawienie aktywów, gotówki i zobowiązań.
-- Wizualizacje danych finansowych na wykresach.
+### 📊 Dashboard i radar
+- Przegląd majątku netto (aktywa, gotówka, zobowiązania).
+- Przekrojowe wykresy wartości i zysków.
+- Radar inwestycyjny i porównania instrumentów.
+
+---
+
+## ⚙️ Jak działa aplikacja (w skrócie)
+
+1. Użytkownik korzysta z interfejsu React (`frontend/src`).
+2. Frontend wysyła żądania HTTP do API Flask (`/api/...`).
+3. Endpointy (`routes_*.py`) delegują logikę do warstwy serwisowej (`*_service.py`).
+4. Serwisy zapisują/odczytują dane z bazy SQLite (`backend/portfolio.db`).
+5. Część danych rynkowych (np. ceny) jest pobierana z zewnętrznych źródeł (m.in. `yfinance`) i cache’owana.
 
 ---
 
 ## 🧱 Stos technologiczny
 
 ### Frontend
-- React 18 + TypeScript
+- React 18
+- TypeScript
 - Vite
 - Tailwind CSS
 - Recharts + Chart.js
 - React Router
 - Zustand
+- Axios
 
 ### Backend
 - Flask
+- Flask-CORS
 - SQLite
 - Pandas
 - yfinance
+- python-dotenv
 
 ---
 
-## 📁 Struktura projektu
+## 🗂️ Struktura projektu
 
 ```text
 .
 ├── backend/
-│   ├── app.py                  # Uruchomienie aplikacji Flask
-│   ├── database.py             # Inicjalizacja i dostęp do SQLite
-│   ├── portfolio_service.py    # Logika domenowa portfela inwestycyjnego
-│   ├── budget_service.py       # Logika budżetu domowego
-│   ├── loan_service.py         # Logika kredytów
-│   ├── bond_service.py         # Obsługa obligacji
-│   ├── price_service.py        # Pobieranie i synchronizacja cen
-│   ├── watchlist_service.py    # Obsługa watchlisty
-│   ├── routes.py               # Endpointy portfela
-│   ├── routes_budget.py        # Endpointy budżetu
-│   ├── routes_loans.py         # Endpointy kredytów
-│   ├── routes_dashboard.py     # Endpointy dashboardu
-│   └── routes_radar.py         # Endpointy radaru inwestycyjnego
+│   ├── app.py                    # Punkt startowy API Flask i rejestracja blueprintów
+│   ├── database.py               # Inicjalizacja połączeń i schematu SQLite
+│   ├── routes.py                 # Endpointy portfela i operacji inwestycyjnych
+│   ├── routes_budget.py          # Endpointy budżetu domowego
+│   ├── routes_loans.py           # Endpointy kredytów
+│   ├── routes_dashboard.py       # Endpointy dashboardu majątku
+│   ├── routes_radar.py           # Endpointy radaru inwestycyjnego
+│   ├── portfolio_service.py      # Logika portfeli i transakcji inwestycyjnych
+│   ├── budget_service.py         # Logika budżetowa
+│   ├── loan_service.py           # Logika kredytowa
+│   ├── bond_service.py           # Logika obligacji
+│   ├── watchlist_service.py      # Logika watchlisty
+│   ├── price_service.py          # Pobieranie i synchronizacja cen
+│   ├── math_utils.py             # Funkcje pomocnicze obliczeń
+│   └── modules/ppk/              # Moduł domenowy PPK
+│
 ├── frontend/
 │   ├── src/
-│   │   ├── components/         # Komponenty UI
-│   │   ├── pages/              # Widoki aplikacji
-│   │   ├── hooks/              # Własne hooki React
-│   │   ├── lib/                # Utilsy
-│   │   └── *.ts                # Typy i warstwa API
+│   │   ├── App.tsx               # Routing aplikacji
+│   │   ├── pages/                # Główne widoki (dashboardy, portfele, radar itp.)
+│   │   ├── components/           # Komponenty UI (w tym moduły budget/ i loans/)
+│   │   ├── services/             # Usługi po stronie frontendu
+│   │   ├── api*.ts               # Warstwa komunikacji z backendem
+│   │   ├── hooks/                # Własne hooki React
+│   │   ├── types.ts              # Typy danych
+│   │   └── lib/                  # Narzędzia pomocnicze
 │   └── package.json
+│
 └── README.md
 ```
 
 ---
 
-## ⚙️ Wymagania
+## ✅ Wymagania
 
 - **Python** 3.11+
 - **Node.js** 18+
@@ -94,7 +129,7 @@ Repozytorium jest podzielone na frontend (Vite + React + TypeScript) i backend (
 
 ---
 
-## 🚀 Szybki start (lokalnie)
+## 🚀 Uruchomienie lokalne
 
 ### 1) Backend
 
@@ -108,11 +143,14 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Backend uruchomi się domyślnie na: `http://127.0.0.1:5000`
+API będzie dostępne pod adresem: `http://127.0.0.1:5000`.
+
+Przykładowy endpoint health-check:
+- `GET /` → `{"status": "healthy", "message": "Portfolio Manager API is running"}`
 
 ### 2) Frontend
 
-W osobnym terminalu:
+W drugim terminalu:
 
 ```bash
 cd frontend
@@ -120,20 +158,21 @@ npm install
 npm run dev
 ```
 
-Frontend uruchomi się domyślnie na: `http://localhost:5173`
+Aplikacja będzie dostępna pod adresem: `http://localhost:5173`.
 
 ---
 
-## 🧪 Przydatne komendy developerskie
+## 🧪 Komendy developerskie
 
 ### Frontend
 
 ```bash
 cd frontend
-npm run dev      # tryb developerski
+npm run dev      # uruchomienie w trybie developerskim
 npm run build    # build produkcyjny
 npm run check    # TypeScript type-check
-npm run lint     # lint (ESLint)
+npm run lint     # lintowanie kodu
+npm run preview  # podgląd buildu
 ```
 
 ### Backend
@@ -143,38 +182,28 @@ cd backend
 python app.py
 ```
 
-> Uwaga: projekt nie zawiera jeszcze pełnego zestawu testów automatycznych backendu.
+> Uwaga: repozytorium nie zawiera jeszcze pełnego zestawu testów automatycznych backendu.
 
 ---
 
-## 🔌 Główne endpointy API (przykłady)
+## 🔌 Główne grupy endpointów API
 
-### Portfolio
-- `GET /api/portfolio/list`
-- `POST /api/portfolio/create`
-- `POST /api/portfolio/buy`
-- `POST /api/portfolio/sell`
-- `GET /api/portfolio/value/<portfolio_id>`
+- `/api/portfolio/*` — portfele, transakcje, wycena, PPK, obligacje, import.
+- `/api/budget/*` — konta budżetowe, transfery, transakcje i limity.
+- `/api/loans/*` — kredyty, harmonogramy, symulacje i nadpłaty.
+- `/api/dashboard/*` — agregacje danych do dashboardu majątku.
+- `/api/radar/*` — radar inwestycyjny.
 
-### Budżet
-- `GET /api/budget/accounts`
-- `POST /api/budget/transactions`
-- `POST /api/budget/transfer`
-
-### Kredyty
-- `GET /api/loans`
-- `POST /api/loans`
-- `POST /api/loans/<loan_id>/overpayments`
-
-Dokładne payloady i odpowiedzi najlepiej sprawdzić bezpośrednio w plikach `routes_*.py`.
+Najlepsze źródło prawdy dla payloadów i odpowiedzi: pliki `backend/routes*.py`.
 
 ---
 
 ## 🧠 Notatki implementacyjne
 
-- Część danych rynkowych jest pobierana przez `yfinance`.
-- Backend korzysta z SQLite i warstwy usług (`*_service.py`) oddzielonej od warstwy endpointów (`routes*.py`).
-- Frontend komunikuje się z backendem przez moduły API i typy TypeScript.
+- CORS jest włączony globalnie po stronie backendu.
+- Baza danych (`portfolio.db`) jest tworzona/inicjalizowana automatycznie.
+- Przy starcie backend wykonuje warmup cache cen rynkowych.
+- Architektura serwisowa (`*_service.py`) oddziela logikę biznesową od warstwy HTTP.
 
 ---
 
