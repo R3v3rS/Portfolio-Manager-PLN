@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Layout from './components/Layout';
 import MainDashboard from './pages/MainDashboard';
 import PortfolioDashboard from './pages/PortfolioDashboard';
-import PortfolioList from './pages/PortfolioList';
 import PortfolioDetails from './pages/PortfolioDetails';
 import Transactions from './pages/Transactions';
 import LoansDashboard from './components/loans/LoansDashboard';
