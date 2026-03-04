@@ -33,7 +33,7 @@ def create_app():
         try:
             PriceService.warmup_cache()
         except Exception as e:
-            print(f"Startup warmup failed (DB might not be ready): {e}")
+            logging.warning("Startup warmup failed (DB might not be ready): %s", e)
 
     # Register blueprints
     app.register_blueprint(portfolio_bp, url_prefix='/api/portfolio')
@@ -47,9 +47,11 @@ def create_app():
     @app.errorhandler(Exception)
     def handle_exception(e):
         logging.exception("Unhandled exception")
-        traceback.print_exc()
+        if app.debug:
+            traceback.print_exc()
+            return jsonify({'error': str(e), 'status': 500}), 500
         # don't expose internals in production responses
-        return jsonify({'error': str(e), 'status': 500}), 500
+        return jsonify({'error': 'Internal server error', 'status': 500}), 500
 
     @app.route('/')
     def health_check():
