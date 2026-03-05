@@ -153,6 +153,49 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
         );
     }
 
+    if (portfolioType === 'IKE') {
+      return (
+        <div className="grid grid-cols-3 rounded-md shadow-sm mb-6">
+          <button
+            type="button"
+            onClick={() => setType('BUY')}
+            className={cn(
+              "py-2 text-sm font-medium border first:rounded-l-md focus:z-10 focus:ring-2 focus:ring-indigo-500",
+              type === 'BUY'
+                ? "bg-indigo-600 text-white border-indigo-600"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            )}
+          >
+            Kup Akcje
+          </button>
+          <button
+            type="button"
+            onClick={() => setType('DIVIDEND')}
+            className={cn(
+              "py-2 text-sm font-medium border -ml-px focus:z-10 focus:ring-2 focus:ring-indigo-500",
+              type === 'DIVIDEND'
+                ? "bg-indigo-600 text-white border-indigo-600"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            )}
+          >
+            Dywidenda
+          </button>
+          <button
+            type="button"
+            onClick={() => setType('SAVINGS_INTEREST')}
+            className={cn(
+              "py-2 text-sm font-medium border -ml-px last:rounded-r-md focus:z-10 focus:ring-2 focus:ring-indigo-500",
+              type === 'SAVINGS_INTEREST'
+                ? "bg-indigo-600 text-white border-indigo-600"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            )}
+          >
+            Odsetki
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div className="flex rounded-md shadow-sm mb-6">
         <button
