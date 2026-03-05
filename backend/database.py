@@ -37,6 +37,7 @@ def init_db(app):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name VARCHAR(100) NOT NULL,
                 account_type VARCHAR(20) DEFAULT 'STANDARD',
+                base_currency TEXT NOT NULL DEFAULT 'PLN',
                 current_cash DECIMAL(10,2) DEFAULT 0.00,
                 total_deposits DECIMAL(10,2) DEFAULT 0.00,
                 savings_rate DECIMAL(5,2) DEFAULT 0.00,
@@ -85,7 +86,15 @@ def init_db(app):
                 quantity DECIMAL(10,4) NOT NULL,
                 price DECIMAL(10,2) NOT NULL,
                 total_value DECIMAL(10,2) NOT NULL,
+                trade_currency TEXT NOT NULL DEFAULT 'PLN',
+                price_native REAL,
+                gross_value_native REAL,
+                commission_native REAL NOT NULL DEFAULT 0,
+                commission_pln REAL NOT NULL DEFAULT 0,
+                fx_rate REAL NOT NULL DEFAULT 1,
+                total_value_pln REAL NOT NULL DEFAULT 0,
                 realized_profit DECIMAL(10,2) DEFAULT 0.0,
+                realized_profit_pln REAL,
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
         ''')
@@ -103,6 +112,9 @@ def init_db(app):
                 ticker VARCHAR(10) NOT NULL,
                 quantity DECIMAL(10,4) NOT NULL,
                 average_buy_price DECIMAL(10,2) NOT NULL,
+                instrument_currency TEXT NOT NULL DEFAULT 'PLN',
+                avg_buy_price_native REAL NOT NULL DEFAULT 0,
+                avg_buy_fx_rate REAL NOT NULL DEFAULT 1,
                 total_cost DECIMAL(10,2) NOT NULL,
                 UNIQUE(portfolio_id, ticker),
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
@@ -432,6 +444,26 @@ def init_db(app):
         except sqlite3.OperationalError:
             pass
 
+        # Migration: Add multi-currency fields to portfolios
+        try:
+            db.execute("ALTER TABLE portfolios ADD COLUMN base_currency TEXT NOT NULL DEFAULT 'PLN'")
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: Add multi-currency fields to holdings
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN instrument_currency TEXT NOT NULL DEFAULT 'PLN'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN avg_buy_price_native REAL NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN avg_buy_fx_rate REAL NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+
         # Migration: Add 'commission' to transactions
         try:
             db.execute("ALTER TABLE transactions ADD COLUMN commission DECIMAL(10,2) DEFAULT 0.00")
@@ -440,15 +472,35 @@ def init_db(app):
 
         # Migration: multi-currency fields on transactions (backward compatible)
         try:
-            db.execute("ALTER TABLE transactions ADD COLUMN trade_currency VARCHAR(3) DEFAULT 'PLN'")
+            db.execute("ALTER TABLE transactions ADD COLUMN trade_currency TEXT NOT NULL DEFAULT 'PLN'")
         except sqlite3.OperationalError:
             pass
         try:
-            db.execute("ALTER TABLE transactions ADD COLUMN fx_rate DECIMAL(12,6) DEFAULT 1.0")
+            db.execute("ALTER TABLE transactions ADD COLUMN price_native REAL")
         except sqlite3.OperationalError:
             pass
         try:
-            db.execute("ALTER TABLE transactions ADD COLUMN total_value_pln DECIMAL(15,2)")
+            db.execute("ALTER TABLE transactions ADD COLUMN gross_value_native REAL")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN commission_native REAL NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN commission_pln REAL NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN fx_rate REAL NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN total_value_pln REAL NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN realized_profit_pln REAL")
         except sqlite3.OperationalError:
             pass
 
@@ -458,8 +510,26 @@ def init_db(app):
             """
             UPDATE transactions
             SET trade_currency = COALESCE(NULLIF(trade_currency, ''), 'PLN'),
-                fx_rate = COALESCE(fx_rate, 1.0),
-                total_value_pln = COALESCE(total_value_pln, total_value)
+                fx_rate = COALESCE(fx_rate, 1),
+                total_value_pln = CASE
+                    WHEN total_value_pln IS NULL OR (total_value_pln = 0 AND COALESCE(total_value, 0) <> 0)
+                    THEN total_value
+                    ELSE total_value_pln
+                END
+            """
+        )
+
+        db.execute(
+            """
+            UPDATE holdings
+            SET instrument_currency = COALESCE(NULLIF(instrument_currency, ''), 'PLN')
+            """
+        )
+
+        db.execute(
+            """
+            UPDATE portfolios
+            SET base_currency = COALESCE(NULLIF(base_currency, ''), 'PLN')
             """
         )
 
