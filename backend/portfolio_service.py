@@ -41,27 +41,35 @@ class PortfolioService:
         cursor = db.cursor()
         missing_symbols: list[str] = []
 
+        normalized_columns = {str(col).strip().lower(): col for col in df.columns}
+        symbol_column = normalized_columns.get('symbol')
+        instrument_column = normalized_columns.get('instrument')
+
         db.execute('BEGIN')
         try:
             for _, row in df.iterrows():
                 typ = row['Type']
+                typ_lower = str(typ).lower()
                 time = row['Time']
                 amount = float(str(row['Amount']).replace(',', '.'))
                 comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
 
                 ticker: Optional[str] = None
-                if 'symbol' in df.columns and not pd.isna(row['symbol']):
-                    symbol_input = str(row['symbol'])
+                is_stock_operation = typ_lower in {'stock purchase', 'stock sell'}
+
+                if is_stock_operation and symbol_column is not None:
+                    symbol_value = row[symbol_column]
+                    symbol_input = '' if pd.isna(symbol_value) else str(symbol_value)
                     ticker = PortfolioService.resolve_symbol(symbol_input)
                     if ticker is None:
                         normalized_symbol = symbol_input.strip().upper()
                         if normalized_symbol and normalized_symbol not in missing_symbols:
                             missing_symbols.append(normalized_symbol)
                         continue
-                elif 'Instrument' in df.columns:
-                    ticker = str(row['Instrument'])
+                elif is_stock_operation and instrument_column is not None:
+                    ticker = str(row[instrument_column])
 
-                if typ.lower() == 'deposit':
+                if typ_lower == 'deposit':
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
                         (amount, portfolio_id)
@@ -71,7 +79,7 @@ class PortfolioService:
                            VALUES (?, ?, ?, ?, ?, ?, ?)''',
                         (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, time)
                     )
-                elif typ.lower() == 'withdrawal':
+                elif typ_lower == 'withdrawal':
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
                         (abs(amount), portfolio_id)
@@ -81,7 +89,7 @@ class PortfolioService:
                            VALUES (?, ?, ?, ?, ?, ?, ?)''',
                         (portfolio_id, 'CASH', 'WITHDRAW', 1, abs(amount), abs(amount), time)
                     )
-                elif typ.lower() == 'stock purchase':
+                elif typ_lower == 'stock purchase':
                     if not ticker:
                         raise ValueError('Missing ticker for stock purchase row')
                     m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
@@ -117,7 +125,7 @@ class PortfolioService:
                            VALUES (?, ?, ?, ?, ?, ?, ?)''',
                         (portfolio_id, ticker, 'BUY', qty, price, total_cost, time)
                     )
-                elif typ.lower() == 'stock sell':
+                elif typ_lower == 'stock sell':
                     if not ticker:
                         raise ValueError('Missing ticker for stock sell row')
                     m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
