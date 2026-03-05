@@ -260,7 +260,9 @@ class PortfolioService:
                     commission_native = gross_native * commission_rate
                     net_native = gross_native - commission_native
                     net_pln = net_native * fx_rate_dec
-                    cost_basis_pln = qty_dec * Decimal(str(holding['average_buy_price']))
+                    holding_qty_dec = Decimal(str(holding['quantity']))
+                    holding_total_cost_dec = Decimal(str(holding['total_cost']))
+                    cost_basis_pln = holding_total_cost_dec * (qty_dec / holding_qty_dec)
                     realized_profit_pln = net_pln - cost_basis_pln
 
                     cursor.execute(
@@ -268,9 +270,9 @@ class PortfolioService:
                         (float(net_pln), portfolio_id)
                     )
 
-                    new_quantity = Decimal(str(holding['quantity'])) - qty_dec
+                    new_quantity = holding_qty_dec - qty_dec
                     if new_quantity > 0:
-                        new_total_cost = Decimal(str(holding['total_cost'])) - cost_basis_pln
+                        new_total_cost = holding_total_cost_dec - cost_basis_pln
                         cursor.execute(
                             '''UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?''',
                             (float(new_quantity), float(new_total_cost), holding['id'])
@@ -736,7 +738,9 @@ class PortfolioService:
         commission_native = gross_native * commission_rate
         net_native = gross_native - commission_native
         net_pln = net_native * fx_rate_dec
-        cost_basis_pln = qty_dec * Decimal(str(holding['average_buy_price']))
+        holding_qty_dec = Decimal(str(holding['quantity']))
+        holding_total_cost_dec = Decimal(str(holding['total_cost']))
+        cost_basis_pln = holding_total_cost_dec * (qty_dec / holding_qty_dec)
         realized_profit_pln = net_pln - cost_basis_pln
 
         try:
@@ -771,9 +775,9 @@ class PortfolioService:
             )
 
             # Update holdings
-            new_quantity = Decimal(str(holding['quantity'])) - qty_dec
+            new_quantity = holding_qty_dec - qty_dec
             if new_quantity > 0:
-                new_total_cost = Decimal(str(holding['total_cost'])) - cost_basis_pln
+                new_total_cost = holding_total_cost_dec - cost_basis_pln
                 db.execute(
                     '''UPDATE holdings 
                        SET quantity = ?, total_cost = ?
