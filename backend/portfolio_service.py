@@ -810,6 +810,7 @@ class PortfolioService:
         updates_needed = False
         
         holdings_value = 0.0
+        fx_rates: dict[str, float] = {'PLN': 1.0}
         for h in holdings:
             h_dict = {key: h[key] for key in h.keys()}
             
@@ -824,14 +825,33 @@ class PortfolioService:
                     h_dict.update(meta)
                     updates_needed = True
 
-            price = current_prices.get(h_dict['ticker'])
-            
-            if price is None:
-                price = h_dict['average_buy_price']
-            
-            h_dict['current_price'] = price
+            instrument_currency = (h_dict.get('instrument_currency') or 'PLN').upper()
+            if instrument_currency not in fx_rates:
+                try:
+                    fx_rates[instrument_currency] = FxRateService.get_rate(instrument_currency)
+                except Exception:
+                    fx_rates[instrument_currency] = 1.0
+
+            fx_rate = fx_rates[instrument_currency]
+
+            price_native = current_prices.get(h_dict['ticker'])
+
+            if price_native is None:
+                # average_buy_price is stored in PLN, so derive native fallback only if possible.
+                if instrument_currency == 'PLN':
+                    price_native = h_dict['average_buy_price']
+                elif h_dict.get('avg_buy_price_native'):
+                    price_native = h_dict['avg_buy_price_native']
+                else:
+                    price_native = h_dict['average_buy_price'] / fx_rate if fx_rate else h_dict['average_buy_price']
+
+            current_price_pln = float(price_native) * float(fx_rate)
+
+            h_dict['current_price_native'] = float(price_native)
+            h_dict['current_fx_rate'] = float(fx_rate)
+            h_dict['current_price'] = current_price_pln
             h_dict['price_last_updated_at'] = price_updates.get(h_dict['ticker'])
-            h_dict['current_value'] = h_dict['quantity'] * price
+            h_dict['current_value'] = h_dict['quantity'] * current_price_pln
             h_dict['profit_loss'] = h_dict['current_value'] - h_dict['total_cost']
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
             holdings_value += h_dict['current_value']
