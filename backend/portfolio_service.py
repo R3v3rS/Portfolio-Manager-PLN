@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Optional, Any
 import pandas as pd
 import re
+from decimal import Decimal
 
 
 @dataclass
@@ -469,17 +470,35 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
+    def buy_stock(
+        portfolio_id,
+        ticker,
+        quantity,
+        price,
+        purchase_date=None,
+        commission=0.0,
+        auto_fx_fees=False,
+        trade_currency='PLN',
+        fx_rate=None,
+        price_native=None,
+    ):
         db = get_db()
-        commission = float(commission or 0.0)
-        total_cost = (quantity * price) + commission
+        qty_dec = Decimal(str(quantity))
+        price_native_dec = Decimal(str(price_native if price_native is not None else price))
+        fx_rate_dec = Decimal(str(1 if fx_rate is None else fx_rate))
+        commission_rate = Decimal('0.005')
+
+        gross_native = qty_dec * price_native_dec
+        commission_native = gross_native * commission_rate
+        total_native = gross_native + commission_native
+        total_pln = total_native * fx_rate_dec
         
         # Default to today if no date provided
         if not purchase_date:
             purchase_date = date.today().isoformat()
             
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
-        if not portfolio or portfolio['current_cash'] < total_cost:
+        if not portfolio or Decimal(str(portfolio['current_cash'])) < total_pln:
             raise ValueError("Insufficient funds")
 
         try:
@@ -489,15 +508,30 @@ class PortfolioService:
             # Update cash
             db.execute(
                 'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                (total_cost, portfolio_id)
+                (float(total_pln), portfolio_id)
             )
 
             # Record transaction
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, total_value_pln, trade_currency, fx_rate, date, commission) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, total_cost, 'PLN', 1.0, purchase_date, commission)
+                   (portfolio_id, ticker, type, quantity, price, total_value, trade_currency, price_native, gross_value_native, commission_native, commission_pln, fx_rate, total_value_pln, date) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    portfolio_id,
+                    ticker,
+                    'BUY',
+                    float(qty_dec),
+                    float(price_native_dec),
+                    float(total_native),
+                    (trade_currency or 'PLN').upper(),
+                    float(price_native_dec),
+                    float(gross_native),
+                    float(commission_native),
+                    float(commission_native * fx_rate_dec),
+                    float(fx_rate_dec),
+                    float(total_pln),
+                    purchase_date,
+                )
             )
 
             # Update holdings
@@ -507,22 +541,44 @@ class PortfolioService:
             ).fetchone()
 
             if holding:
-                new_quantity = holding['quantity'] + quantity
-                new_total_cost = holding['total_cost'] + total_cost
-                new_avg_price = new_total_cost / new_quantity
+                prev_quantity = Decimal(str(holding['quantity']))
+                prev_total_cost = Decimal(str(holding['total_cost']))
+                prev_native_cost = prev_quantity * Decimal(str(holding['avg_buy_price_native'] or 0))
+                new_quantity = prev_quantity + qty_dec
+                new_total_cost = prev_total_cost + total_pln
+                new_avg_price = new_total_cost / new_quantity if new_quantity else Decimal('0')
+                new_avg_native = (prev_native_cost + gross_native) / new_quantity if new_quantity else Decimal('0')
+                new_avg_fx = new_avg_price / new_avg_native if new_avg_native else Decimal('1')
                 
                 db.execute(
                     '''UPDATE holdings 
-                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?
+                       SET quantity = ?, total_cost = ?, average_buy_price = ?, instrument_currency = ?, avg_buy_price_native = ?, avg_buy_fx_rate = ?
                        WHERE id = ?''',
-                    (new_quantity, new_total_cost, new_avg_price, 1 if auto_fx_fees else holding['auto_fx_fees'], holding['id'])
+                    (
+                        float(new_quantity),
+                        float(new_total_cost),
+                        float(new_avg_price),
+                        (trade_currency or holding['instrument_currency'] or 'PLN').upper(),
+                        float(new_avg_native),
+                        float(new_avg_fx),
+                        holding['id'],
+                    )
                 )
             else:
                 db.execute(
                     '''INSERT INTO holdings 
-                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees) 
-                       VALUES (?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, quantity, price, total_cost, 1 if auto_fx_fees else 0)
+                       (portfolio_id, ticker, quantity, average_buy_price, instrument_currency, avg_buy_price_native, avg_buy_fx_rate, total_cost) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (
+                        portfolio_id,
+                        ticker,
+                        float(qty_dec),
+                        float(total_pln / qty_dec if qty_dec else Decimal('0')),
+                        (trade_currency or 'PLN').upper(),
+                        float(price_native_dec),
+                        float(fx_rate_dec),
+                        float(total_pln),
+                    )
                 )
 
             db.commit()
@@ -532,44 +588,68 @@ class PortfolioService:
             raise e
 
     @staticmethod
-    def sell_stock(portfolio_id, ticker, quantity, price):
+    def sell_stock(portfolio_id, ticker, quantity, price, trade_currency='PLN', fx_rate=1):
         db = get_db()
         holding = db.execute(
             'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
             (portfolio_id, ticker)
         ).fetchone()
 
-        if not holding or holding['quantity'] < quantity:
+        qty_dec = Decimal(str(quantity))
+        price_native_dec = Decimal(str(price))
+        fx_rate_dec = Decimal(str(fx_rate if fx_rate is not None else 1))
+
+        if not holding or Decimal(str(holding['quantity'])) < qty_dec:
             raise ValueError("Insufficient shares")
 
-        total_value = quantity * price
-        cost_basis = quantity * holding['average_buy_price']
-        realized_profit = (price - holding['average_buy_price']) * quantity
+        commission_rate = Decimal('0.005')
+        gross_native = qty_dec * price_native_dec
+        commission_native = gross_native * commission_rate
+        net_native = gross_native - commission_native
+        net_pln = net_native * fx_rate_dec
+        cost_basis_pln = qty_dec * Decimal(str(holding['average_buy_price']))
+        realized_profit_pln = net_pln - cost_basis_pln
 
         try:
             # Update cash
             db.execute(
                 'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                (total_value, portfolio_id)
+                (float(net_pln), portfolio_id)
             )
 
             # Record transaction with realized_profit
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, total_value_pln, trade_currency, fx_rate, realized_profit) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, price, total_value, total_value, 'PLN', 1.0, realized_profit)
+                   (portfolio_id, ticker, type, quantity, price, total_value, trade_currency, price_native, gross_value_native, commission_native, commission_pln, fx_rate, total_value_pln, realized_profit, realized_profit_pln) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    portfolio_id,
+                    ticker,
+                    'SELL',
+                    float(qty_dec),
+                    float(price_native_dec),
+                    float(net_native),
+                    (trade_currency or 'PLN').upper(),
+                    float(price_native_dec),
+                    float(gross_native),
+                    float(commission_native),
+                    float(commission_native * fx_rate_dec),
+                    float(fx_rate_dec),
+                    float(net_pln),
+                    float(realized_profit_pln),
+                    float(realized_profit_pln),
+                )
             )
 
             # Update holdings
-            new_quantity = holding['quantity'] - quantity
+            new_quantity = Decimal(str(holding['quantity'])) - qty_dec
             if new_quantity > 0:
-                new_total_cost = holding['total_cost'] - cost_basis
+                new_total_cost = Decimal(str(holding['total_cost'])) - cost_basis_pln
                 db.execute(
                     '''UPDATE holdings 
                        SET quantity = ?, total_cost = ?
                        WHERE id = ?''',
-                    (new_quantity, new_total_cost, holding['id'])
+                    (float(new_quantity), float(new_total_cost), holding['id'])
                 )
             else:
                 db.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
