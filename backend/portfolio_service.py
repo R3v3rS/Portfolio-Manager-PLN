@@ -33,25 +33,36 @@ class PortfolioService:
         return tx
 
     @staticmethod
-    def resolve_symbol(symbol_input: str) -> Optional[str]:
+    def resolve_symbol(symbol_input: str) -> Optional[SymbolMapping]:
         normalized_symbol = str(symbol_input or '').strip().upper()
         if not normalized_symbol:
             return None
 
         db = get_db()
         mapping = db.execute(
-            'SELECT ticker FROM symbol_mappings WHERE symbol_input = ?',
+            'SELECT id, symbol_input, ticker, currency, created_at FROM symbol_mappings WHERE symbol_input = ?',
             (normalized_symbol,)
         ).fetchone()
-        return mapping['ticker'] if mapping else None
+        if not mapping:
+            return None
+
+        return SymbolMapping(
+            id=mapping['id'],
+            symbol_input=mapping['symbol_input'],
+            ticker=mapping['ticker'],
+            currency=mapping['currency'],
+            created_at=mapping['created_at'],
+        )
 
     @staticmethod
-    def import_xtb_csv(portfolio_id: int, df: pd.DataFrame) -> dict[str, Any]:
-        df = df.sort_values('Time')
+    def import_xtb_csv(portfolio_id: int, df: pd.DataFrame, fx_rates: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        df = df.sort_values('Time').reset_index(drop=True)
+        provided_fx_rates = fx_rates or {}
 
         db = get_db()
         cursor = db.cursor()
         missing_symbols: list[str] = []
+        fx_rate_requests: list[dict[str, Any]] = []
 
         normalized_columns = {str(col).strip().lower(): col for col in df.columns}
         symbol_column = normalized_columns.get('symbol')
@@ -67,7 +78,10 @@ class PortfolioService:
                 comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
 
                 ticker: Optional[str] = None
+                instrument_currency = 'PLN'
                 is_stock_operation = typ_lower in {'stock purchase', 'stock sell'}
+                qty = 0.0
+                price = 0.0
 
                 if is_stock_operation:
                     symbol_input = ''
@@ -78,12 +92,42 @@ class PortfolioService:
                         instrument_value = row[instrument_column]
                         symbol_input = '' if pd.isna(instrument_value) else str(instrument_value)
 
-                    ticker = PortfolioService.resolve_symbol(symbol_input)
-                    if ticker is None:
+                    mapping = PortfolioService.resolve_symbol(symbol_input)
+                    if mapping is None:
                         normalized_symbol = symbol_input.strip().upper()
                         if normalized_symbol and normalized_symbol not in missing_symbols:
                             missing_symbols.append(normalized_symbol)
                         continue
+                    ticker = mapping.ticker
+                    instrument_currency = str(mapping.currency or 'PLN').upper()
+
+                    m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
+                    if not m:
+                        raise ValueError(f"Could not parse stock operation comment: {comment}")
+
+                    qty = float(str(m.group(1)).replace(',', '.'))
+                    price = float(str(m.group(2)).replace(',', '.'))
+
+                    if instrument_currency != 'PLN':
+                        row_id = str(_)
+                        fx_rate = provided_fx_rates.get(row_id)
+                        try:
+                            fx_rate_value = float(fx_rate) if fx_rate is not None else None
+                        except (TypeError, ValueError):
+                            fx_rate_value = None
+
+                        if fx_rate_value is None or fx_rate_value <= 0:
+                            fx_rate_requests.append({
+                                'row_id': row_id,
+                                'symbol': symbol_input.strip().upper(),
+                                'ticker': ticker,
+                                'currency': instrument_currency,
+                                'type': 'BUY' if typ_lower == 'stock purchase' else 'SELL',
+                                'time': str(time),
+                                'quantity': qty,
+                                'price': price,
+                            })
+                            continue
 
                 if typ_lower == 'deposit':
                     cursor.execute(
@@ -108,79 +152,148 @@ class PortfolioService:
                 elif typ_lower == 'stock purchase':
                     if not ticker:
                         raise ValueError('Missing ticker for stock purchase row')
-                    m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                    if not m:
-                        raise ValueError(f"Could not parse purchase comment: {comment}")
-                    qty = float(str(m.group(1)).replace(',', '.'))
-                    price = float(str(m.group(2)).replace(',', '.'))
-                    total_cost = abs(amount)
+                    fx_rate_value = float(provided_fx_rates.get(str(_), 1))
+                    qty_dec = Decimal(str(qty))
+                    price_dec = Decimal(str(price))
+                    fx_rate_dec = Decimal(str(fx_rate_value))
+                    commission_rate = Decimal('0.005')
+
+                    gross_native = qty_dec * price_dec
+                    commission_native = gross_native * commission_rate
+                    total_native = gross_native + commission_native
+                    total_pln = total_native * fx_rate_dec
+
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                        (total_cost, portfolio_id)
+                        (float(total_pln), portfolio_id)
                     )
                     holding = cursor.execute(
                         'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
                         (portfolio_id, ticker)
                     ).fetchone()
                     if holding:
-                        new_qty = holding['quantity'] + qty
-                        new_total_cost = holding['total_cost'] + total_cost
-                        new_avg_price = new_total_cost / new_qty
+                        prev_quantity = Decimal(str(holding['quantity']))
+                        prev_total_cost = Decimal(str(holding['total_cost']))
+                        prev_native_cost = prev_quantity * Decimal(str(holding['avg_buy_price_native'] or 0))
+                        new_quantity = prev_quantity + qty_dec
+                        new_total_cost = prev_total_cost + total_pln
+                        new_avg_price = new_total_cost / new_quantity if new_quantity else Decimal('0')
+                        new_avg_native = (prev_native_cost + gross_native) / new_quantity if new_quantity else Decimal('0')
+                        new_avg_fx = new_avg_price / new_avg_native if new_avg_native else Decimal('1')
                         cursor.execute(
-                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ? WHERE id = ?''',
-                            (new_qty, new_total_cost, new_avg_price, holding['id'])
+                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, instrument_currency = ?, avg_buy_price_native = ?, avg_buy_fx_rate = ? WHERE id = ?''',
+                            (
+                                float(new_quantity),
+                                float(new_total_cost),
+                                float(new_avg_price),
+                                instrument_currency,
+                                float(new_avg_native),
+                                float(new_avg_fx),
+                                holding['id'],
+                            )
                         )
                     else:
                         cursor.execute(
-                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost)
-                               VALUES (?, ?, ?, ?, ?)''',
-                            (portfolio_id, ticker, qty, price, total_cost)
+                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, instrument_currency, avg_buy_price_native, avg_buy_fx_rate, total_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                            (
+                                portfolio_id,
+                                ticker,
+                                float(qty_dec),
+                                float(total_pln / qty_dec if qty_dec else Decimal('0')),
+                                instrument_currency,
+                                float(price_dec),
+                                float(fx_rate_dec),
+                                float(total_pln),
+                            )
                         )
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, trade_currency, price_native, gross_value_native, commission_native, commission_pln, fx_rate, total_value_pln, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (
+                            portfolio_id,
+                            ticker,
+                            'BUY',
+                            float(qty_dec),
+                            float(price_dec),
+                            float(total_native),
+                            instrument_currency,
+                            float(price_dec),
+                            float(gross_native),
+                            float(commission_native),
+                            float(commission_native * fx_rate_dec),
+                            float(fx_rate_dec),
+                            float(total_pln),
+                            time,
+                        )
                     )
                 elif typ_lower == 'stock sell':
                     if not ticker:
                         raise ValueError('Missing ticker for stock sell row')
-                    m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                    if not m:
-                        raise ValueError(f"Could not parse sell comment: {comment}")
-                    qty = float(str(m.group(1)).replace(',', '.'))
-                    price = float(str(m.group(2)).replace(',', '.'))
-                    cursor.execute(
-                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (amount, portfolio_id)
-                    )
+                    fx_rate_value = float(provided_fx_rates.get(str(_), 1))
+                    qty_dec = Decimal(str(qty))
+                    price_dec = Decimal(str(price))
+                    fx_rate_dec = Decimal(str(fx_rate_value))
                     holding = cursor.execute(
                         'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
                         (portfolio_id, ticker)
                     ).fetchone()
-                    realized_profit = 0.0
-                    if holding:
-                        realized_profit = (price - holding['average_buy_price']) * qty
-                        new_qty = holding['quantity'] - qty
-                        new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
-                        if new_qty > 0:
-                            cursor.execute(
-                                '''UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?''',
-                                (new_qty, new_total_cost, holding['id'])
-                            )
-                        else:
-                            cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
+                    if not holding or Decimal(str(holding['quantity'])) < qty_dec:
+                        raise ValueError(f'Insufficient shares for {ticker}')
+
+                    commission_rate = Decimal('0.005')
+                    gross_native = qty_dec * price_dec
+                    commission_native = gross_native * commission_rate
+                    net_native = gross_native - commission_native
+                    net_pln = net_native * fx_rate_dec
+                    cost_basis_pln = qty_dec * Decimal(str(holding['average_buy_price']))
+                    realized_profit_pln = net_pln - cost_basis_pln
+
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'SELL', qty, price, abs(amount), realized_profit, time)
+                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
+                        (float(net_pln), portfolio_id)
                     )
 
-            if missing_symbols:
+                    new_quantity = Decimal(str(holding['quantity'])) - qty_dec
+                    if new_quantity > 0:
+                        new_total_cost = Decimal(str(holding['total_cost'])) - cost_basis_pln
+                        cursor.execute(
+                            '''UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?''',
+                            (float(new_quantity), float(new_total_cost), holding['id'])
+                        )
+                    else:
+                        cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
+
+                    cursor.execute(
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, trade_currency, price_native, gross_value_native, commission_native, commission_pln, fx_rate, total_value_pln, realized_profit, realized_profit_pln, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (
+                            portfolio_id,
+                            ticker,
+                            'SELL',
+                            float(qty_dec),
+                            float(price_dec),
+                            float(net_native),
+                            instrument_currency,
+                            float(price_dec),
+                            float(gross_native),
+                            float(commission_native),
+                            float(commission_native * fx_rate_dec),
+                            float(fx_rate_dec),
+                            float(net_pln),
+                            float(realized_profit_pln),
+                            float(realized_profit_pln),
+                            time,
+                        )
+                    )
+
+            if missing_symbols or fx_rate_requests:
                 db.rollback()
-                return {'success': False, 'missing_symbols': missing_symbols}
+                return {
+                    'success': False,
+                    'missing_symbols': missing_symbols,
+                    'fx_rate_requests': fx_rate_requests,
+                }
 
             db.commit()
-            return {'success': True, 'missing_symbols': []}
+            return {'success': True, 'missing_symbols': [], 'fx_rate_requests': []}
         except Exception:
             db.rollback()
             raise

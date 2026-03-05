@@ -22,15 +22,31 @@ const PerformanceHeatmap = lazy(() => import('../components/portfolio/Performanc
 
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
+  type FxRateRequest = {
+    row_id: string;
+    symbol: string;
+    ticker: string;
+    currency: string;
+    type: 'BUY' | 'SELL';
+    time: string;
+    quantity: number;
+    price: number;
+  };
+
   const fileInput = useRef<HTMLInputElement>(null);
   const [missingSymbols, setMissingSymbols] = useState<string[]>([]);
+  const [fxRateRequests, setFxRateRequests] = useState<FxRateRequest[]>([]);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, { ticker: string; currency: MappingCurrency }>>({});
+  const [fxRateDrafts, setFxRateDrafts] = useState<Record<string, string>>({});
   const [savingMappings, setSavingMappings] = useState(false);
 
-  const importFile = async (file: File) => {
+  const importFile = async (file: File, providedFxRates?: Record<string, string>) => {
     const formData = new FormData();
     formData.append('file', file);
+    if (providedFxRates && Object.keys(providedFxRates).length > 0) {
+      formData.append('fx_rates', JSON.stringify(providedFxRates));
+    }
 
     try {
       const response = await api.post(`/${portfolioId}/import/xtb`, formData, {
@@ -50,10 +66,25 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
         return;
       }
 
+      if (response.data?.success === false && Array.isArray(response.data?.fx_rate_requests)) {
+        const requests = response.data.fx_rate_requests as FxRateRequest[];
+        setFxRateRequests(requests);
+        setPendingFile(file);
+        setFxRateDrafts(
+          requests.reduce<Record<string, string>>((acc, req) => {
+            acc[req.row_id] = '';
+            return acc;
+          }, {})
+        );
+        return;
+      }
+
       alert('Import successful!');
+      setFxRateRequests([]);
+      setFxRateDrafts({});
       onSuccess();
     } catch (err: unknown) {
-      const maybeResponse = (err as { response?: { data?: { success?: boolean; missing_symbols?: string[]; error?: string } } }).response;
+      const maybeResponse = (err as { response?: { data?: { success?: boolean; missing_symbols?: string[]; fx_rate_requests?: FxRateRequest[]; error?: string } } }).response;
       if (maybeResponse?.data?.success === false && Array.isArray(maybeResponse.data.missing_symbols)) {
         const symbols = maybeResponse.data.missing_symbols;
         setMissingSymbols(symbols);
@@ -61,6 +92,19 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
         setMappingDrafts(
           symbols.reduce<Record<string, { ticker: string; currency: MappingCurrency }>>((acc, symbol) => {
             acc[symbol] = { ticker: '', currency: 'PLN' };
+            return acc;
+          }, {})
+        );
+        return;
+      }
+
+      if (maybeResponse?.data?.success === false && Array.isArray(maybeResponse.data.fx_rate_requests)) {
+        const requests = maybeResponse.data.fx_rate_requests;
+        setFxRateRequests(requests);
+        setPendingFile(file);
+        setFxRateDrafts(
+          requests.reduce<Record<string, string>>((acc, req) => {
+            acc[req.row_id] = '';
             return acc;
           }, {})
         );
@@ -83,6 +127,8 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
     setMissingSymbols([]);
     setPendingFile(null);
     setMappingDrafts({});
+    setFxRateRequests([]);
+    setFxRateDrafts({});
     setSavingMappings(false);
   };
 
@@ -114,6 +160,20 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
       alert(error instanceof Error ? error.message : 'Failed to save mappings');
       setSavingMappings(false);
     }
+  };
+
+  const saveFxRatesAndRetry = async () => {
+    if (!pendingFile) return;
+
+    for (const request of fxRateRequests) {
+      const value = Number(fxRateDrafts[request.row_id]);
+      if (!Number.isFinite(value) || value <= 0) {
+        alert(`Podaj poprawny FX rate dla ${request.ticker} (${request.currency})`);
+        return;
+      }
+    }
+
+    await importFile(pendingFile, fxRateDrafts);
   };
 
   return (
@@ -199,6 +259,63 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
                 className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 {savingMappings ? 'Saving...' : 'Save mappings & retry import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fxRateRequests.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
+            <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Podaj FX rate dla transakcji</h3>
+            <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
+              Dla każdej importowanej pozycji z walutą inną niż PLN podaj kurs FX (PLN za 1 jednostkę waluty).
+            </p>
+
+            <div className="max-h-80 space-y-3 overflow-y-auto">
+              {fxRateRequests.map((request) => (
+                <div key={request.row_id} className="grid grid-cols-1 gap-2 rounded-md border border-gray-200 p-3 md:grid-cols-4 dark:border-gray-700">
+                  <div className="text-sm text-gray-700 dark:text-gray-300">
+                    <div className="font-semibold">{request.type} {request.ticker}</div>
+                    <div>{request.quantity.toFixed(4)} @ {request.price.toFixed(4)} {request.currency}</div>
+                    <div className="text-xs text-gray-500">{request.time}</div>
+                  </div>
+                  <div className="md:col-span-2 text-sm text-gray-700 dark:text-gray-300 flex items-center">
+                    Symbol map: {request.symbol} → {request.ticker} ({request.currency})
+                  </div>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0"
+                    value={fxRateDrafts[request.row_id] ?? ''}
+                    onChange={(e) =>
+                      setFxRateDrafts((prev) => ({
+                        ...prev,
+                        [request.row_id]: e.target.value,
+                      }))
+                    }
+                    placeholder={`FX rate ${request.currency}/PLN`}
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeMissingModal}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveFxRatesAndRetry}
+                className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+              >
+                Zapisz FX rate i ponów import
               </button>
             </div>
           </div>

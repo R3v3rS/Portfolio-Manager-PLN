@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+import json
 from portfolio_service import PortfolioService
 from bond_service import BondService
 from price_service import PriceService
@@ -302,7 +303,12 @@ def import_xtb_csv(portfolio_id):
 
     try:
         df = pd.read_csv(file)
-        result = PortfolioService.import_xtb_csv(portfolio_id, df)
+        fx_rates_raw = request.form.get('fx_rates')
+        fx_rates = {}
+        if fx_rates_raw:
+            fx_rates = json.loads(fx_rates_raw)
+
+        result = PortfolioService.import_xtb_csv(portfolio_id, df, fx_rates)
         if not result['success']:
             return jsonify(result), 400
         return jsonify({'message': 'Import successful', **result}), 200
