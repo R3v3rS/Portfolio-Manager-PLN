@@ -438,6 +438,31 @@ def init_db(app):
         except sqlite3.OperationalError:
             pass
 
+        # Migration: multi-currency fields on transactions (backward compatible)
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN trade_currency VARCHAR(3) DEFAULT 'PLN'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN fx_rate DECIMAL(12,6) DEFAULT 1.0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN total_value_pln DECIMAL(15,2)")
+        except sqlite3.OperationalError:
+            pass
+
+        # On-the-fly backfill for existing history:
+        # if old rows don't have currency metadata, treat them as PLN.
+        db.execute(
+            """
+            UPDATE transactions
+            SET trade_currency = COALESCE(NULLIF(trade_currency, ''), 'PLN'),
+                fx_rate = COALESCE(fx_rate, 1.0),
+                total_value_pln = COALESCE(total_value_pln, total_value)
+            """
+        )
+
         db.commit()
 
 def reset_budget_data():

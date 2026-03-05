@@ -21,6 +21,17 @@ class SymbolMapping:
 
 class PortfolioService:
     @staticmethod
+    def _normalize_transaction_currency_fields(tx: dict) -> dict:
+        """
+        Backward compatibility for pre-multi-currency rows.
+        Missing/NULL currency data is interpreted as PLN on the fly.
+        """
+        tx['trade_currency'] = (tx.get('trade_currency') or 'PLN').upper()
+        tx['fx_rate'] = float(tx.get('fx_rate') or 1.0)
+        tx['total_value_pln'] = float(tx.get('total_value_pln') or tx.get('total_value') or 0.0)
+        return tx
+
+    @staticmethod
     def resolve_symbol(symbol_input: str) -> Optional[str]:
         normalized_symbol = str(symbol_input or '').strip().upper()
         if not normalized_symbol:
@@ -387,9 +398,9 @@ class PortfolioService:
             )
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, date_str)
+                   (portfolio_id, ticker, type, quantity, price, total_value, total_value_pln, trade_currency, fx_rate, date) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, amount, 'PLN', 1.0, date_str)
             )
             db.commit()
             return True
@@ -431,9 +442,9 @@ class PortfolioService:
             )
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount, date_str)
+                   (portfolio_id, ticker, type, quantity, price, total_value, total_value_pln, trade_currency, fx_rate, date) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount, amount, 'PLN', 1.0, date_str)
             )
             db.commit()
             return True
@@ -484,9 +495,9 @@ class PortfolioService:
             # Record transaction
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, purchase_date, commission)
+                   (portfolio_id, ticker, type, quantity, price, total_value, total_value_pln, trade_currency, fx_rate, date, commission) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, total_cost, 'PLN', 1.0, purchase_date, commission)
             )
 
             # Update holdings
@@ -545,9 +556,9 @@ class PortfolioService:
             # Record transaction with realized_profit
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, price, total_value, realized_profit)
+                   (portfolio_id, ticker, type, quantity, price, total_value, total_value_pln, trade_currency, fx_rate, realized_profit) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'SELL', quantity, price, total_value, total_value, 'PLN', 1.0, realized_profit)
             )
 
             # Update holdings
@@ -630,7 +641,11 @@ class PortfolioService:
             'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date DESC', 
             (portfolio_id,)
         ).fetchall()
-        return [{key: t[key] for key in t.keys()} for t in transactions]
+        normalized = []
+        for t in transactions:
+            tx = {key: t[key] for key in t.keys()}
+            normalized.append(PortfolioService._normalize_transaction_currency_fields(tx))
+        return normalized
 
     @staticmethod
     def get_all_transactions():
@@ -641,7 +656,11 @@ class PortfolioService:
                JOIN portfolios p ON t.portfolio_id = p.id 
                ORDER BY t.date DESC'''
         ).fetchall()
-        return [{key: t[key] for key in t.keys()} for t in transactions]
+        normalized = []
+        for t in transactions:
+            tx = {key: t[key] for key in t.keys()}
+            normalized.append(PortfolioService._normalize_transaction_currency_fields(tx))
+        return normalized
 
     @staticmethod
     def record_dividend(portfolio_id, ticker, amount, date):
