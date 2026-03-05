@@ -1256,17 +1256,9 @@ class PortfolioService:
             extra_data = ppk_summary
         else:
             # STANDARD or IKE
+            # get_holdings already returns current_value in PLN (with FX conversion for non-PLN instruments)
             holdings = PortfolioService.get_holdings(portfolio_id)
-            tickers = [h['ticker'] for h in holdings]
-            current_prices = PriceService.get_prices(tickers)
-            
-            for h in holdings:
-                ticker = h['ticker']
-                price = current_prices.get(ticker)
-                if price is None:
-                    price = h['average_buy_price']
-                holdings_value += h['quantity'] * price
-            
+            holdings_value = sum(float(h.get('current_value') or 0.0) for h in holdings)
             total_value = current_cash + holdings_value
         
         # Get total dividends
