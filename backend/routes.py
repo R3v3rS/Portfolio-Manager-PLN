@@ -135,7 +135,10 @@ def buy():
             data['price'],
             data.get('date'), # Accept optional custom date
             data.get('commission', 0.0),
-            data.get('auto_fx_fees', False)
+            data.get('auto_fx_fees', False),
+            data.get('trade_currency', 'PLN'),
+            data.get('fx_rate', 1),
+            data.get('price_native')
         )
         return jsonify({'message': 'Buy successful'}), 200
     except Exception as e:
@@ -149,7 +152,9 @@ def sell():
             data['portfolio_id'], 
             data['ticker'], 
             data['quantity'], 
-            data['price']
+            data['price'],
+            data.get('trade_currency', 'PLN'),
+            data.get('fx_rate', 1)
         )
         return jsonify({'message': 'Sell successful'}), 200
     except Exception as e:

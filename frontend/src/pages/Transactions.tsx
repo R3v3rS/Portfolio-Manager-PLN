@@ -91,8 +91,11 @@ const Transactions: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Value</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price PLN</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">price_native</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">trade_currency</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">fx_rate</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">total_value_pln</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -125,14 +128,23 @@ const Transactions: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                     {t.price.toFixed(2)} PLN
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                    {(t.price_native ?? t.price).toFixed(4)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                    {(t.trade_currency || 'PLN').toUpperCase()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                    {(t.fx_rate ?? 1).toFixed(4)}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                    {t.total_value.toFixed(2)} PLN
+                    {(t.total_value_pln ?? t.total_value).toFixed(2)} PLN
                   </td>
                 </tr>
               ))}
               {filteredTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <td colSpan={10} className="px-6 py-4 text-center text-sm text-gray-500">
                     No transactions found.
                   </td>
                 </tr>

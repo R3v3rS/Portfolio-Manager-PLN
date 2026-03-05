@@ -624,7 +624,8 @@ const PortfolioDetails: React.FC = () => {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Śr. Cena</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Śr. Cena PLN</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">price_native</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Obecna Cena</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktualizacja Ceny</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
@@ -663,13 +664,17 @@ const PortfolioDetails: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{h.average_buy_price.toFixed(2)} PLN</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                          {h.avg_buy_price_native ? `${h.avg_buy_price_native.toFixed(4)} ${(h.instrument_currency || 'PLN').toUpperCase()}` : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                           {h.current_price ? `${h.current_price.toFixed(2)} PLN` : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                           {formatPriceUpdateTimestamp(h.price_last_updated_at)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          {h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}
+                          <div>{h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}</div>
+                          <div className="text-xs text-gray-400">converted PLN value</div>
                         </td>
                         <td className={cn(
                           "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
@@ -724,7 +729,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {holdings.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
+                        <td colSpan={10} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
                       </tr>
                     )}
                   </tbody>
@@ -805,8 +810,11 @@ const PortfolioDetails: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Typ</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena PLN</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">price_native</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">trade_currency</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">fx_rate</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość PLN</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
                   </tr>
                 </thead>
@@ -838,15 +846,24 @@ const PortfolioDetails: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                         {t.price.toFixed(2)} PLN
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                        {(t.price_native ?? t.price).toFixed(4)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                        {(t.trade_currency || 'PLN').toUpperCase()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                        {(t.fx_rate ?? 1).toFixed(4)}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                        {t.total_value.toFixed(2)} PLN
+                        {(t.total_value_pln ?? t.total_value).toFixed(2)} PLN
                       </td>
                       <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", t.realized_profit >= 0 ? "text-green-600" : "text-red-600")}>{typeof t.realized_profit === 'number' ? t.realized_profit.toFixed(2) + ' PLN' : '-'}</td>
                     </tr>
                   ))}
                   {portfolioTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
+                      <td colSpan={10} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
                     </tr>
                   )}
                 </tbody>

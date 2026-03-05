@@ -24,7 +24,15 @@ export interface Transaction {
   quantity: number;
   price: number;
   total_value: number;
+  total_value_pln?: number;
+  price_native?: number;
+  trade_currency?: string;
+  fx_rate?: number;
+  gross_value_native?: number;
+  commission_native?: number;
+  commission_pln?: number;
   realized_profit?: number;
+  realized_profit_pln?: number;
   commission?: number;
 }
 
@@ -65,6 +73,9 @@ export interface Holding {
   auto_fx_fees?: boolean;
   fx_rate_used?: number;
   currency?: string;
+  instrument_currency?: string;
+  avg_buy_price_native?: number;
+  avg_buy_fx_rate?: number;
   price_last_updated_at?: string | null;
 }
 
