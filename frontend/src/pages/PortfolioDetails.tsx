@@ -270,7 +270,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
           <div className="w-full max-w-3xl rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
             <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Podaj FX rate dla transakcji</h3>
             <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
-              Dla każdej importowanej pozycji z walutą inną niż PLN podaj kurs FX (PLN za 1 jednostkę waluty).
+              Dla każdej importowanej pozycji z walutą USD/EUR podaj kurs FX (PLN za 1 jednostkę waluty).
             </p>
 
             <div className="max-h-80 space-y-3 overflow-y-auto">

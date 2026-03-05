@@ -108,7 +108,7 @@ class PortfolioService:
                     qty = float(str(m.group(1)).replace(',', '.'))
                     price = float(str(m.group(2)).replace(',', '.'))
 
-                    if instrument_currency != 'PLN':
+                    if instrument_currency in {'USD', 'EUR'}:
                         row_id = str(_)
                         fx_rate = provided_fx_rates.get(row_id)
                         try:
@@ -156,7 +156,7 @@ class PortfolioService:
                     qty_dec = Decimal(str(qty))
                     price_dec = Decimal(str(price))
                     fx_rate_dec = Decimal(str(fx_rate_value))
-                    commission_rate = Decimal('0.005')
+                    commission_rate = Decimal('0.005') if instrument_currency in {'USD', 'EUR'} else Decimal('0')
 
                     gross_native = qty_dec * price_dec
                     commission_native = gross_native * commission_rate
@@ -239,7 +239,7 @@ class PortfolioService:
                     if not holding or Decimal(str(holding['quantity'])) < qty_dec:
                         raise ValueError(f'Insufficient shares for {ticker}')
 
-                    commission_rate = Decimal('0.005')
+                    commission_rate = Decimal('0.005') if instrument_currency in {'USD', 'EUR'} else Decimal('0')
                     gross_native = qty_dec * price_dec
                     commission_native = gross_native * commission_rate
                     net_native = gross_native - commission_native
