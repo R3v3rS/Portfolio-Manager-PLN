@@ -5,8 +5,162 @@ from datetime import datetime, timedelta, date
 from bond_service import BondService
 from math_utils import xirr
 from modules.ppk.ppk_service import PPKService
+from dataclasses import dataclass
+from typing import Optional, Any
+import pandas as pd
+import re
+
+
+@dataclass
+class SymbolMapping:
+    id: int
+    symbol_input: str
+    ticker: str
+    currency: Optional[str]
+    created_at: str
 
 class PortfolioService:
+    @staticmethod
+    def resolve_symbol(symbol_input: str) -> Optional[str]:
+        normalized_symbol = str(symbol_input or '').strip().upper()
+        if not normalized_symbol:
+            return None
+
+        db = get_db()
+        mapping = db.execute(
+            'SELECT ticker FROM symbol_mappings WHERE symbol_input = ?',
+            (normalized_symbol,)
+        ).fetchone()
+        return mapping['ticker'] if mapping else None
+
+    @staticmethod
+    def import_xtb_csv(portfolio_id: int, df: pd.DataFrame) -> dict[str, Any]:
+        df = df.sort_values('Time')
+
+        db = get_db()
+        cursor = db.cursor()
+        missing_symbols: list[str] = []
+
+        db.execute('BEGIN')
+        try:
+            for _, row in df.iterrows():
+                typ = row['Type']
+                time = row['Time']
+                amount = float(str(row['Amount']).replace(',', '.'))
+                comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
+
+                ticker: Optional[str] = None
+                if 'symbol' in df.columns and not pd.isna(row['symbol']):
+                    symbol_input = str(row['symbol'])
+                    ticker = PortfolioService.resolve_symbol(symbol_input)
+                    if ticker is None:
+                        normalized_symbol = symbol_input.strip().upper()
+                        if normalized_symbol and normalized_symbol not in missing_symbols:
+                            missing_symbols.append(normalized_symbol)
+                        continue
+                elif 'Instrument' in df.columns:
+                    ticker = str(row['Instrument'])
+
+                if typ.lower() == 'deposit':
+                    cursor.execute(
+                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
+                        (amount, portfolio_id)
+                    )
+                    cursor.execute(
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, time)
+                    )
+                elif typ.lower() == 'withdrawal':
+                    cursor.execute(
+                        'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
+                        (abs(amount), portfolio_id)
+                    )
+                    cursor.execute(
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, 'CASH', 'WITHDRAW', 1, abs(amount), abs(amount), time)
+                    )
+                elif typ.lower() == 'stock purchase':
+                    if not ticker:
+                        raise ValueError('Missing ticker for stock purchase row')
+                    m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
+                    if not m:
+                        raise ValueError(f"Could not parse purchase comment: {comment}")
+                    qty = float(str(m.group(1)).replace(',', '.'))
+                    price = float(str(m.group(2)).replace(',', '.'))
+                    total_cost = abs(amount)
+                    cursor.execute(
+                        'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
+                        (total_cost, portfolio_id)
+                    )
+                    holding = cursor.execute(
+                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
+                        (portfolio_id, ticker)
+                    ).fetchone()
+                    if holding:
+                        new_qty = holding['quantity'] + qty
+                        new_total_cost = holding['total_cost'] + total_cost
+                        new_avg_price = new_total_cost / new_qty
+                        cursor.execute(
+                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ? WHERE id = ?''',
+                            (new_qty, new_total_cost, new_avg_price, holding['id'])
+                        )
+                    else:
+                        cursor.execute(
+                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost)
+                               VALUES (?, ?, ?, ?, ?)''',
+                            (portfolio_id, ticker, qty, price, total_cost)
+                        )
+                    cursor.execute(
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time)
+                    )
+                elif typ.lower() == 'stock sell':
+                    if not ticker:
+                        raise ValueError('Missing ticker for stock sell row')
+                    m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
+                    if not m:
+                        raise ValueError(f"Could not parse sell comment: {comment}")
+                    qty = float(str(m.group(1)).replace(',', '.'))
+                    price = float(str(m.group(2)).replace(',', '.'))
+                    cursor.execute(
+                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
+                        (amount, portfolio_id)
+                    )
+                    holding = cursor.execute(
+                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
+                        (portfolio_id, ticker)
+                    ).fetchone()
+                    realized_profit = 0.0
+                    if holding:
+                        realized_profit = (price - holding['average_buy_price']) * qty
+                        new_qty = holding['quantity'] - qty
+                        new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
+                        if new_qty > 0:
+                            cursor.execute(
+                                '''UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?''',
+                                (new_qty, new_total_cost, holding['id'])
+                            )
+                        else:
+                            cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
+                    cursor.execute(
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'SELL', qty, price, abs(amount), realized_profit, time)
+                    )
+
+            if missing_symbols:
+                db.rollback()
+                return {'success': False, 'missing_symbols': missing_symbols}
+
+            db.commit()
+            return {'success': True, 'missing_symbols': []}
+        except Exception:
+            db.rollback()
+            raise
+
     @staticmethod
     def get_tax_limits():
         db = get_db()

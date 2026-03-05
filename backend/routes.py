@@ -3,9 +3,7 @@ from portfolio_service import PortfolioService
 from bond_service import BondService
 from price_service import PriceService
 from modules.ppk.ppk_service import PPKService
-import re
 import pandas as pd
-from werkzeug.utils import secure_filename
 from database import get_db
 
 portfolio_bp = Blueprint('portfolio', __name__)
@@ -299,115 +297,11 @@ def import_xtb_csv(portfolio_id):
 
     try:
         df = pd.read_csv(file)
-        df = df.sort_values('Time')  # Chronological order
-
-        db = get_db()
-        cursor = db.cursor()
-        db.execute('BEGIN')
-        for _, row in df.iterrows():
-            typ = row['Type']
-            ticker = row['Instrument']
-            time = row['Time']
-            # Zamiana przecinka na kropkę w Amount
-            amount = float(str(row['Amount']).replace(',', '.'))
-            comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
-            # Deposit/Withdrawal
-            if typ.lower() == 'deposit':
-                cursor.execute(
-                    'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                    (amount, portfolio_id)
-                )
-                cursor.execute(
-                    '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, time)
-                )
-            elif typ.lower() == 'withdrawal':
-                cursor.execute(
-                    'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                    (abs(amount), portfolio_id)
-                )
-                cursor.execute(
-                    '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, 'CASH', 'WITHDRAW', 1, abs(amount), abs(amount), time)
-                )
-            elif typ.lower() == 'stock purchase':
-                # Akceptuj liczby z przecinkiem lub kropką
-                m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                if not m:
-                    raise ValueError(f"Could not parse purchase comment: {comment}")
-                qty = float(str(m.group(1)).replace(',', '.'))
-                price = float(str(m.group(2)).replace(',', '.'))
-                total_cost = abs(amount)
-                # Update cash
-                cursor.execute(
-                    'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                    (total_cost, portfolio_id)
-                )
-                # Update or insert holding
-                holding = cursor.execute(
-                    'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
-                    (portfolio_id, ticker)
-                ).fetchone()
-                if holding:
-                    new_qty = holding['quantity'] + qty
-                    new_total_cost = holding['total_cost'] + total_cost
-                    new_avg_price = new_total_cost / new_qty
-                    cursor.execute(
-                        '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ? WHERE id = ?''',
-                        (new_qty, new_total_cost, new_avg_price, holding['id'])
-                    )
-                else:
-                    cursor.execute(
-                        '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost)
-                           VALUES (?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, qty, price, total_cost)
-                    )
-                # Log transaction
-                cursor.execute(
-                    '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, 'BUY', qty, price, total_cost, time)
-                )
-            elif typ.lower() == 'stock sell':
-                m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                if not m:
-                    raise ValueError(f"Could not parse sell comment: {comment}")
-                qty = float(str(m.group(1)).replace(',', '.'))
-                price = float(str(m.group(2)).replace(',', '.'))
-                # Add cash
-                cursor.execute(
-                    'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                    (amount, portfolio_id)
-                )
-                # Fetch holding BEFORE update
-                holding = cursor.execute(
-                    'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
-                    (portfolio_id, ticker)
-                ).fetchone()
-                realized_profit = 0.0
-                if holding:
-                    realized_profit = (price - holding['average_buy_price']) * qty
-                    new_qty = holding['quantity'] - qty
-                    new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
-                    if new_qty > 0:
-                        cursor.execute(
-                            '''UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?''',
-                            (new_qty, new_total_cost, holding['id'])
-                        )
-                    else:
-                        cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
-                # Log transaction with realized_profit
-                cursor.execute(
-                    '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, 'SELL', qty, price, abs(amount), realized_profit, time)
-                )
-        db.commit()
-        return jsonify({'message': 'Import successful'}), 200
+        result = PortfolioService.import_xtb_csv(portfolio_id, df)
+        if not result['success']:
+            return jsonify(result), 400
+        return jsonify({'message': 'Import successful', **result}), 200
     except Exception as e:
-        db.rollback()
         return jsonify({'error': str(e)}), 400
 
 @portfolio_bp.route('/<int:portfolio_id>/closed-positions', methods=['GET'])
