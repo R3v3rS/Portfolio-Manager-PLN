@@ -57,17 +57,21 @@ class PortfolioService:
                 ticker: Optional[str] = None
                 is_stock_operation = typ_lower in {'stock purchase', 'stock sell'}
 
-                if is_stock_operation and symbol_column is not None:
-                    symbol_value = row[symbol_column]
-                    symbol_input = '' if pd.isna(symbol_value) else str(symbol_value)
+                if is_stock_operation:
+                    symbol_input = ''
+                    if symbol_column is not None:
+                        symbol_value = row[symbol_column]
+                        symbol_input = '' if pd.isna(symbol_value) else str(symbol_value)
+                    elif instrument_column is not None:
+                        instrument_value = row[instrument_column]
+                        symbol_input = '' if pd.isna(instrument_value) else str(instrument_value)
+
                     ticker = PortfolioService.resolve_symbol(symbol_input)
                     if ticker is None:
                         normalized_symbol = symbol_input.strip().upper()
                         if normalized_symbol and normalized_symbol not in missing_symbols:
                             missing_symbols.append(normalized_symbol)
                         continue
-                elif is_stock_operation and instrument_column is not None:
-                    ticker = str(row[instrument_column])
 
                 if typ_lower == 'deposit':
                     cursor.execute(
