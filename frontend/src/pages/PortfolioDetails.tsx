@@ -9,6 +9,7 @@ import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
+import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
 
 
 const PortfolioChart = lazy(() => import('../components/PortfolioChart'));
@@ -22,20 +23,96 @@ const PerformanceHeatmap = lazy(() => import('../components/portfolio/Performanc
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const [missingSymbols, setMissingSymbols] = useState<string[]>([]);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [mappingDrafts, setMappingDrafts] = useState<Record<string, { ticker: string; currency: MappingCurrency }>>({});
+  const [savingMappings, setSavingMappings] = useState(false);
+
+  const importFile = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await api.post(`/${portfolioId}/import/xtb`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      if (response.data?.success === false && Array.isArray(response.data?.missing_symbols)) {
+        const symbols = response.data.missing_symbols as string[];
+        setMissingSymbols(symbols);
+        setPendingFile(file);
+        setMappingDrafts(
+          symbols.reduce<Record<string, { ticker: string; currency: MappingCurrency }>>((acc, symbol) => {
+            acc[symbol] = { ticker: '', currency: 'PLN' };
+            return acc;
+          }, {})
+        );
+        return;
+      }
+
+      alert('Import successful!');
+      onSuccess();
+    } catch (err: unknown) {
+      const maybeResponse = (err as { response?: { data?: { success?: boolean; missing_symbols?: string[]; error?: string } } }).response;
+      if (maybeResponse?.data?.success === false && Array.isArray(maybeResponse.data.missing_symbols)) {
+        const symbols = maybeResponse.data.missing_symbols;
+        setMissingSymbols(symbols);
+        setPendingFile(file);
+        setMappingDrafts(
+          symbols.reduce<Record<string, { ticker: string; currency: MappingCurrency }>>((acc, symbol) => {
+            acc[symbol] = { ticker: '', currency: 'PLN' };
+            return acc;
+          }, {})
+        );
+        return;
+      }
+
+      const errorMessage = maybeResponse?.data?.error || (err instanceof Error ? err.message : 'Unknown error');
+      alert('Import failed: ' + errorMessage);
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
     const file = e.target.files[0];
-    const formData = new FormData();
-    formData.append('file', file);
+    await importFile(file);
+    e.target.value = '';
+  };
+
+  const closeMissingModal = () => {
+    setMissingSymbols([]);
+    setPendingFile(null);
+    setMappingDrafts({});
+    setSavingMappings(false);
+  };
+
+  const saveMappingsAndRetry = async () => {
+    if (!pendingFile) return;
+
+    for (const symbol of missingSymbols) {
+      const draft = mappingDrafts[symbol];
+      if (!draft || !draft.ticker.trim()) {
+        alert(`Provide ticker for ${symbol}`);
+        return;
+      }
+    }
+
+    setSavingMappings(true);
     try {
-      await api.post(`/${portfolioId}/import/xtb`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      alert('Import successful!');
-      onSuccess();
-    } catch (err: any) {
-      alert('Import failed: ' + (err.response?.data?.error || err.message));
+      for (const symbol of missingSymbols) {
+        const draft = mappingDrafts[symbol];
+        await symbolMapApi.create({
+          symbol_input: symbol,
+          ticker: draft.ticker.trim().toUpperCase(),
+          currency: draft.currency,
+        });
+      }
+
+      closeMissingModal();
+      await importFile(pendingFile);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to save mappings');
+      setSavingMappings(false);
     }
   };
 
@@ -54,6 +131,79 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
         style={{ display: 'none' }}
         onChange={handleFileChange}
       />
+
+      {missingSymbols.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
+            <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Missing symbol mappings</h3>
+            <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
+              Add mappings for missing symbols and retry import.
+            </p>
+
+            <div className="space-y-3">
+              {missingSymbols.map((symbol) => (
+                <div key={symbol} className="grid grid-cols-1 gap-2 rounded-md border border-gray-200 p-3 md:grid-cols-3 dark:border-gray-700">
+                  <input
+                    value={symbol}
+                    readOnly
+                    className="rounded-md border border-gray-300 bg-gray-100 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                  />
+                  <input
+                    value={mappingDrafts[symbol]?.ticker ?? ''}
+                    onChange={(e) =>
+                      setMappingDrafts((prev) => ({
+                        ...prev,
+                        [symbol]: {
+                          ...(prev[symbol] ?? { ticker: '', currency: 'PLN' as MappingCurrency }),
+                          ticker: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="Ticker (e.g. AAPL)"
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm uppercase dark:border-gray-700 dark:bg-gray-800"
+                  />
+                  <select
+                    value={mappingDrafts[symbol]?.currency ?? 'PLN'}
+                    onChange={(e) =>
+                      setMappingDrafts((prev) => ({
+                        ...prev,
+                        [symbol]: {
+                          ...(prev[symbol] ?? { ticker: '', currency: 'PLN' as MappingCurrency }),
+                          currency: e.target.value as MappingCurrency,
+                        },
+                      }))
+                    }
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <option value="PLN">PLN</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeMissingModal}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveMappingsAndRetry}
+                disabled={savingMappings}
+                className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {savingMappings ? 'Saving...' : 'Save mappings & retry import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

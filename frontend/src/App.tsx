@@ -10,6 +10,7 @@ const LoansDashboard = lazy(() => import('./components/loans/LoansDashboard'));
 const LoanSimulator = lazy(() => import('./components/loans/LoanSimulator'));
 const BudgetDashboard = lazy(() => import('./components/budget/BudgetDashboard'));
 const InvestmentRadar = lazy(() => import('./pages/InvestmentRadar'));
+const SymbolMappingPanel = lazy(() => import('./pages/SymbolMappingPanel'));
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
             <Route path="/loans" element={<LoansDashboard />} />
             <Route path="/loans/:id" element={<LoanSimulator />} />
             <Route path="/budget" element={<BudgetDashboard />} />
+            <Route path="/settings/symbol-mapping" element={<SymbolMappingPanel />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

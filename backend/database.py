@@ -143,6 +143,19 @@ def init_db(app):
                 last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+
+        # Symbol mappings table (CSV import symbol -> ticker resolver)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS symbol_mappings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol_input TEXT UNIQUE NOT NULL,
+                ticker VARCHAR(20) NOT NULL,
+                currency VARCHAR(10),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+
+        db.execute('CREATE INDEX IF NOT EXISTS idx_symbol_mappings_symbol_input ON symbol_mappings(symbol_input);')
         
         # Dividends table
         db.execute('''

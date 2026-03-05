@@ -8,6 +8,7 @@ from routes_loans import loans_bp
 from routes_budget import budget_bp
 from routes_dashboard import dashboard_bp
 from routes_radar import radar_bp
+from routes_symbol_map import symbol_map_bp
 from price_service import PriceService
 import os
 
@@ -41,6 +42,7 @@ def create_app():
     app.register_blueprint(budget_bp, url_prefix='/api/budget')
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(radar_bp, url_prefix='/api/radar')
+    app.register_blueprint(symbol_map_bp, url_prefix='/api/symbol-map')
 
     # Global error handler to return consistent JSON responses
 
