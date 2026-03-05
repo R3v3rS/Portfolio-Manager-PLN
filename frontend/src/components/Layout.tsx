@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, History, PieChart, Landmark, PiggyBank, Radar, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, Wallet, History, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 
@@ -19,6 +19,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Transakcje', path: '/transactions', icon: History },
     { name: 'Kredyty', path: '/loans', icon: Landmark },
     { name: 'Budżet', path: '/budget', icon: PiggyBank },
+    { name: 'Symbol Mapping', path: '/settings/symbol-mapping', icon: Settings },
   ];
 
   return (
