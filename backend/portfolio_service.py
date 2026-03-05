@@ -3,6 +3,7 @@ from database import get_db
 import sqlite3
 from datetime import datetime, timedelta, date
 from bond_service import BondService
+from fx_rate_service import FxRateService
 from math_utils import xirr
 from modules.ppk.ppk_service import PPKService
 from dataclasses import dataclass
@@ -21,6 +22,21 @@ class SymbolMapping:
     created_at: str
 
 class PortfolioService:
+    @staticmethod
+    def _to_pln_value(tx: dict) -> float:
+        """
+        Returns transaction value in PLN (with backward compatibility).
+        For legacy rows without total_value_pln we fallback to total_value.
+        """
+        total_value_pln = tx['total_value_pln'] if 'total_value_pln' in tx.keys() else None
+        if total_value_pln is not None:
+            try:
+                return float(total_value_pln)
+            except (TypeError, ValueError):
+                pass
+        total_value = tx['total_value'] if 'total_value' in tx.keys() else 0.0
+        return float(total_value or 0.0)
+
     @staticmethod
     def _normalize_transaction_currency_fields(tx: dict) -> dict:
         """
@@ -1037,6 +1053,7 @@ class PortfolioService:
             current_cash = 0.0
             invested_capital = 0.0
             holdings_qty = {}
+            ticker_currency = {}
             
             # Reset benchmark calculation for each month end to ensure correctness? 
             # No, we can iterate transactions up to end_date. 
@@ -1058,9 +1075,10 @@ class PortfolioService:
                 if t_date > end_date:
                     continue
                 
-                t_val = float(t['total_value'])
+                t_val = PortfolioService._to_pln_value(t)
                 t_qty = float(t['quantity'])
                 t_ticker = t['ticker']
+                t_currency = (t['trade_currency'] or 'PLN').upper() if 'trade_currency' in t.keys() else 'PLN'
                 
                 if t['type'] in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
                     current_cash += t_val
@@ -1086,14 +1104,25 @@ class PortfolioService:
                 if t_ticker != 'CASH':
                     if t['type'] == 'BUY':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
+                        ticker_currency[t_ticker] = t_currency
                     elif t['type'] == 'SELL':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
+                        ticker_currency[t_ticker] = t_currency
             
             total_value = current_cash
             if account_type not in ['SAVINGS', 'BONDS']:
                 for ticker, qty in holdings_qty.items():
                     if qty > 0.0001:
-                        total_value += qty * get_price_at_date(ticker, end_date)
+                        market_price_native = get_price_at_date(ticker, end_date)
+                        instrument_currency = ticker_currency.get(ticker, 'PLN')
+                        fx_rate = 1.0
+                        if instrument_currency != 'PLN':
+                            try:
+                                fx_rate = FxRateService.get_rate(instrument_currency, end_date.isoformat())
+                            except Exception as e:
+                                print(f"Failed to fetch FX rate for {instrument_currency} at {end_date}: {e}")
+                                fx_rate = 1.0
+                        total_value += qty * market_price_native * fx_rate
             
             profit = total_value - invested_capital
             
