@@ -368,6 +368,10 @@ class PortfolioService:
                         p['last_interest_date'] = str(p['last_interest_date'])
                     if p.get('created_at'):
                         p['created_at'] = str(p['created_at'])
+                    # Expose an "is_empty" flag so the frontend can show
+                    # delete actions only when the backend considers the
+                    # portfolio deletable.
+                    p['is_empty'] = PortfolioService.is_portfolio_empty(p['id'])
                     results.append(p)
                 except Exception as e:
                     print(f"MAPPING ERROR for row {row['id']}: {e}")
@@ -380,9 +384,39 @@ class PortfolioService:
     @staticmethod
     def delete_portfolio(portfolio_id):
         db = get_db()
-        portfolio = db.execute('SELECT id, current_cash, account_type FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        portfolio = db.execute(
+            'SELECT id, current_cash, account_type FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
         if not portfolio:
             raise ValueError('Portfolio not found')
+
+        if not PortfolioService.is_portfolio_empty(portfolio_id):
+            raise ValueError('Only empty portfolios can be deleted')
+
+        try:
+            db.execute('DELETE FROM ppk_portfolios WHERE id = ?', (portfolio_id,))
+            db.execute('DELETE FROM portfolios WHERE id = ?', (portfolio_id,))
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise e
+
+    @staticmethod
+    def is_portfolio_empty(portfolio_id: int) -> bool:
+        """
+        Checks whether a portfolio is empty and eligible for deletion.
+        Shared between delete_portfolio and list_portfolios so the
+        frontend can rely on a single source of truth.
+        """
+        db = get_db()
+        portfolio = db.execute(
+            'SELECT id, current_cash FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
+        if not portfolio:
+            return False
 
         has_transactions = db.execute(
             'SELECT 1 FROM transactions WHERE portfolio_id = ? LIMIT 1',
@@ -414,17 +448,7 @@ class PortfolioService:
             and not has_ppk_transactions
         )
 
-        if not is_empty:
-            raise ValueError('Only empty portfolios can be deleted')
-
-        try:
-            db.execute('DELETE FROM ppk_portfolios WHERE id = ?', (portfolio_id,))
-            db.execute('DELETE FROM portfolios WHERE id = ?', (portfolio_id,))
-            db.commit()
-            return True
-        except Exception as e:
-            db.rollback()
-            raise e
+        return is_empty
 
     @staticmethod
     def _capitalize_savings(db, portfolio_id):

@@ -13,6 +13,7 @@ export interface Portfolio {
   total_dividends?: number;
   total_result?: number;
   total_result_percent?: number;
+  is_empty?: boolean;
 }
 
 export interface Transaction {

@@ -160,7 +160,9 @@ const PortfolioList: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {portfolios.map((portfolio) => {
-          const isEmptyPortfolio = (portfolio.current_cash || 0) === 0 && (portfolio.portfolio_value || 0) === 0;
+          const isEmptyPortfolio =
+            portfolio.is_empty ??
+            ((portfolio.current_cash || 0) === 0 && (portfolio.portfolio_value || 0) === 0);
 
           return (
             <Link
