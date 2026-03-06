@@ -577,9 +577,12 @@ class PortfolioService:
         if not holding or holding['quantity'] < quantity:
             raise ValueError("Insufficient shares")
 
-        total_value = quantity * price
+        holding_currency = (holding['currency'] or 'PLN').upper()
+        fx_rate = PortfolioService._get_fx_rates_to_pln({holding_currency}).get(holding_currency, 1.0)
+        unit_price_pln = price * fx_rate
+        total_value = quantity * unit_price_pln
         cost_basis = quantity * holding['average_buy_price']
-        realized_profit = (price - holding['average_buy_price']) * quantity
+        realized_profit = (unit_price_pln - holding['average_buy_price']) * quantity
 
         try:
             # Update cash
@@ -593,7 +596,7 @@ class PortfolioService:
                 '''INSERT INTO transactions 
                    (portfolio_id, ticker, type, quantity, price, total_value, realized_profit) 
                    VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, price, total_value, realized_profit)
+                (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit)
             )
 
             # Update holdings
@@ -616,25 +619,43 @@ class PortfolioService:
             raise e
 
     @staticmethod
+    def _get_fx_rates_to_pln(currencies: set[str]) -> dict[str, float]:
+        normalized = {str(c or '').strip().upper() for c in currencies if c}
+        normalized.discard('PLN')
+        if not normalized:
+            return {'PLN': 1.0}
+
+        fx_ticker_map = {currency: f"{currency}PLN=X" for currency in normalized}
+        fx_prices = PriceService.get_prices(list(fx_ticker_map.values()))
+
+        rates = {'PLN': 1.0}
+        for currency, fx_ticker in fx_ticker_map.items():
+            rate = fx_prices.get(fx_ticker)
+            rates[currency] = float(rate) if rate else 1.0
+
+        return rates
+
+    @staticmethod
     def get_holdings(portfolio_id):
         db = get_db()
         holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
-        
+
         # Enrich with current prices
         results = []
         if not holdings:
             return results
-            
+
         tickers = [h['ticker'] for h in holdings]
         current_prices = PriceService.get_prices(tickers)
         price_updates = PriceService.get_price_updates(tickers)
-        
+        fx_rates = PortfolioService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
+
         updates_needed = False
-        
+
         holdings_value = 0.0
         for h in holdings:
             h_dict = {key: h[key] for key in h.keys()}
-            
+
             # Enrich Metadata if missing
             if not h_dict.get('company_name') or not h_dict.get('sector'):
                 meta = PriceService.fetch_metadata(h_dict['ticker'])
@@ -646,27 +667,35 @@ class PortfolioService:
                     h_dict.update(meta)
                     updates_needed = True
 
-            price = current_prices.get(h_dict['ticker'])
-            
-            if price is None:
-                price = h_dict['average_buy_price']
-            
-            h_dict['current_price'] = price
+            price_native = current_prices.get(h_dict['ticker'])
+            if price_native is None:
+                # average_buy_price is stored in PLN, so for native fallback convert back for display
+                currency = (h_dict.get('currency') or 'PLN').upper()
+                fx_rate = fx_rates.get(currency, 1.0)
+                price_native = (h_dict['average_buy_price'] / fx_rate) if fx_rate else h_dict['average_buy_price']
+
+            currency = (h_dict.get('currency') or 'PLN').upper()
+            fx_rate = fx_rates.get(currency, 1.0)
+            price_pln = price_native * fx_rate
+
+            h_dict['current_price'] = price_native
+            h_dict['fx_rate_used'] = fx_rate
+            h_dict['current_price_pln'] = price_pln
             h_dict['price_last_updated_at'] = price_updates.get(h_dict['ticker'])
-            h_dict['current_value'] = h_dict['quantity'] * price
+            h_dict['current_value'] = h_dict['quantity'] * price_pln
             h_dict['profit_loss'] = h_dict['current_value'] - h_dict['total_cost']
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
             holdings_value += h_dict['current_value']
             results.append(h_dict)
-            
+
         if updates_needed:
             db.commit()
-        
+
         # Calculate weights using total value (including cash if we had it here, but we'll use total holdings value for now or fetch portfolio cash)
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         cash = portfolio['current_cash'] if portfolio else 0
         total_portfolio_value = holdings_value + cash
-        
+
         return PortfolioService.calculate_metrics(results, total_portfolio_value, cash)
 
     @staticmethod
