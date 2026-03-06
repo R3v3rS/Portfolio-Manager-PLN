@@ -1071,15 +1071,7 @@ class PortfolioService:
         if benchmark_ticker:
             sync_tickers.add(benchmark_ticker)
 
-        if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
-            for ticker in sync_tickers:
-                try:
-                    # Force sync so we have the prices!
-                    PriceService.sync_stock_history(ticker, start_date)
-                except Exception as e:
-                    print(f"Failed to sync history for {ticker}: {e}")
-
-        # Load prices into memory
+        # Load already-synced prices from the database into memory.
         price_history = {}
         if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
             for ticker in sync_tickers:
