@@ -174,7 +174,7 @@ class PortfolioService:
                     cursor.execute(
                         '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time, PortfolioService._calculate_fx_fee(total_cost, ticker_currency))
+                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time, 0.0)
                     )
                 elif typ_lower == 'stock sell':
                     if not ticker:
@@ -194,9 +194,9 @@ class PortfolioService:
                         (portfolio_id, ticker)
                     ).fetchone()
                     realized_profit = 0.0
-                    sell_fee = PortfolioService._calculate_fx_fee(sell_total, ticker_currency)
                     if holding:
-                        realized_profit = (sell_total - sell_fee) - (holding['average_buy_price'] * qty)
+                        # In XTB CSV, Amount is already net cash flow after broker/FX fees.
+                        realized_profit = sell_total - (holding['average_buy_price'] * qty)
                         new_qty = holding['quantity'] - qty
                         new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
                         if new_qty > 0:
@@ -209,7 +209,7 @@ class PortfolioService:
                     cursor.execute(
                         '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'SELL', qty, price, sell_total, realized_profit, time, sell_fee)
+                        (portfolio_id, ticker, 'SELL', qty, price, sell_total, realized_profit, time, 0.0)
                     )
 
             if missing_symbols:
