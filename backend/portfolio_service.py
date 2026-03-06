@@ -378,6 +378,55 @@ class PortfolioService:
             raise e
 
     @staticmethod
+    def delete_portfolio(portfolio_id):
+        db = get_db()
+        portfolio = db.execute('SELECT id, current_cash, account_type FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+
+        has_transactions = db.execute(
+            'SELECT 1 FROM transactions WHERE portfolio_id = ? LIMIT 1',
+            (portfolio_id,)
+        ).fetchone() is not None
+        has_holdings = db.execute(
+            'SELECT 1 FROM holdings WHERE portfolio_id = ? LIMIT 1',
+            (portfolio_id,)
+        ).fetchone() is not None
+        has_bonds = db.execute(
+            'SELECT 1 FROM bonds WHERE portfolio_id = ? LIMIT 1',
+            (portfolio_id,)
+        ).fetchone() is not None
+        has_dividends = db.execute(
+            'SELECT 1 FROM dividends WHERE portfolio_id = ? LIMIT 1',
+            (portfolio_id,)
+        ).fetchone() is not None
+        has_ppk_transactions = db.execute(
+            'SELECT 1 FROM ppk_transactions WHERE portfolio_id = ? LIMIT 1',
+            (portfolio_id,)
+        ).fetchone() is not None
+
+        is_empty = (
+            float(portfolio['current_cash'] or 0) == 0.0
+            and not has_transactions
+            and not has_holdings
+            and not has_bonds
+            and not has_dividends
+            and not has_ppk_transactions
+        )
+
+        if not is_empty:
+            raise ValueError('Only empty portfolios can be deleted')
+
+        try:
+            db.execute('DELETE FROM ppk_portfolios WHERE id = ?', (portfolio_id,))
+            db.execute('DELETE FROM portfolios WHERE id = ?', (portfolio_id,))
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise e
+
+    @staticmethod
     def _capitalize_savings(db, portfolio_id):
         """
         Calculates and records interest for SAVINGS account.

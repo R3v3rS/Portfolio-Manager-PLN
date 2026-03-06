@@ -155,6 +155,20 @@ def sell():
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
+
+@portfolio_bp.route('/<int:portfolio_id>', methods=['DELETE'])
+def delete_portfolio(portfolio_id):
+    try:
+        PortfolioService.delete_portfolio(portfolio_id)
+        return jsonify({'message': 'Portfolio deleted successfully'}), 200
+    except ValueError as e:
+        message = str(e)
+        if message == 'Portfolio not found':
+            return jsonify({'error': message}), 404
+        return jsonify({'error': message}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @portfolio_bp.route('/value/<int:portfolio_id>', methods=['GET'])
 def get_value(portfolio_id):
     try:
