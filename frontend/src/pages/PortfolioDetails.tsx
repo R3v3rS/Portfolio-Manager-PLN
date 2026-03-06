@@ -19,6 +19,7 @@ const DividendBarChart = lazy(() => import('../components/DividendBarChart'));
 const PortfolioHistoryChart = lazy(() => import('../components/PortfolioHistoryChart'));
 const PortfolioProfitChart = lazy(() => import('../components/PortfolioProfitChart'));
 const PerformanceHeatmap = lazy(() => import('../components/portfolio/PerformanceHeatmap'));
+const Profit30dMatrix = lazy(() => import('../components/portfolio/Profit30dMatrix'));
 
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
@@ -620,8 +621,13 @@ const PortfolioDetails: React.FC = () => {
               <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                 <PortfolioProfitChart
                   data={portfolioProfit30dHistory}
-                  title="Zmiana zysku - ostatnie 30 dni"
+                  title="Zmiana zysku - ostatnie 30 dni (PLN)"
                 />
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (30D)</h4>
+                <Profit30dMatrix data={portfolioProfit30dHistory} />
               </div>
             </div>
           )}
