@@ -322,30 +322,27 @@ def import_xtb_csv(portfolio_id):
 def closed_positions(portfolio_id):
     db = get_db()
     rows = db.execute(
-        '''SELECT ticker, SUM(realized_profit) as realized_profit, MAX(date) as last_sell_date
-           FROM transactions
-           WHERE portfolio_id = ? AND type = 'SELL'
-           GROUP BY ticker
+        '''SELECT t.ticker,
+                  SUM(t.realized_profit) as realized_profit,
+                  MAX(t.date) as last_sell_date,
+                  COALESCE(
+                      MAX(NULLIF(h.company_name, '')),
+                      MAX(NULLIF(m.company_name, ''))
+                  ) as company_name
+           FROM transactions t
+           LEFT JOIN holdings h ON h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker
+           LEFT JOIN asset_metadata m ON m.ticker = t.ticker
+           WHERE t.portfolio_id = ? AND t.type = 'SELL'
+           GROUP BY t.ticker
            ORDER BY realized_profit DESC''',
         (portfolio_id,)
     ).fetchall()
-
-    metadata_cache = {}
-
-    def get_company_name(ticker):
-        if ticker in metadata_cache:
-            return metadata_cache[ticker]
-
-        metadata = PriceService.fetch_metadata(ticker)
-        company_name = metadata.get('company_name') if metadata else None
-        metadata_cache[ticker] = company_name
-        return company_name
 
     total = sum(r['realized_profit'] or 0 for r in rows)
     positions = [
         {
             'ticker': r['ticker'],
-            'company_name': get_company_name(r['ticker']),
+            'company_name': r['company_name'],
             'realized_profit': float(r['realized_profit'] or 0),
             'last_sell_date': str(r['last_sell_date']) if r['last_sell_date'] else None
         }

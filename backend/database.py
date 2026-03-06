@@ -144,6 +144,18 @@ def init_db(app):
             );
         ''')
 
+        # Asset metadata cache table (to avoid repeated yfinance info calls)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS asset_metadata (
+                ticker VARCHAR(20) PRIMARY KEY,
+                company_name TEXT,
+                sector TEXT,
+                industry TEXT,
+                currency VARCHAR(10) DEFAULT 'PLN',
+                updated_at TEXT NOT NULL
+            );
+        ''')
+
         # Symbol mappings table (CSV import symbol -> ticker resolver)
         db.execute('''
             CREATE TABLE IF NOT EXISTS symbol_mappings (
