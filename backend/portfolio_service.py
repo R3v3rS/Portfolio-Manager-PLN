@@ -1020,28 +1020,49 @@ class PortfolioService:
             curr_m, curr_y = next_m, next_y
         
         # Build ticker -> currency map for FX-aware valuation.
+        # Priority: transaction.trade_currency -> instrument_metadata.currency -> PLN.
+        transaction_columns = {
+            row['name'] for row in db.execute('PRAGMA table_info(transactions)').fetchall()
+        }
+        has_trade_currency = 'trade_currency' in transaction_columns
+
+        tickers = {
+            str(t['ticker']).strip().upper()
+            for t in transactions
+            if t['ticker'] and str(t['ticker']).strip().upper() not in {'CASH', ''}
+        }
+
+        metadata_currency: dict[str, str] = {}
+        if tickers:
+            metadata_rows = db.execute(
+                'SELECT ticker, currency FROM instrument_metadata WHERE ticker IN ({})'.format(
+                    ','.join(['?'] * len(tickers))
+                ),
+                list(tickers)
+            ).fetchall()
+            metadata_currency = {
+                str(row['ticker']).strip().upper(): (str(row['currency']).strip().upper() if row['currency'] else 'PLN')
+                for row in metadata_rows
+                if row['ticker']
+            }
+
         ticker_currency: dict[str, str] = {}
-        holding_rows = db.execute(
-            'SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL',
-            (portfolio_id,)
-        ).fetchall()
-        for row in holding_rows:
-            if row['ticker'] and row['ticker'] != 'CASH':
-                ticker_currency[row['ticker']] = (row['currency'] or 'PLN').upper()
+        for t in transactions:
+            raw_ticker = t['ticker']
+            ticker = str(raw_ticker).strip().upper() if raw_ticker else ''
+            if not ticker or ticker == 'CASH':
+                continue
 
-        # Sync only currently open stock tickers (quantity > 0).
-        # This avoids unnecessary refreshes for fully closed positions.
-# Get unique tickers and SYNC their history first!
-        tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
+            trade_currency = None
+            if has_trade_currency:
+                raw_trade_currency = t['trade_currency']
+                if raw_trade_currency:
+                    trade_currency = str(raw_trade_currency).strip().upper()
 
-        # Resolve missing currencies lazily via metadata (fallback PLN).
-        for ticker in tickers:
-            if ticker not in ticker_currency:
-                try:
-                    meta = PriceService.fetch_metadata(ticker)
-                    ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
-                except Exception:
-                    ticker_currency[ticker] = 'PLN'
+            if trade_currency:
+                ticker_currency[ticker] = trade_currency
+            elif ticker not in ticker_currency:
+                ticker_currency[ticker] = metadata_currency.get(ticker, 'PLN') or 'PLN'
 
         fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
 
