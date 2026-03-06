@@ -311,7 +311,7 @@ const PortfolioDetails: React.FC = () => {
     }
 
     const confirmed = window.confirm(
-      `Zamknąć całą pozycję ${holding.ticker} (${Number(holding.quantity).toFixed(4)} szt.) po ${holding.current_price.toFixed(4)} PLN?`
+      `Zamknąć całą pozycję ${holding.ticker} (${Number(holding.quantity).toFixed(4)} szt.) po ${holding.current_price.toFixed(4)} ${holding.currency || 'PLN'}?`
     );
 
     if (!confirmed) return;
@@ -663,7 +663,7 @@ const PortfolioDetails: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{h.average_buy_price.toFixed(2)} PLN</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          {h.current_price ? `${h.current_price.toFixed(2)} PLN` : '-'}
+                          {h.current_price ? `${h.current_price.toFixed(2)} ${h.currency || 'PLN'}` : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
                           {formatPriceUpdateTimestamp(h.price_last_updated_at)}
