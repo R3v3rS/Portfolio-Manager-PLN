@@ -590,8 +590,16 @@ class PortfolioService:
 
         currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
         if not currency:
-            meta = PriceService.fetch_metadata(ticker)
-            currency = (meta.get('currency') if meta else None) or 'PLN'
+            cached_meta = db.execute(
+                'SELECT currency FROM instrument_metadata WHERE ticker = ?',
+                (ticker,)
+            ).fetchone()
+            currency = (cached_meta['currency'] if cached_meta and cached_meta['currency'] else None)
+
+        fetched_meta = None
+        if not currency:
+            fetched_meta = PriceService.fetch_metadata(ticker)
+            currency = (fetched_meta.get('currency') if fetched_meta else None) or 'PLN'
         currency = currency.upper()
 
         fx_rate = PortfolioService._get_fx_rates_to_pln({currency}).get(currency, 1.0)
@@ -613,6 +621,11 @@ class PortfolioService:
         try:
             # Trigger history sync from the purchase date
             PriceService.sync_stock_history(ticker, purchase_date)
+
+            # Refresh metadata only during buy flow
+            if fetched_meta is None:
+                fetched_meta = PriceService.fetch_metadata(ticker)
+            PortfolioService._upsert_instrument_metadata(ticker, fetched_meta)
 
             # Update cash
             db.execute(
@@ -738,13 +751,39 @@ class PortfolioService:
     def _calculate_fx_fee(amount_pln: float, currency: str) -> float:
         return amount_pln * PortfolioService.FX_FEE_RATE if (currency or 'PLN').upper() != 'PLN' else 0.0
 
+    @staticmethod
+    def _upsert_instrument_metadata(ticker: str, metadata: Optional[dict[str, Any]]):
+        if not ticker:
+            return
+
+        clean_ticker = str(ticker).strip().upper()
+        if not clean_ticker:
+            return
+
+        meta = metadata or {}
+        name = (meta.get('company_name') or clean_ticker) if isinstance(meta, dict) else clean_ticker
+        sector = (meta.get('sector') if isinstance(meta, dict) else None)
+        industry = (meta.get('industry') if isinstance(meta, dict) else None)
+        currency = ((meta.get('currency') if isinstance(meta, dict) else None) or 'PLN')
+
+        db = get_db()
+        db.execute(
+            """INSERT INTO instrument_metadata (ticker, name, sector, industry, currency, updated_at)
+               VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(ticker) DO UPDATE SET
+                   name = excluded.name,
+                   sector = excluded.sector,
+                   industry = excluded.industry,
+                   currency = excluded.currency,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (clean_ticker, name, sector, industry, str(currency).upper())
+        )
 
     @staticmethod
     def get_holdings(portfolio_id):
         db = get_db()
         holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
 
-        # Enrich with current prices
         results = []
         if not holdings:
             return results
@@ -754,26 +793,26 @@ class PortfolioService:
         price_updates = PriceService.get_price_updates(tickers)
         fx_rates = PortfolioService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
 
-        updates_needed = False
+        metadata_rows = db.execute(
+            'SELECT ticker, name, sector, industry, currency FROM instrument_metadata WHERE ticker IN ({})'.format(
+                ','.join(['?'] * len(tickers))
+            ),
+            tickers
+        ).fetchall()
+        metadata_by_ticker = {row['ticker']: row for row in metadata_rows}
 
         holdings_value = 0.0
         for h in holdings:
             h_dict = {key: h[key] for key in h.keys()}
+            metadata = metadata_by_ticker.get(h_dict['ticker'])
 
-            # Enrich Metadata if missing
-            if not h_dict.get('company_name') or not h_dict.get('sector'):
-                meta = PriceService.fetch_metadata(h_dict['ticker'])
-                if meta:
-                    db.execute(
-                        'UPDATE holdings SET company_name = ?, sector = ?, industry = ? WHERE id = ?',
-                        (meta['company_name'], meta['sector'], meta['industry'], h_dict['id'])
-                    )
-                    h_dict.update(meta)
-                    updates_needed = True
+            h_dict['company_name'] = (metadata['name'] if metadata and metadata['name'] else h_dict['ticker'])
+            h_dict['sector'] = metadata['sector'] if metadata else None
+            h_dict['industry'] = metadata['industry'] if metadata else None
+            h_dict['currency'] = ((metadata['currency'] if metadata and metadata['currency'] else h_dict.get('currency')) or 'PLN').upper()
 
             price_native = current_prices.get(h_dict['ticker'])
             if price_native is None:
-                # average_buy_price is stored in PLN, so for native fallback convert back for display
                 currency = (h_dict.get('currency') or 'PLN').upper()
                 fx_rate = fx_rates.get(currency, 1.0)
                 price_native = (h_dict['average_buy_price'] / fx_rate) if fx_rate else h_dict['average_buy_price']
@@ -797,15 +836,33 @@ class PortfolioService:
             holdings_value += h_dict['current_value']
             results.append(h_dict)
 
-        if updates_needed:
-            db.commit()
-
-        # Calculate weights using total value (including cash if we had it here, but we'll use total holdings value for now or fetch portfolio cash)
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         cash = portfolio['current_cash'] if portfolio else 0
         total_portfolio_value = holdings_value + cash
 
         return PortfolioService.calculate_metrics(results, total_portfolio_value, cash)
+
+    @staticmethod
+    def refresh_instrument_metadata(portfolio_id: int, tickers: Optional[list[str]] = None) -> list[str]:
+        db = get_db()
+
+        if tickers:
+            target_tickers = [str(t).strip().upper() for t in tickers if str(t).strip()]
+        else:
+            rows = db.execute(
+                'SELECT DISTINCT ticker FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL',
+                (portfolio_id,)
+            ).fetchall()
+            target_tickers = [str(row['ticker']).strip().upper() for row in rows if row['ticker']]
+
+        refreshed = []
+        for ticker in target_tickers:
+            meta = PriceService.fetch_metadata(ticker)
+            PortfolioService._upsert_instrument_metadata(ticker, meta)
+            refreshed.append(ticker)
+
+        db.commit()
+        return refreshed
 
     @staticmethod
     def get_transactions(portfolio_id):

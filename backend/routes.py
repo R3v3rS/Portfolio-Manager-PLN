@@ -356,6 +356,18 @@ def closed_positions(portfolio_id):
         'total_historical_profit': total
     })
 
+
+
+@portfolio_bp.route('/<int:portfolio_id>/metadata/refresh', methods=['POST'])
+def refresh_portfolio_metadata(portfolio_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        tickers = data.get('tickers')
+        refreshed = PortfolioService.refresh_instrument_metadata(portfolio_id, tickers=tickers)
+        return jsonify({'message': 'Metadata refreshed', 'tickers': refreshed}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @portfolio_bp.route('/<int:portfolio_id>/performance', methods=['GET'])
 def get_performance_matrix(portfolio_id):
     try:

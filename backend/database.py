@@ -128,6 +128,19 @@ def init_db(app):
         db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_date ON stock_prices(date);')
 
+        # Instrument metadata cache (company info/currency, no external reads in holdings endpoint)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS instrument_metadata (
+                ticker VARCHAR(20) PRIMARY KEY,
+                name TEXT,
+                sector TEXT,
+                industry TEXT,
+                currency VARCHAR(10) DEFAULT 'PLN',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_instrument_metadata_ticker ON instrument_metadata(ticker);')
+
         # Radar cache table (snapshot to avoid frequent API calls)
         db.execute('''
             CREATE TABLE IF NOT EXISTS radar_cache (
