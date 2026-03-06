@@ -250,6 +250,25 @@ const formatSellDate = (value?: string | null) => {
   return parsed.toLocaleDateString('pl-PL');
 };
 
+const normalizeHistorySeries = <T extends { date: string; label: string; value: unknown; benchmark_value?: unknown }>(
+  series: T[] | undefined | null
+) => {
+  if (!Array.isArray(series)) return [];
+
+  return series
+    .map((entry) => {
+      const parsedValue = Number(entry.value);
+      const parsedBenchmark = entry.benchmark_value === undefined ? undefined : Number(entry.benchmark_value);
+
+      return {
+        ...entry,
+        value: Number.isFinite(parsedValue) ? parsedValue : 0,
+        benchmark_value: parsedBenchmark !== undefined && Number.isFinite(parsedBenchmark) ? parsedBenchmark : undefined,
+      };
+    })
+    .filter((entry) => Boolean(entry.date) && Boolean(entry.label));
+};
+
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -360,7 +379,7 @@ const PortfolioDetails: React.FC = () => {
       
       if (found?.account_type === 'SAVINGS') {
         const histRes = await api.get(`/history/monthly/${id}`);
-        setPortfolioHistory(histRes.data.history);
+        setPortfolioHistory(normalizeHistorySeries(histRes.data.history));
       }
       if (found?.account_type === 'PPK') {
         const ppkRes = await api.get(`/ppk/transactions/${id}`);
@@ -380,10 +399,10 @@ const PortfolioDetails: React.FC = () => {
       // Fetch histories for standard portfolios
       if (found?.account_type !== 'BONDS' && found?.account_type !== 'SAVINGS') {
         const histRes = await api.get(`/history/monthly/${id}`);
-        setPortfolioHistory(histRes.data.history);
+        setPortfolioHistory(normalizeHistorySeries(histRes.data.history));
         
         const profitRes = await api.get(`/history/profit/${id}`);
-        setPortfolioProfitHistory(profitRes.data.history);
+        setPortfolioProfitHistory(normalizeHistorySeries(profitRes.data.history));
       }
 
     } catch (err) {
@@ -415,10 +434,10 @@ const PortfolioDetails: React.FC = () => {
         : `/history/monthly/${id}`;
 
       api.get(url).then(res => {
-        setPortfolioHistory(res.data.history);
+        setPortfolioHistory(normalizeHistorySeries(res.data.history));
       });
       api.get(`/history/profit/${id}`).then(res => {
-        setPortfolioProfitHistory(res.data.history);
+        setPortfolioProfitHistory(normalizeHistorySeries(res.data.history));
       });
     }
   }, [activeTab, id, selectedBenchmark]);
