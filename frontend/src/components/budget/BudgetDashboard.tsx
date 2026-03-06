@@ -266,9 +266,16 @@ export default function BudgetDashboard() {
   };
 
   const handleUpdatePlan = async () => {
-    if (!selectedEnvelopeId || !editPlanAmount) return;
+    if (!selectedEnvelopeId || editPlanAmount.trim() === '') return;
+
+    const parsedPlanAmount = parseFloat(editPlanAmount);
+    if (Number.isNaN(parsedPlanAmount) || parsedPlanAmount < 0) {
+      alert('Wprowadź poprawną kwotę planu (0 lub więcej).');
+      return;
+    }
+
     try {
-      await budgetApi.updateEnvelope(selectedEnvelopeId, parseFloat(editPlanAmount));
+      await budgetApi.updateEnvelope(selectedEnvelopeId, parsedPlanAmount);
       setShowEditPlanModal(false);
       setEditPlanAmount('');
       fetchData();
