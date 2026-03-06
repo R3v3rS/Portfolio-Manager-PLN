@@ -1161,7 +1161,7 @@ class PortfolioService:
         return result
 
     @staticmethod
-    def get_portfolio_profit_history_daily(portfolio_id, days=30):
+    def get_portfolio_profit_history_daily(portfolio_id, days=30, metric="profit"):
         """
         Calculates cumulative profit for the last N days.
         Profit = Total Value - Net Invested Capital (Deposits - Withdrawals).
@@ -1293,13 +1293,25 @@ class PortfolioService:
                         total_value += net_value_pln
 
             dt_label = point_date.strftime('%d %b')
+            if metric == 'value':
+                value = total_value
+            else:
+                value = total_value - invested_capital
+
             result.append({
                 'date': point_date.strftime('%Y-%m-%d'),
                 'label': dt_label,
-                'value': round(total_value - invested_capital, 2)
+                'value': round(value, 2)
             })
 
         return result
+
+    @staticmethod
+    def get_portfolio_value_history_daily(portfolio_id, days=30):
+        """
+        Calculates portfolio total value for the last N days.
+        """
+        return PortfolioService.get_portfolio_profit_history_daily(portfolio_id, days=days, metric='value')
 
     @staticmethod
     def get_portfolio_value(portfolio_id):

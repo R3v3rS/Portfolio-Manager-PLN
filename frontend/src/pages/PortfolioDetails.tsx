@@ -283,6 +283,7 @@ const PortfolioDetails: React.FC = () => {
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number; benchmark_value?: number }[]>([]);
   const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [portfolioProfit30dHistory, setPortfolioProfit30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [portfolioValue30dHistory, setPortfolioValue30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
 
   // Closed Positions
@@ -389,6 +390,9 @@ const PortfolioDetails: React.FC = () => {
 
         const profit30dRes = await api.get(`/history/profit/${id}?days=30`);
         setPortfolioProfit30dHistory(profit30dRes.data.history || []);
+
+        const value30dRes = await api.get(`/history/value/${id}?days=30`);
+        setPortfolioValue30dHistory(value30dRes.data.history || []);
       }
 
     } catch (err) {
@@ -627,7 +631,12 @@ const PortfolioDetails: React.FC = () => {
 
               <div className="space-y-3">
                 <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (30D)</h4>
-                <Profit30dMatrix data={portfolioProfit30dHistory} />
+                <Profit30dMatrix data={portfolioProfit30dHistory} rowLabel="% zmiany zysku" />
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany wartości portfela % (30D)</h4>
+                <Profit30dMatrix data={portfolioValue30dHistory} rowLabel="% zmiany wartości" />
               </div>
             </div>
           )}

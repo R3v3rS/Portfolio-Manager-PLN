@@ -9,9 +9,15 @@ interface ProfitPoint {
 
 interface Profit30dMatrixProps {
   data: ProfitPoint[];
+  rowLabel?: string;
+  summaryLabel?: string;
 }
 
-const Profit30dMatrix: React.FC<Profit30dMatrixProps> = ({ data }) => {
+const Profit30dMatrix: React.FC<Profit30dMatrixProps> = ({
+  data,
+  rowLabel = '% zmiany zysku',
+  summaryLabel = '30D',
+}) => {
   if (!data || data.length < 2) {
     return <div className="p-4 text-center text-gray-500">Za mało danych do wyliczenia zmian procentowych.</div>;
   }
@@ -65,14 +71,14 @@ const Profit30dMatrix: React.FC<Profit30dMatrixProps> = ({ data }) => {
               </th>
             ))}
             <th className="px-3 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider bg-gray-100 whitespace-nowrap">
-              30D
+              {summaryLabel}
             </th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           <tr className="hover:bg-gray-50 transition-colors">
             <td className="px-3 py-3 whitespace-nowrap text-sm font-bold text-gray-900 sticky left-0 bg-white z-10 border-r border-gray-100">
-              % zmiany zysku
+              {rowLabel}
             </td>
             {pointsWithPct.map((point) => (
               <td
