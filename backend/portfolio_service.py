@@ -26,25 +26,37 @@ class PortfolioService:
         return ' '.join(str(symbol_input or '').strip().upper().split())
 
     @staticmethod
-    def resolve_symbol(symbol_input: str) -> Optional[str]:
+    def resolve_symbol_mapping(symbol_input: str) -> Optional[SymbolMapping]:
         normalized_symbol = PortfolioService._normalize_symbol_input(symbol_input)
         if not normalized_symbol:
             return None
 
         db = get_db()
         mapping = db.execute(
-            'SELECT ticker FROM symbol_mappings WHERE symbol_input = ?',
+            'SELECT id, symbol_input, ticker, currency, created_at FROM symbol_mappings WHERE symbol_input = ?',
             (normalized_symbol,)
         ).fetchone()
         if mapping:
-            return mapping['ticker']
+            return SymbolMapping(
+                id=mapping['id'],
+                symbol_input=mapping['symbol_input'],
+                ticker=mapping['ticker'],
+                currency=mapping['currency'],
+                created_at=mapping['created_at']
+            )
 
-        rows = db.execute('SELECT symbol_input, ticker FROM symbol_mappings').fetchall()
-        normalized_lookup: dict[str, str] = {}
+        rows = db.execute('SELECT id, symbol_input, ticker, currency, created_at FROM symbol_mappings').fetchall()
+        normalized_lookup: dict[str, SymbolMapping] = {}
         for row in rows:
             row_symbol = PortfolioService._normalize_symbol_input(row['symbol_input'])
             if row_symbol and row_symbol not in normalized_lookup:
-                normalized_lookup[row_symbol] = row['ticker']
+                normalized_lookup[row_symbol] = SymbolMapping(
+                    id=row['id'],
+                    symbol_input=row['symbol_input'],
+                    ticker=row['ticker'],
+                    currency=row['currency'],
+                    created_at=row['created_at']
+                )
 
         if normalized_symbol in normalized_lookup:
             return normalized_lookup[normalized_symbol]
@@ -54,6 +66,11 @@ class PortfolioService:
             return normalized_lookup[closest[0]]
 
         return None
+
+    @staticmethod
+    def resolve_symbol(symbol_input: str) -> Optional[str]:
+        mapping = PortfolioService.resolve_symbol_mapping(symbol_input)
+        return mapping.ticker if mapping else None
 
     @staticmethod
     def import_xtb_csv(portfolio_id: int, df: pd.DataFrame) -> dict[str, Any]:
@@ -77,6 +94,7 @@ class PortfolioService:
                 comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
 
                 ticker: Optional[str] = None
+                ticker_currency = 'PLN'
                 is_stock_operation = typ_lower in {'stock purchase', 'stock sell'}
 
                 if is_stock_operation:
@@ -88,7 +106,9 @@ class PortfolioService:
                         instrument_value = row[instrument_column]
                         symbol_input = '' if pd.isna(instrument_value) else str(instrument_value)
 
-                    ticker = PortfolioService.resolve_symbol(symbol_input)
+                    mapping = PortfolioService.resolve_symbol_mapping(symbol_input)
+                    ticker = mapping.ticker if mapping else None
+                    ticker_currency = (mapping.currency or 'PLN') if mapping else 'PLN'
                     if ticker is None:
                         normalized_symbol = symbol_input.strip().upper()
                         if normalized_symbol and normalized_symbol not in missing_symbols:
@@ -122,8 +142,11 @@ class PortfolioService:
                     if not m:
                         raise ValueError(f"Could not parse purchase comment: {comment}")
                     qty = float(str(m.group(1)).replace(',', '.'))
-                    price = float(str(m.group(2)).replace(',', '.'))
                     total_cost = abs(amount)
+                    # XTB CSV amount is cash movement in account currency (PLN for this app),
+                    # while comment unit price may be in instrument currency (e.g. EUR for EUNL.DE).
+                    # Keep transaction and holding prices in PLN per unit to avoid mixed-currency math.
+                    price = total_cost / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
                         (total_cost, portfolio_id)
@@ -137,14 +160,14 @@ class PortfolioService:
                         new_total_cost = holding['total_cost'] + total_cost
                         new_avg_price = new_total_cost / new_qty
                         cursor.execute(
-                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ? WHERE id = ?''',
-                            (new_qty, new_total_cost, new_avg_price, holding['id'])
+                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ? WHERE id = ?''',
+                            (new_qty, new_total_cost, new_avg_price, ticker_currency, holding['id'])
                         )
                     else:
                         cursor.execute(
-                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost)
-                               VALUES (?, ?, ?, ?, ?)''',
-                            (portfolio_id, ticker, qty, price, total_cost)
+                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency)
+                               VALUES (?, ?, ?, ?, ?, ?)''',
+                            (portfolio_id, ticker, qty, price, total_cost, ticker_currency)
                         )
                     cursor.execute(
                         '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
@@ -158,7 +181,8 @@ class PortfolioService:
                     if not m:
                         raise ValueError(f"Could not parse sell comment: {comment}")
                     qty = float(str(m.group(1)).replace(',', '.'))
-                    price = float(str(m.group(2)).replace(',', '.'))
+                    sell_total = abs(amount)
+                    price = sell_total / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
                         (amount, portfolio_id)
@@ -182,7 +206,7 @@ class PortfolioService:
                     cursor.execute(
                         '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'SELL', qty, price, abs(amount), realized_profit, time)
+                        (portfolio_id, ticker, 'SELL', qty, price, sell_total, realized_profit, time)
                     )
 
             if missing_symbols:
