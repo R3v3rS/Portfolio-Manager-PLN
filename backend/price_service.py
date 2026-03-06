@@ -150,12 +150,27 @@ class PriceService:
         """
         db = get_db()
         
-        # 1. Find the latest date available in DB
+        # 1. Find the date range available in DB
         result = db.execute(
-            'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
+            'SELECT MIN(date) as min_date, MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
             (ticker,)
         ).fetchone()
-        
+
+        required_start = None
+        if required_start_date:
+            if isinstance(required_start_date, str):
+                required_start = datetime.strptime(required_start_date, '%Y-%m-%d').date()
+            else:
+                required_start = required_start_date
+
+        min_date_str = result['min_date']
+        min_date = None
+        if min_date_str:
+            if isinstance(min_date_str, str):
+                min_date = datetime.strptime(min_date_str, '%Y-%m-%d').date()
+            else:
+                min_date = min_date_str
+
         max_date_str = result['max_date']
         max_date = None
         if max_date_str:
@@ -170,15 +185,12 @@ class PriceService:
         # 2. Determine fetch start date
         fetch_start = None
         
-        if not max_date:
-            # If no data, use required_start_date or default to 1 year ago
-            if required_start_date:
-                if isinstance(required_start_date, str):
-                    fetch_start = datetime.strptime(required_start_date, '%Y-%m-%d').date()
-                else:
-                    fetch_start = required_start_date
-            else:
-                fetch_start = today - timedelta(days=365)
+        if required_start and (not min_date or min_date > required_start):
+            # Backfill older history when caller needs data before current DB minimum.
+            fetch_start = required_start
+        elif not max_date:
+            # If no data, use required_start_date or default to 1 year ago.
+            fetch_start = required_start or (today - timedelta(days=365))
         elif max_date < yesterday:
             # If data exists but is old, start from the day after max_date
             fetch_start = max_date + timedelta(days=1)
