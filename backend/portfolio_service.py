@@ -994,9 +994,9 @@ class PortfolioService:
             sync_tickers.add(benchmark_ticker)
 
         if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
-            for ticker in sync_tickers:
+            tickers_to_sync = PriceService.get_tickers_requiring_history_sync(sync_tickers, start_date)
+            for ticker in tickers_to_sync:
                 try:
-                    # Force sync so we have the prices!
                     PriceService.sync_stock_history(ticker, start_date)
                 except Exception as e:
                     print(f"Failed to sync history for {ticker}: {e}")

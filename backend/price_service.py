@@ -26,6 +26,70 @@ print(f"Using yfinance cache at: {cache_dir}")
 class PriceService:
     _price_cache = {}
     _price_cache_updated_at = {}
+    _metadata_cache = {}
+    _metadata_cache_updated_at = {}
+    _metadata_ttl = timedelta(days=7)
+
+    @classmethod
+    def _load_metadata_from_db(cls, ticker):
+        db = get_db()
+        row = db.execute(
+            '''SELECT company_name, sector, industry, currency, updated_at
+               FROM asset_metadata
+               WHERE ticker = ?''',
+            (ticker,)
+        ).fetchone()
+        if not row:
+            return None
+
+        updated_at = row['updated_at']
+        if not updated_at:
+            return None
+
+        try:
+            updated_dt = datetime.fromisoformat(str(updated_at))
+        except ValueError:
+            return None
+
+        if datetime.now() - updated_dt > cls._metadata_ttl:
+            return None
+
+        metadata = {
+            'company_name': row['company_name'] or 'Unknown',
+            'sector': row['sector'] or 'Unknown',
+            'industry': row['industry'] or 'Unknown',
+            'currency': (row['currency'] or 'PLN').upper()
+        }
+        cls._metadata_cache[ticker] = metadata
+        cls._metadata_cache_updated_at[ticker] = updated_dt
+        return metadata
+
+    @classmethod
+    def _save_metadata_to_db(cls, ticker, metadata):
+        db = get_db()
+        now_iso = datetime.now().isoformat(timespec='seconds')
+        db.execute(
+            '''INSERT INTO asset_metadata (ticker, company_name, sector, industry, currency, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(ticker)
+               DO UPDATE SET
+                    company_name = excluded.company_name,
+                    sector = excluded.sector,
+                    industry = excluded.industry,
+                    currency = excluded.currency,
+                    updated_at = excluded.updated_at''',
+            (
+                ticker,
+                metadata.get('company_name') or 'Unknown',
+                metadata.get('sector') or 'Unknown',
+                metadata.get('industry') or 'Unknown',
+                (metadata.get('currency') or 'PLN').upper(),
+                now_iso
+            )
+        )
+        db.commit()
+        cls._metadata_cache[ticker] = metadata
+        cls._metadata_cache_updated_at[ticker] = datetime.fromisoformat(now_iso)
 
     @classmethod
     def _download_with_retry(cls, *args, **kwargs):
@@ -143,6 +207,50 @@ class PriceService:
             print(f"Cache warmup failed: {e}")
 
     @classmethod
+    def get_tickers_requiring_history_sync(cls, tickers, required_start_date=None):
+        """
+        Returns only tickers that are missing history or are stale.
+        """
+        normalized = sorted({str(t).strip().upper() for t in tickers if t})
+        if not normalized:
+            return []
+
+        db = get_db()
+        placeholders = ','.join('?' for _ in normalized)
+        rows = db.execute(
+            f'''SELECT ticker, MAX(date) as max_date
+                FROM stock_prices
+                WHERE ticker IN ({placeholders})
+                GROUP BY ticker''',
+            tuple(normalized)
+        ).fetchall()
+        latest_by_ticker = {row['ticker']: row['max_date'] for row in rows}
+
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+
+        required_start = None
+        if required_start_date:
+            required_start = datetime.strptime(required_start_date, '%Y-%m-%d').date() if isinstance(required_start_date, str) else required_start_date
+
+        needs_sync = []
+        for ticker in normalized:
+            max_date = latest_by_ticker.get(ticker)
+            if not max_date:
+                needs_sync.append(ticker)
+                continue
+
+            max_dt = datetime.strptime(max_date, '%Y-%m-%d').date() if isinstance(max_date, str) else max_date
+            if required_start and max_dt < required_start:
+                needs_sync.append(ticker)
+                continue
+
+            if max_dt < yesterday:
+                needs_sync.append(ticker)
+
+        return needs_sync
+
+    @classmethod
     def sync_stock_history(cls, ticker, required_start_date=None):
         """
         Incremental sync of stock prices from yfinance to local DB.
@@ -231,10 +339,26 @@ class PriceService:
         return new_max['max_date']
 
     @classmethod
-    def fetch_metadata(cls, ticker):
+    def fetch_metadata(cls, ticker, force_refresh=False):
         """
         Fetches company name, sector, and industry from yfinance.
         """
+        if not ticker:
+            return None
+
+        ticker = ticker.strip().upper()
+        now = datetime.now()
+
+        if not force_refresh:
+            cached = cls._metadata_cache.get(ticker)
+            updated_at = cls._metadata_cache_updated_at.get(ticker)
+            if cached and updated_at and (now - updated_at) <= cls._metadata_ttl:
+                return cached
+
+            db_cached = cls._load_metadata_from_db(ticker)
+            if db_cached:
+                return db_cached
+
         try:
             print(f"Fetching metadata for {ticker}...")
             t = yf.Ticker(ticker)
@@ -249,14 +373,20 @@ class PriceService:
             industry = clean(info.get('industry')) or "Unknown"
             currency = clean(info.get('currency')) or "PLN"
             
-            return {
+            metadata = {
                 'company_name': company_name,
                 'sector': sector,
                 'industry': industry,
                 'currency': currency
             }
+            cls._save_metadata_to_db(ticker, metadata)
+            return metadata
         except Exception as e:
             print(f"Metadata fetch error for {ticker}: {e}")
+            # Fallback to stale cache if available.
+            stale_cached = cls._metadata_cache.get(ticker)
+            if stale_cached:
+                return stale_cached
             return None
 
     @classmethod
