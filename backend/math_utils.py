@@ -1,5 +1,4 @@
 from datetime import date
-import math
 
 def xirr(transactions, guess=0.1):
     """
