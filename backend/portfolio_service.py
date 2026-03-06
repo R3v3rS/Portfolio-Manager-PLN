@@ -21,6 +21,8 @@ class SymbolMapping:
     created_at: str
 
 class PortfolioService:
+    FX_FEE_RATE = 0.005
+
     @staticmethod
     def _normalize_symbol_input(symbol_input: str) -> str:
         return ' '.join(str(symbol_input or '').strip().upper().split())
@@ -160,19 +162,19 @@ class PortfolioService:
                         new_total_cost = holding['total_cost'] + total_cost
                         new_avg_price = new_total_cost / new_qty
                         cursor.execute(
-                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ? WHERE id = ?''',
-                            (new_qty, new_total_cost, new_avg_price, ticker_currency, holding['id'])
+                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ?, auto_fx_fees = ? WHERE id = ?''',
+                            (new_qty, new_total_cost, new_avg_price, ticker_currency, 1 if ticker_currency != 'PLN' else holding['auto_fx_fees'], holding['id'])
                         )
                     else:
                         cursor.execute(
-                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency)
-                               VALUES (?, ?, ?, ?, ?, ?)''',
-                            (portfolio_id, ticker, qty, price, total_cost, ticker_currency)
+                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, auto_fx_fees)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                            (portfolio_id, ticker, qty, price, total_cost, ticker_currency, 1 if ticker_currency != 'PLN' else 0)
                         )
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time, PortfolioService._calculate_fx_fee(total_cost, ticker_currency))
                     )
                 elif typ_lower == 'stock sell':
                     if not ticker:
@@ -192,8 +194,9 @@ class PortfolioService:
                         (portfolio_id, ticker)
                     ).fetchone()
                     realized_profit = 0.0
+                    sell_fee = PortfolioService._calculate_fx_fee(sell_total, ticker_currency)
                     if holding:
-                        realized_profit = (price - holding['average_buy_price']) * qty
+                        realized_profit = (sell_total - sell_fee) - (holding['average_buy_price'] * qty)
                         new_qty = holding['quantity'] - qty
                         new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
                         if new_qty > 0:
@@ -204,9 +207,9 @@ class PortfolioService:
                         else:
                             cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'SELL', qty, price, sell_total, realized_profit, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'SELL', qty, price, sell_total, realized_profit, time, sell_fee)
                     )
 
             if missing_symbols:
@@ -506,13 +509,30 @@ class PortfolioService:
     @staticmethod
     def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
         db = get_db()
-        commission = float(commission or 0.0)
-        total_cost = (quantity * price) + commission
-        
+
+        existing_holding = db.execute(
+            'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
+            (portfolio_id, ticker)
+        ).fetchone()
+
+        currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
+        if not currency:
+            meta = PriceService.fetch_metadata(ticker)
+            currency = (meta.get('currency') if meta else None) or 'PLN'
+        currency = currency.upper()
+
+        fx_rate = PortfolioService._get_fx_rates_to_pln({currency}).get(currency, 1.0)
+        unit_price_pln = float(price) * fx_rate
+        gross_cost = quantity * unit_price_pln
+        base_commission = float(commission or 0.0)
+        fx_fee = PortfolioService._calculate_fx_fee(gross_cost, currency)
+        total_commission = base_commission + fx_fee
+        total_cost = gross_cost + total_commission
+
         # Default to today if no date provided
         if not purchase_date:
             purchase_date = date.today().isoformat()
-            
+
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         if not portfolio or portfolio['current_cash'] < total_cost:
             raise ValueError("Insufficient funds")
@@ -527,37 +547,40 @@ class PortfolioService:
                 (total_cost, portfolio_id)
             )
 
-            # Record transaction
+            # Record transaction (PLN unit price)
             db.execute(
                 '''INSERT INTO transactions 
                    (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, purchase_date, commission)
+                (portfolio_id, ticker, 'BUY', quantity, unit_price_pln, total_cost, purchase_date, total_commission)
             )
 
             # Update holdings
-            holding = db.execute(
-                'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
-                (portfolio_id, ticker)
-            ).fetchone()
-
+            holding = existing_holding
             if holding:
                 new_quantity = holding['quantity'] + quantity
                 new_total_cost = holding['total_cost'] + total_cost
                 new_avg_price = new_total_cost / new_quantity
-                
+
                 db.execute(
                     '''UPDATE holdings 
-                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?
+                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?, currency = ?
                        WHERE id = ?''',
-                    (new_quantity, new_total_cost, new_avg_price, 1 if auto_fx_fees else holding['auto_fx_fees'], holding['id'])
+                    (
+                        new_quantity,
+                        new_total_cost,
+                        new_avg_price,
+                        1 if (auto_fx_fees or currency != 'PLN') else holding['auto_fx_fees'],
+                        currency,
+                        holding['id']
+                    )
                 )
             else:
                 db.execute(
                     '''INSERT INTO holdings 
-                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees) 
-                       VALUES (?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, quantity, price, total_cost, 1 if auto_fx_fees else 0)
+                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (portfolio_id, ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency)
                 )
 
             db.commit()
@@ -565,6 +588,7 @@ class PortfolioService:
         except Exception as e:
             db.rollback()
             raise e
+
 
     @staticmethod
     def sell_stock(portfolio_id, ticker, quantity, price):
@@ -580,9 +604,11 @@ class PortfolioService:
         holding_currency = (holding['currency'] or 'PLN').upper()
         fx_rate = PortfolioService._get_fx_rates_to_pln({holding_currency}).get(holding_currency, 1.0)
         unit_price_pln = price * fx_rate
-        total_value = quantity * unit_price_pln
+        gross_total_value = quantity * unit_price_pln
+        sell_fx_fee = PortfolioService._calculate_fx_fee(gross_total_value, holding_currency)
+        total_value = gross_total_value - sell_fx_fee
         cost_basis = quantity * holding['average_buy_price']
-        realized_profit = (unit_price_pln - holding['average_buy_price']) * quantity
+        realized_profit = total_value - cost_basis
 
         try:
             # Update cash
@@ -594,9 +620,9 @@ class PortfolioService:
             # Record transaction with realized_profit
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit)
+                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, commission) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit, sell_fx_fee)
             )
 
             # Update holdings
@@ -618,6 +644,7 @@ class PortfolioService:
             db.rollback()
             raise e
 
+
     @staticmethod
     def _get_fx_rates_to_pln(currencies: set[str]) -> dict[str, float]:
         normalized = {str(c or '').strip().upper() for c in currencies if c}
@@ -634,6 +661,10 @@ class PortfolioService:
             rates[currency] = float(rate) if rate else 1.0
 
         return rates
+    @staticmethod
+    def _calculate_fx_fee(amount_pln: float, currency: str) -> float:
+        return amount_pln * PortfolioService.FX_FEE_RATE if (currency or 'PLN').upper() != 'PLN' else 0.0
+
 
     @staticmethod
     def get_holdings(portfolio_id):
@@ -682,7 +713,12 @@ class PortfolioService:
             h_dict['fx_rate_used'] = fx_rate
             h_dict['current_price_pln'] = price_pln
             h_dict['price_last_updated_at'] = price_updates.get(h_dict['ticker'])
-            h_dict['current_value'] = h_dict['quantity'] * price_pln
+            gross_current_value = h_dict['quantity'] * price_pln
+            estimated_sell_fee = PortfolioService._calculate_fx_fee(gross_current_value, currency)
+            h_dict['current_value_gross'] = gross_current_value
+            h_dict['estimated_sell_fee'] = estimated_sell_fee
+            h_dict['current_value'] = gross_current_value - estimated_sell_fee
+            h_dict['auto_fx_fees'] = 1 if currency != 'PLN' else h_dict.get('auto_fx_fees', 0)
             h_dict['profit_loss'] = h_dict['current_value'] - h_dict['total_cost']
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
             holdings_value += h_dict['current_value']
