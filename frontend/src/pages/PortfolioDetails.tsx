@@ -281,6 +281,7 @@ const PortfolioDetails: React.FC = () => {
   // Portfolio History (Monthly)
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number; benchmark_value?: number }[]>([]);
   const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [portfolioProfit30dHistory, setPortfolioProfit30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
 
   // Closed Positions
@@ -384,6 +385,9 @@ const PortfolioDetails: React.FC = () => {
         
         const profitRes = await api.get(`/history/profit/${id}`);
         setPortfolioProfitHistory(profitRes.data.history);
+
+        const profit30dRes = await api.get(`/history/profit/${id}?days=30`);
+        setPortfolioProfit30dHistory(profit30dRes.data.history || []);
       }
 
     } catch (err) {
@@ -613,6 +617,12 @@ const PortfolioDetails: React.FC = () => {
             <div className="space-y-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Macierz Wyników (MoM)</h3>
               <PerformanceHeatmap portfolioId={portfolio.id} />
+              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                <PortfolioProfitChart
+                  data={portfolioProfit30dHistory}
+                  title="Zmiana zysku - ostatnie 30 dni"
+                />
+              </div>
             </div>
           )}
 
