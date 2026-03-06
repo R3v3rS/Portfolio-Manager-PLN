@@ -1161,6 +1161,159 @@ class PortfolioService:
         return result
 
     @staticmethod
+    def get_portfolio_profit_history_daily(portfolio_id, days=30, metric="profit"):
+        """
+        Calculates cumulative profit for the last N days.
+        Profit = Total Value - Net Invested Capital (Deposits - Withdrawals).
+        """
+        db = get_db()
+        days = max(1, min(int(days), 365))
+
+        transactions = db.execute(
+            '''SELECT ticker, type, quantity, total_value, date
+               FROM transactions
+               WHERE portfolio_id = ?
+               ORDER BY date ASC''',
+            (portfolio_id,)
+        ).fetchall()
+
+        if not transactions:
+            return []
+
+        portfolio = db.execute(
+            'SELECT account_type FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
+
+        if not portfolio:
+            return []
+
+        account_type = portfolio['account_type']
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days - 1)
+        date_points = [start_date + timedelta(days=offset) for offset in range(days)]
+
+        tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
+
+        ticker_currency = {}
+        holding_rows = db.execute(
+            'SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL',
+            (portfolio_id,)
+        ).fetchall()
+        for row in holding_rows:
+            if row['ticker'] and row['ticker'] != 'CASH':
+                ticker_currency[row['ticker']] = (row['currency'] or 'PLN').upper()
+
+        for ticker in tickers:
+            if ticker not in ticker_currency:
+                try:
+                    meta = PriceService.fetch_metadata(ticker)
+                    ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
+                except Exception:
+                    ticker_currency[ticker] = 'PLN'
+
+        fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
+        sync_tickers = set(tickers)
+        sync_tickers.update(fx_tickers)
+
+        if account_type not in ['SAVINGS', 'BONDS']:
+            tickers_to_sync = PriceService.get_tickers_requiring_history_sync(sync_tickers, start_date)
+            for ticker in tickers_to_sync:
+                try:
+                    PriceService.sync_stock_history(ticker, start_date)
+                except Exception as e:
+                    print(f"Failed to sync history for {ticker}: {e}")
+
+        price_history = {}
+        if account_type not in ['SAVINGS', 'BONDS']:
+            for ticker in sync_tickers:
+                rows = db.execute(
+                    'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
+                    (ticker,)
+                ).fetchall()
+                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
+
+        def get_price_at_date(ticker, target_date):
+            if ticker not in price_history or not price_history[ticker]:
+                return 0
+
+            target_str = target_date.strftime('%Y-%m-%d')
+            if target_str in price_history[ticker]:
+                return price_history[ticker][target_str]
+
+            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
+            if past_dates:
+                return price_history[ticker][max(past_dates)]
+            return 0
+
+        result = []
+        for point_date in date_points:
+            current_cash = 0.0
+            invested_capital = 0.0
+            holdings_qty = {}
+
+            for t in transactions:
+                t_date_str = str(t['date']).split(' ')[0].split('T')[0]
+                t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
+
+                if t_date > point_date:
+                    continue
+
+                t_val = float(t['total_value'])
+                t_qty = float(t['quantity'])
+                t_ticker = t['ticker']
+
+                if t['type'] in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
+                    current_cash += t_val
+                elif t['type'] in ['WITHDRAW', 'BUY']:
+                    current_cash -= t_val
+
+                if t['type'] == 'DEPOSIT':
+                    invested_capital += t_val
+                elif t['type'] == 'WITHDRAW':
+                    invested_capital -= t_val
+
+                if t_ticker != 'CASH':
+                    if t['type'] == 'BUY':
+                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
+                    elif t['type'] == 'SELL':
+                        holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
+
+            total_value = current_cash
+            if account_type not in ['SAVINGS', 'BONDS']:
+                for ticker, qty in holdings_qty.items():
+                    if qty > 0.0001:
+                        native_price = get_price_at_date(ticker, point_date)
+                        currency = ticker_currency.get(ticker, 'PLN')
+                        fx_rate = 1.0 if currency == 'PLN' else get_price_at_date(f"{currency}PLN=X", point_date)
+                        if fx_rate <= 0:
+                            fx_rate = 1.0
+                        gross_value_pln = qty * native_price * fx_rate
+                        net_value_pln = gross_value_pln - PortfolioService._calculate_fx_fee(gross_value_pln, currency)
+                        total_value += net_value_pln
+
+            dt_label = point_date.strftime('%d %b')
+            if metric == 'value':
+                value = total_value
+            else:
+                value = total_value - invested_capital
+
+            result.append({
+                'date': point_date.strftime('%Y-%m-%d'),
+                'label': dt_label,
+                'value': round(value, 2)
+            })
+
+        return result
+
+    @staticmethod
+    def get_portfolio_value_history_daily(portfolio_id, days=30):
+        """
+        Calculates portfolio total value for the last N days.
+        """
+        return PortfolioService.get_portfolio_profit_history_daily(portfolio_id, days=days, metric='value')
+
+    @staticmethod
     def get_portfolio_value(portfolio_id):
         portfolio = PortfolioService.get_portfolio(portfolio_id)
         if not portfolio:

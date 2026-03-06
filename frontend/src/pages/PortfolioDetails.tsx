@@ -19,6 +19,7 @@ const DividendBarChart = lazy(() => import('../components/DividendBarChart'));
 const PortfolioHistoryChart = lazy(() => import('../components/PortfolioHistoryChart'));
 const PortfolioProfitChart = lazy(() => import('../components/PortfolioProfitChart'));
 const PerformanceHeatmap = lazy(() => import('../components/portfolio/PerformanceHeatmap'));
+const Profit30dMatrix = lazy(() => import('../components/portfolio/Profit30dMatrix'));
 
 
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
@@ -281,6 +282,8 @@ const PortfolioDetails: React.FC = () => {
   // Portfolio History (Monthly)
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number; benchmark_value?: number }[]>([]);
   const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [portfolioProfit30dHistory, setPortfolioProfit30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [portfolioValue30dHistory, setPortfolioValue30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
 
   // Closed Positions
@@ -384,6 +387,12 @@ const PortfolioDetails: React.FC = () => {
         
         const profitRes = await api.get(`/history/profit/${id}`);
         setPortfolioProfitHistory(profitRes.data.history);
+
+        const profit30dRes = await api.get(`/history/profit/${id}?days=30`);
+        setPortfolioProfit30dHistory(profit30dRes.data.history || []);
+
+        const value30dRes = await api.get(`/history/value/${id}?days=30`);
+        setPortfolioValue30dHistory(value30dRes.data.history || []);
       }
 
     } catch (err) {
@@ -613,6 +622,22 @@ const PortfolioDetails: React.FC = () => {
             <div className="space-y-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Macierz Wyników (MoM)</h3>
               <PerformanceHeatmap portfolioId={portfolio.id} />
+              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                <PortfolioProfitChart
+                  data={portfolioProfit30dHistory}
+                  title="Zmiana zysku - ostatnie 30 dni (PLN)"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (30D)</h4>
+                <Profit30dMatrix data={portfolioProfit30dHistory} rowLabel="% zmiany zysku" />
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany wartości portfela % (30D)</h4>
+                <Profit30dMatrix data={portfolioValue30dHistory} rowLabel="% zmiany wartości" />
+              </div>
             </div>
           )}
 

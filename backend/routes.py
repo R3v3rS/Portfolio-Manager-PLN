@@ -87,7 +87,24 @@ def get_portfolio_history_monthly(portfolio_id):
 @portfolio_bp.route('/history/profit/<int:portfolio_id>', methods=['GET'])
 def get_portfolio_profit_history(portfolio_id):
     try:
-        history = PortfolioService.get_portfolio_profit_history(portfolio_id)
+        days = request.args.get('days', type=int)
+        if days:
+            history = PortfolioService.get_portfolio_profit_history_daily(portfolio_id, days=days)
+        else:
+            history = PortfolioService.get_portfolio_profit_history(portfolio_id)
+        return jsonify({'history': history}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@portfolio_bp.route('/history/value/<int:portfolio_id>', methods=['GET'])
+def get_portfolio_value_history(portfolio_id):
+    try:
+        days = request.args.get('days', type=int)
+        if days:
+            history = PortfolioService.get_portfolio_value_history_daily(portfolio_id, days=days)
+        else:
+            history = PortfolioService.get_portfolio_history(portfolio_id)
         return jsonify({'history': history}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
