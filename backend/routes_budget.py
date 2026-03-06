@@ -212,8 +212,18 @@ def manage_envelopes():
 def update_envelope(envelope_id):
     data = request.json
     try:
-        if 'target_amount' in data:
-            BudgetService.update_envelope_target(envelope_id, float(data['target_amount']))
+        has_target = 'target_amount' in data
+        has_name = 'name' in data
+
+        if not has_target and not has_name:
+            return jsonify({'error': 'Nothing to update. Provide target_amount and/or name.'}), 400
+
+        BudgetService.update_envelope_target(
+            envelope_id,
+            float(data['target_amount']) if has_target else None,
+            data['name'] if has_name else None
+        )
+
         return jsonify({'message': 'Envelope updated'})
     except Exception as e:
         return jsonify({'error': str(e)}), 400

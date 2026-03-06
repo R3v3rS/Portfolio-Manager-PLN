@@ -187,11 +187,17 @@ export const budgetApi = {
     return res.json();
   },
 
-  updateEnvelope: async (envelopeId: number, targetAmount: number) => {
+  updateEnvelope: async (
+    envelopeId: number,
+    payload: { targetAmount?: number; name?: string }
+  ) => {
     const res = await fetch(`${API_URL}/envelopes/${envelopeId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_amount: targetAmount }),
+      body: JSON.stringify({
+        target_amount: payload.targetAmount,
+        name: payload.name,
+      }),
     });
     if (!res.ok) throw new Error('Failed to update envelope');
     return res.json();

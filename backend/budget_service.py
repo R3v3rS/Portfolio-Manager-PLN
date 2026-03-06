@@ -422,12 +422,33 @@ class BudgetService:
         db.commit()
 
     @staticmethod
-    def update_envelope_target(envelope_id, new_target):
+    def update_envelope_target(envelope_id, new_target=None, new_name=None):
+        """
+        Updates envelope properties such as target_amount and/or name.
+        Both fields are optional, but at least one must be provided.
+        """
+        if new_target is None and new_name is None:
+            return
+
         db = BudgetService.get_db()
-        if new_target < 0:
-            raise ValueError("Target amount must be positive")
-            
-        db.execute("UPDATE envelopes SET target_amount = ? WHERE id = ?", (new_target, envelope_id))
+
+        fields = []
+        params = []
+
+        if new_target is not None:
+            if new_target < 0:
+                raise ValueError("Target amount must be positive")
+            fields.append("target_amount = ?")
+            params.append(new_target)
+
+        if new_name is not None:
+            fields.append("name = ?")
+            params.append(new_name)
+
+        set_clause = ", ".join(fields)
+        params.append(envelope_id)
+
+        db.execute(f"UPDATE envelopes SET {set_clause} WHERE id = ?", params)
         db.commit()
 
     @staticmethod

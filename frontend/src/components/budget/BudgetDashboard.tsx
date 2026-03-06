@@ -40,6 +40,7 @@ export default function BudgetDashboard() {
   const [newEnvelopeName, setNewEnvelopeName] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [editPlanAmount, setEditPlanAmount] = useState('');
+  const [editEnvelopeName, setEditEnvelopeName] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountBalance, setNewAccountBalance] = useState('');
@@ -266,18 +267,33 @@ export default function BudgetDashboard() {
   };
 
   const handleUpdatePlan = async () => {
-    if (!selectedEnvelopeId || editPlanAmount.trim() === '') return;
+    if (!selectedEnvelopeId) return;
 
-    const parsedPlanAmount = parseFloat(editPlanAmount);
-    if (Number.isNaN(parsedPlanAmount) || parsedPlanAmount < 0) {
-      alert('Wprowadź poprawną kwotę planu (0 lub więcej).');
+    const updates: { targetAmount?: number; name?: string } = {};
+
+    if (editPlanAmount.trim() !== '') {
+      const parsedPlanAmount = parseFloat(editPlanAmount);
+      if (Number.isNaN(parsedPlanAmount) || parsedPlanAmount < 0) {
+        alert('Wprowadź poprawną kwotę planu (0 lub więcej).');
+        return;
+      }
+      updates.targetAmount = parsedPlanAmount;
+    }
+
+    if (editEnvelopeName.trim() !== '') {
+      updates.name = editEnvelopeName.trim();
+    }
+
+    if (!updates.targetAmount && !updates.name) {
+      alert('Brak zmian do zapisania.');
       return;
     }
 
     try {
-      await budgetApi.updateEnvelope(selectedEnvelopeId, parsedPlanAmount);
+      await budgetApi.updateEnvelope(selectedEnvelopeId, updates);
       setShowEditPlanModal(false);
       setEditPlanAmount('');
+      setEditEnvelopeName('');
       fetchData();
     } catch (err: any) {
       alert(err.message);
@@ -315,6 +331,7 @@ export default function BudgetDashboard() {
     setTargetEnvelopeId(null);
     setTargetPortfolioId(null);
     setEditPlanAmount('');
+    setEditEnvelopeName('');
     // Don't reset selectedAccountId
   };
 
@@ -665,10 +682,11 @@ export default function BudgetDashboard() {
                                                   e.stopPropagation();
                                                   setSelectedEnvelopeId(env.id);
                                                   setEditPlanAmount(target.toString());
+                                                  setEditEnvelopeName(env.name);
                                                   setShowEditPlanModal(true);
                                               }}
                                               className="opacity-0 group-hover/edit:opacity-100 text-gray-400 hover:text-blue-600 transition"
-                                              title="Edit Plan"
+                                              title="Edit Plan / Name"
                                           >
                                               <Pencil className="w-3 h-3" />
                                           </button>
@@ -1184,7 +1202,15 @@ export default function BudgetDashboard() {
               {/* Edit Plan Fields */}
               {showEditPlanModal && (
                 <>
-                  <label className="block text-sm font-medium text-gray-700 mt-2">New Target Amount (Plan):</label>
+                  <label className="block text-sm font-medium text-gray-700 mt-2">Nowa nazwa koperty (opcjonalnie):</label>
+                  <input 
+                    type="text" 
+                    placeholder="Wpisz nową nazwę koperty" 
+                    className="w-full p-2 border border-gray-300 rounded-lg mt-2" 
+                    value={editEnvelopeName} 
+                    onChange={e => setEditEnvelopeName(e.target.value)}
+                  />
+                  <label className="block text-sm font-medium text-gray-700 mt-4">New Target Amount (Plan):</label>
                   <input 
                     type="number" 
                     placeholder="Enter amount" 
