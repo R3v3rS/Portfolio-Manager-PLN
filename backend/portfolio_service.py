@@ -889,15 +889,39 @@ class PortfolioService:
                 break
             curr_m, curr_y = next_m, next_y
         
+        # Build ticker -> currency map for FX-aware valuation.
+        ticker_currency: dict[str, str] = {}
+        holding_rows = db.execute(
+            'SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL',
+            (portfolio_id,)
+        ).fetchall()
+        for row in holding_rows:
+            if row['ticker'] and row['ticker'] != 'CASH':
+                ticker_currency[row['ticker']] = (row['currency'] or 'PLN').upper()
+
         # Sync only currently open stock tickers (quantity > 0).
         # This avoids unnecessary refreshes for fully closed positions.
 # Get unique tickers and SYNC their history first!
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
+
+        # Resolve missing currencies lazily via metadata (fallback PLN).
+        for ticker in tickers:
+            if ticker not in ticker_currency:
+                try:
+                    meta = PriceService.fetch_metadata(ticker)
+                    ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
+                except Exception:
+                    ticker_currency[ticker] = 'PLN'
+
+        fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
+
+        sync_tickers = set(tickers)
+        sync_tickers.update(fx_tickers)
         if benchmark_ticker:
-            tickers.add(benchmark_ticker)
-        
+            sync_tickers.add(benchmark_ticker)
+
         if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
-            for ticker in tickers:
+            for ticker in sync_tickers:
                 try:
                     # Force sync so we have the prices!
                     PriceService.sync_stock_history(ticker, start_date)
@@ -907,7 +931,7 @@ class PortfolioService:
         # Load prices into memory
         price_history = {}
         if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
-            for ticker in tickers:
+            for ticker in sync_tickers:
                 rows = db.execute(
                     'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
                     (ticker,)
@@ -992,7 +1016,14 @@ class PortfolioService:
             if account_type not in ['SAVINGS', 'BONDS']:
                 for ticker, qty in holdings_qty.items():
                     if qty > 0.0001:
-                        total_value += qty * get_price_at_date(ticker, end_date)
+                        native_price = get_price_at_date(ticker, end_date)
+                        currency = ticker_currency.get(ticker, 'PLN')
+                        fx_rate = 1.0 if currency == 'PLN' else get_price_at_date(f"{currency}PLN=X", end_date)
+                        if fx_rate <= 0:
+                            fx_rate = 1.0
+                        gross_value_pln = qty * native_price * fx_rate
+                        net_value_pln = gross_value_pln - PortfolioService._calculate_fx_fee(gross_value_pln, currency)
+                        total_value += net_value_pln
             
             profit = total_value - invested_capital
             
@@ -1103,16 +1134,7 @@ class PortfolioService:
         else:
             # STANDARD or IKE
             holdings = PortfolioService.get_holdings(portfolio_id)
-            tickers = [h['ticker'] for h in holdings]
-            current_prices = PriceService.get_prices(tickers)
-            
-            for h in holdings:
-                ticker = h['ticker']
-                price = current_prices.get(ticker)
-                if price is None:
-                    price = h['average_buy_price']
-                holdings_value += h['quantity'] * price
-            
+            holdings_value = sum(float(h.get('current_value', 0.0) or 0.0) for h in holdings)
             total_value = current_cash + holdings_value
         
         # Get total dividends
