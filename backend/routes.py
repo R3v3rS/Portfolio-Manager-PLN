@@ -330,16 +330,26 @@ def closed_positions(portfolio_id):
         (portfolio_id,)
     ).fetchall()
 
+    tickers = [r['ticker'] for r in rows if r['ticker']]
     metadata_cache = {}
 
-    def get_company_name(ticker):
-        if ticker in metadata_cache:
-            return metadata_cache[ticker]
+    if tickers:
+        placeholders = ','.join('?' for _ in tickers)
+        metadata_rows = db.execute(
+            f'''SELECT ticker, name
+                FROM instrument_metadata
+                WHERE ticker IN ({placeholders})''',
+            tuple(tickers)
+        ).fetchall()
+        metadata_cache = {
+            row['ticker']: row['name']
+            for row in metadata_rows
+            if row['ticker']
+        }
 
-        metadata = PriceService.fetch_metadata(ticker)
-        company_name = metadata.get('company_name') if metadata else None
-        metadata_cache[ticker] = company_name
-        return company_name
+    def get_company_name(ticker):
+        name = metadata_cache.get(ticker)
+        return name if name else ticker
 
     total = sum(r['realized_profit'] or 0 for r in rows)
     positions = [
