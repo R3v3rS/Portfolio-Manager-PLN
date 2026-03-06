@@ -21,30 +21,44 @@ class SymbolMapping:
     created_at: str
 
 class PortfolioService:
+    FX_FEE_RATE = 0.005
+
     @staticmethod
     def _normalize_symbol_input(symbol_input: str) -> str:
         return ' '.join(str(symbol_input or '').strip().upper().split())
 
     @staticmethod
-    def resolve_symbol(symbol_input: str) -> Optional[str]:
+    def resolve_symbol_mapping(symbol_input: str) -> Optional[SymbolMapping]:
         normalized_symbol = PortfolioService._normalize_symbol_input(symbol_input)
         if not normalized_symbol:
             return None
 
         db = get_db()
         mapping = db.execute(
-            'SELECT ticker FROM symbol_mappings WHERE symbol_input = ?',
+            'SELECT id, symbol_input, ticker, currency, created_at FROM symbol_mappings WHERE symbol_input = ?',
             (normalized_symbol,)
         ).fetchone()
         if mapping:
-            return mapping['ticker']
+            return SymbolMapping(
+                id=mapping['id'],
+                symbol_input=mapping['symbol_input'],
+                ticker=mapping['ticker'],
+                currency=mapping['currency'],
+                created_at=mapping['created_at']
+            )
 
-        rows = db.execute('SELECT symbol_input, ticker FROM symbol_mappings').fetchall()
-        normalized_lookup: dict[str, str] = {}
+        rows = db.execute('SELECT id, symbol_input, ticker, currency, created_at FROM symbol_mappings').fetchall()
+        normalized_lookup: dict[str, SymbolMapping] = {}
         for row in rows:
             row_symbol = PortfolioService._normalize_symbol_input(row['symbol_input'])
             if row_symbol and row_symbol not in normalized_lookup:
-                normalized_lookup[row_symbol] = row['ticker']
+                normalized_lookup[row_symbol] = SymbolMapping(
+                    id=row['id'],
+                    symbol_input=row['symbol_input'],
+                    ticker=row['ticker'],
+                    currency=row['currency'],
+                    created_at=row['created_at']
+                )
 
         if normalized_symbol in normalized_lookup:
             return normalized_lookup[normalized_symbol]
@@ -54,6 +68,11 @@ class PortfolioService:
             return normalized_lookup[closest[0]]
 
         return None
+
+    @staticmethod
+    def resolve_symbol(symbol_input: str) -> Optional[str]:
+        mapping = PortfolioService.resolve_symbol_mapping(symbol_input)
+        return mapping.ticker if mapping else None
 
     @staticmethod
     def import_xtb_csv(portfolio_id: int, df: pd.DataFrame) -> dict[str, Any]:
@@ -77,6 +96,7 @@ class PortfolioService:
                 comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
 
                 ticker: Optional[str] = None
+                ticker_currency = 'PLN'
                 is_stock_operation = typ_lower in {'stock purchase', 'stock sell'}
 
                 if is_stock_operation:
@@ -88,7 +108,9 @@ class PortfolioService:
                         instrument_value = row[instrument_column]
                         symbol_input = '' if pd.isna(instrument_value) else str(instrument_value)
 
-                    ticker = PortfolioService.resolve_symbol(symbol_input)
+                    mapping = PortfolioService.resolve_symbol_mapping(symbol_input)
+                    ticker = mapping.ticker if mapping else None
+                    ticker_currency = (mapping.currency or 'PLN') if mapping else 'PLN'
                     if ticker is None:
                         normalized_symbol = symbol_input.strip().upper()
                         if normalized_symbol and normalized_symbol not in missing_symbols:
@@ -122,8 +144,11 @@ class PortfolioService:
                     if not m:
                         raise ValueError(f"Could not parse purchase comment: {comment}")
                     qty = float(str(m.group(1)).replace(',', '.'))
-                    price = float(str(m.group(2)).replace(',', '.'))
                     total_cost = abs(amount)
+                    # XTB CSV amount is cash movement in account currency (PLN for this app),
+                    # while comment unit price may be in instrument currency (e.g. EUR for EUNL.DE).
+                    # Keep transaction and holding prices in PLN per unit to avoid mixed-currency math.
+                    price = total_cost / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
                         (total_cost, portfolio_id)
@@ -137,19 +162,19 @@ class PortfolioService:
                         new_total_cost = holding['total_cost'] + total_cost
                         new_avg_price = new_total_cost / new_qty
                         cursor.execute(
-                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ? WHERE id = ?''',
-                            (new_qty, new_total_cost, new_avg_price, holding['id'])
+                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ?, auto_fx_fees = ? WHERE id = ?''',
+                            (new_qty, new_total_cost, new_avg_price, ticker_currency, 1 if ticker_currency != 'PLN' else holding['auto_fx_fees'], holding['id'])
                         )
                     else:
                         cursor.execute(
-                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost)
-                               VALUES (?, ?, ?, ?, ?)''',
-                            (portfolio_id, ticker, qty, price, total_cost)
+                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, auto_fx_fees)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                            (portfolio_id, ticker, qty, price, total_cost, ticker_currency, 1 if ticker_currency != 'PLN' else 0)
                         )
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'BUY', qty, price, total_cost, time, 0.0)
                     )
                 elif typ_lower == 'stock sell':
                     if not ticker:
@@ -158,7 +183,8 @@ class PortfolioService:
                     if not m:
                         raise ValueError(f"Could not parse sell comment: {comment}")
                     qty = float(str(m.group(1)).replace(',', '.'))
-                    price = float(str(m.group(2)).replace(',', '.'))
+                    sell_total = abs(amount)
+                    price = sell_total / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
                         (amount, portfolio_id)
@@ -169,7 +195,8 @@ class PortfolioService:
                     ).fetchone()
                     realized_profit = 0.0
                     if holding:
-                        realized_profit = (price - holding['average_buy_price']) * qty
+                        # In XTB CSV, Amount is already net cash flow after broker/FX fees.
+                        realized_profit = sell_total - (holding['average_buy_price'] * qty)
                         new_qty = holding['quantity'] - qty
                         new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
                         if new_qty > 0:
@@ -180,9 +207,9 @@ class PortfolioService:
                         else:
                             cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'SELL', qty, price, abs(amount), realized_profit, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'SELL', qty, price, sell_total, realized_profit, time, 0.0)
                     )
 
             if missing_symbols:
@@ -482,13 +509,30 @@ class PortfolioService:
     @staticmethod
     def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
         db = get_db()
-        commission = float(commission or 0.0)
-        total_cost = (quantity * price) + commission
-        
+
+        existing_holding = db.execute(
+            'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
+            (portfolio_id, ticker)
+        ).fetchone()
+
+        currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
+        if not currency:
+            meta = PriceService.fetch_metadata(ticker)
+            currency = (meta.get('currency') if meta else None) or 'PLN'
+        currency = currency.upper()
+
+        fx_rate = PortfolioService._get_fx_rates_to_pln({currency}).get(currency, 1.0)
+        unit_price_pln = float(price) * fx_rate
+        gross_cost = quantity * unit_price_pln
+        base_commission = float(commission or 0.0)
+        fx_fee = PortfolioService._calculate_fx_fee(gross_cost, currency)
+        total_commission = base_commission + fx_fee
+        total_cost = gross_cost + total_commission
+
         # Default to today if no date provided
         if not purchase_date:
             purchase_date = date.today().isoformat()
-            
+
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         if not portfolio or portfolio['current_cash'] < total_cost:
             raise ValueError("Insufficient funds")
@@ -503,37 +547,40 @@ class PortfolioService:
                 (total_cost, portfolio_id)
             )
 
-            # Record transaction
+            # Record transaction (PLN unit price)
             db.execute(
                 '''INSERT INTO transactions 
                    (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'BUY', quantity, price, total_cost, purchase_date, commission)
+                (portfolio_id, ticker, 'BUY', quantity, unit_price_pln, total_cost, purchase_date, total_commission)
             )
 
             # Update holdings
-            holding = db.execute(
-                'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
-                (portfolio_id, ticker)
-            ).fetchone()
-
+            holding = existing_holding
             if holding:
                 new_quantity = holding['quantity'] + quantity
                 new_total_cost = holding['total_cost'] + total_cost
                 new_avg_price = new_total_cost / new_quantity
-                
+
                 db.execute(
                     '''UPDATE holdings 
-                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?
+                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?, currency = ?
                        WHERE id = ?''',
-                    (new_quantity, new_total_cost, new_avg_price, 1 if auto_fx_fees else holding['auto_fx_fees'], holding['id'])
+                    (
+                        new_quantity,
+                        new_total_cost,
+                        new_avg_price,
+                        1 if (auto_fx_fees or currency != 'PLN') else holding['auto_fx_fees'],
+                        currency,
+                        holding['id']
+                    )
                 )
             else:
                 db.execute(
                     '''INSERT INTO holdings 
-                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees) 
-                       VALUES (?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, quantity, price, total_cost, 1 if auto_fx_fees else 0)
+                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (portfolio_id, ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency)
                 )
 
             db.commit()
@@ -541,6 +588,7 @@ class PortfolioService:
         except Exception as e:
             db.rollback()
             raise e
+
 
     @staticmethod
     def sell_stock(portfolio_id, ticker, quantity, price):
@@ -553,9 +601,14 @@ class PortfolioService:
         if not holding or holding['quantity'] < quantity:
             raise ValueError("Insufficient shares")
 
-        total_value = quantity * price
+        holding_currency = (holding['currency'] or 'PLN').upper()
+        fx_rate = PortfolioService._get_fx_rates_to_pln({holding_currency}).get(holding_currency, 1.0)
+        unit_price_pln = price * fx_rate
+        gross_total_value = quantity * unit_price_pln
+        sell_fx_fee = PortfolioService._calculate_fx_fee(gross_total_value, holding_currency)
+        total_value = gross_total_value - sell_fx_fee
         cost_basis = quantity * holding['average_buy_price']
-        realized_profit = (price - holding['average_buy_price']) * quantity
+        realized_profit = total_value - cost_basis
 
         try:
             # Update cash
@@ -567,9 +620,9 @@ class PortfolioService:
             # Record transaction with realized_profit
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, price, total_value, realized_profit)
+                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, commission) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit, sell_fx_fee)
             )
 
             # Update holdings
@@ -591,26 +644,49 @@ class PortfolioService:
             db.rollback()
             raise e
 
+
+    @staticmethod
+    def _get_fx_rates_to_pln(currencies: set[str]) -> dict[str, float]:
+        normalized = {str(c or '').strip().upper() for c in currencies if c}
+        normalized.discard('PLN')
+        if not normalized:
+            return {'PLN': 1.0}
+
+        fx_ticker_map = {currency: f"{currency}PLN=X" for currency in normalized}
+        fx_prices = PriceService.get_prices(list(fx_ticker_map.values()))
+
+        rates = {'PLN': 1.0}
+        for currency, fx_ticker in fx_ticker_map.items():
+            rate = fx_prices.get(fx_ticker)
+            rates[currency] = float(rate) if rate else 1.0
+
+        return rates
+    @staticmethod
+    def _calculate_fx_fee(amount_pln: float, currency: str) -> float:
+        return amount_pln * PortfolioService.FX_FEE_RATE if (currency or 'PLN').upper() != 'PLN' else 0.0
+
+
     @staticmethod
     def get_holdings(portfolio_id):
         db = get_db()
         holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
-        
+
         # Enrich with current prices
         results = []
         if not holdings:
             return results
-            
+
         tickers = [h['ticker'] for h in holdings]
         current_prices = PriceService.get_prices(tickers)
         price_updates = PriceService.get_price_updates(tickers)
-        
+        fx_rates = PortfolioService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
+
         updates_needed = False
-        
+
         holdings_value = 0.0
         for h in holdings:
             h_dict = {key: h[key] for key in h.keys()}
-            
+
             # Enrich Metadata if missing
             if not h_dict.get('company_name') or not h_dict.get('sector'):
                 meta = PriceService.fetch_metadata(h_dict['ticker'])
@@ -622,27 +698,40 @@ class PortfolioService:
                     h_dict.update(meta)
                     updates_needed = True
 
-            price = current_prices.get(h_dict['ticker'])
-            
-            if price is None:
-                price = h_dict['average_buy_price']
-            
-            h_dict['current_price'] = price
+            price_native = current_prices.get(h_dict['ticker'])
+            if price_native is None:
+                # average_buy_price is stored in PLN, so for native fallback convert back for display
+                currency = (h_dict.get('currency') or 'PLN').upper()
+                fx_rate = fx_rates.get(currency, 1.0)
+                price_native = (h_dict['average_buy_price'] / fx_rate) if fx_rate else h_dict['average_buy_price']
+
+            currency = (h_dict.get('currency') or 'PLN').upper()
+            fx_rate = fx_rates.get(currency, 1.0)
+            price_pln = price_native * fx_rate
+
+            h_dict['current_price'] = price_native
+            h_dict['fx_rate_used'] = fx_rate
+            h_dict['current_price_pln'] = price_pln
             h_dict['price_last_updated_at'] = price_updates.get(h_dict['ticker'])
-            h_dict['current_value'] = h_dict['quantity'] * price
+            gross_current_value = h_dict['quantity'] * price_pln
+            estimated_sell_fee = PortfolioService._calculate_fx_fee(gross_current_value, currency)
+            h_dict['current_value_gross'] = gross_current_value
+            h_dict['estimated_sell_fee'] = estimated_sell_fee
+            h_dict['current_value'] = gross_current_value - estimated_sell_fee
+            h_dict['auto_fx_fees'] = 1 if currency != 'PLN' else h_dict.get('auto_fx_fees', 0)
             h_dict['profit_loss'] = h_dict['current_value'] - h_dict['total_cost']
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
             holdings_value += h_dict['current_value']
             results.append(h_dict)
-            
+
         if updates_needed:
             db.commit()
-        
+
         # Calculate weights using total value (including cash if we had it here, but we'll use total holdings value for now or fetch portfolio cash)
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         cash = portfolio['current_cash'] if portfolio else 0
         total_portfolio_value = holdings_value + cash
-        
+
         return PortfolioService.calculate_metrics(results, total_portfolio_value, cash)
 
     @staticmethod
@@ -800,15 +889,39 @@ class PortfolioService:
                 break
             curr_m, curr_y = next_m, next_y
         
+        # Build ticker -> currency map for FX-aware valuation.
+        ticker_currency: dict[str, str] = {}
+        holding_rows = db.execute(
+            'SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL',
+            (portfolio_id,)
+        ).fetchall()
+        for row in holding_rows:
+            if row['ticker'] and row['ticker'] != 'CASH':
+                ticker_currency[row['ticker']] = (row['currency'] or 'PLN').upper()
+
         # Sync only currently open stock tickers (quantity > 0).
         # This avoids unnecessary refreshes for fully closed positions.
 # Get unique tickers and SYNC their history first!
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
+
+        # Resolve missing currencies lazily via metadata (fallback PLN).
+        for ticker in tickers:
+            if ticker not in ticker_currency:
+                try:
+                    meta = PriceService.fetch_metadata(ticker)
+                    ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
+                except Exception:
+                    ticker_currency[ticker] = 'PLN'
+
+        fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
+
+        sync_tickers = set(tickers)
+        sync_tickers.update(fx_tickers)
         if benchmark_ticker:
-            tickers.add(benchmark_ticker)
-        
+            sync_tickers.add(benchmark_ticker)
+
         if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
-            for ticker in tickers:
+            for ticker in sync_tickers:
                 try:
                     # Force sync so we have the prices!
                     PriceService.sync_stock_history(ticker, start_date)
@@ -818,7 +931,7 @@ class PortfolioService:
         # Load prices into memory
         price_history = {}
         if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
-            for ticker in tickers:
+            for ticker in sync_tickers:
                 rows = db.execute(
                     'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
                     (ticker,)
@@ -903,7 +1016,14 @@ class PortfolioService:
             if account_type not in ['SAVINGS', 'BONDS']:
                 for ticker, qty in holdings_qty.items():
                     if qty > 0.0001:
-                        total_value += qty * get_price_at_date(ticker, end_date)
+                        native_price = get_price_at_date(ticker, end_date)
+                        currency = ticker_currency.get(ticker, 'PLN')
+                        fx_rate = 1.0 if currency == 'PLN' else get_price_at_date(f"{currency}PLN=X", end_date)
+                        if fx_rate <= 0:
+                            fx_rate = 1.0
+                        gross_value_pln = qty * native_price * fx_rate
+                        net_value_pln = gross_value_pln - PortfolioService._calculate_fx_fee(gross_value_pln, currency)
+                        total_value += net_value_pln
             
             profit = total_value - invested_capital
             
@@ -1014,16 +1134,7 @@ class PortfolioService:
         else:
             # STANDARD or IKE
             holdings = PortfolioService.get_holdings(portfolio_id)
-            tickers = [h['ticker'] for h in holdings]
-            current_prices = PriceService.get_prices(tickers)
-            
-            for h in holdings:
-                ticker = h['ticker']
-                price = current_prices.get(ticker)
-                if price is None:
-                    price = h['average_buy_price']
-                holdings_value += h['quantity'] * price
-            
+            holdings_value = sum(float(h.get('current_value', 0.0) or 0.0) for h in holdings)
             total_value = current_cash + holdings_value
         
         # Get total dividends
