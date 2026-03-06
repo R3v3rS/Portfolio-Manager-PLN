@@ -12,22 +12,20 @@ def global_summary():
     db = get_db()
     
     # 1. Total Cash (Budget Module)
-    # Sum of all budget_accounts balances
-    total_cash_row = db.execute("SELECT SUM(balance) FROM budget_accounts").fetchone()
-    total_cash = total_cash_row[0] if total_cash_row and total_cash_row[0] else 0.0
-    
-    # Calculate Total Free Pool (sum of free pools of all accounts)
+    # Only unallocated funds should count towards dashboard assets/net worth.
+    # We therefore use Total Free Pool instead of raw account balances.
     accounts = db.execute("SELECT id FROM budget_accounts").fetchall()
     total_free_pool = 0.0
     for acc in accounts:
         total_free_pool += BudgetService.get_free_pool(acc['id'])
+    total_cash = total_free_pool
 
     # 2. Total Investments (Portfolio Module)
     portfolios = PortfolioService.list_portfolios()
     total_investments = 0.0
     
     # Breakdown variables
-    breakdown_cash_budget = total_cash # From budget accounts
+    breakdown_cash_budget = total_cash # Free Pool from budget accounts
     breakdown_cash_invest = 0.0
     breakdown_savings = 0.0
     breakdown_bonds = 0.0
