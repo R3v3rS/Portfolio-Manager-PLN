@@ -582,23 +582,24 @@ class PortfolioService:
     @staticmethod
     def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
         db = get_db()
+        clean_ticker = str(ticker or '').strip().upper()
 
         existing_holding = db.execute(
             'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
-            (portfolio_id, ticker)
+            (portfolio_id, clean_ticker)
         ).fetchone()
 
-        currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
-        if not currency:
-            cached_meta = db.execute(
-                'SELECT currency FROM instrument_metadata WHERE ticker = ?',
-                (ticker,)
-            ).fetchone()
-            currency = (cached_meta['currency'] if cached_meta and cached_meta['currency'] else None)
+        cached_meta = db.execute(
+            'SELECT name, sector, industry, currency FROM instrument_metadata WHERE ticker = ?',
+            (clean_ticker,)
+        ).fetchone()
 
         fetched_meta = None
-        if not currency:
-            fetched_meta = PriceService.fetch_metadata(ticker)
+        if cached_meta:
+            currency = (cached_meta['currency'] if cached_meta['currency'] else 'PLN')
+        else:
+            fetched_meta = PriceService.fetch_metadata(clean_ticker)
+            PortfolioService._upsert_instrument_metadata(clean_ticker, fetched_meta)
             currency = (fetched_meta.get('currency') if fetched_meta else None) or 'PLN'
         currency = currency.upper()
 
@@ -619,13 +620,9 @@ class PortfolioService:
             raise ValueError("Insufficient funds")
 
         try:
-            # Trigger history sync from the purchase date
-            PriceService.sync_stock_history(ticker, purchase_date)
-
-            # Refresh metadata only during buy flow
-            if fetched_meta is None:
-                fetched_meta = PriceService.fetch_metadata(ticker)
-            PortfolioService._upsert_instrument_metadata(ticker, fetched_meta)
+            # Trigger history sync from the purchase date only when local data is missing/stale.
+            if PriceService.needs_history_sync(clean_ticker, purchase_date):
+                PriceService.sync_stock_history(clean_ticker, purchase_date)
 
             # Update cash
             db.execute(
@@ -638,7 +635,7 @@ class PortfolioService:
                 '''INSERT INTO transactions 
                    (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'BUY', quantity, unit_price_pln, total_cost, purchase_date, total_commission)
+                (portfolio_id, clean_ticker, 'BUY', quantity, unit_price_pln, total_cost, purchase_date, total_commission)
             )
 
             # Update holdings
@@ -666,7 +663,7 @@ class PortfolioService:
                     '''INSERT INTO holdings 
                        (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency) 
                        VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency)
+                    (portfolio_id, clean_ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency)
                 )
 
             db.commit()
@@ -1074,8 +1071,8 @@ class PortfolioService:
         if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
             for ticker in sync_tickers:
                 try:
-                    # Force sync so we have the prices!
-                    PriceService.sync_stock_history(ticker, start_date)
+                    if PriceService.needs_history_sync(ticker, start_date):
+                        PriceService.sync_stock_history(ticker, start_date)
                 except Exception as e:
                     print(f"Failed to sync history for {ticker}: {e}")
 

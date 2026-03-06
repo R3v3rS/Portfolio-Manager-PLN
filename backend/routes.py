@@ -249,8 +249,9 @@ def get_stock_history(ticker):
         from database import get_db
         db = get_db()
         
-        # Ensure data is synced (at least last 30 days if new)
-        PriceService.sync_stock_history(ticker)
+        # Ensure data is synced only when local history is missing or stale.
+        if PriceService.needs_history_sync(ticker):
+            PriceService.sync_stock_history(ticker)
         
         prices = db.execute(
             'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',

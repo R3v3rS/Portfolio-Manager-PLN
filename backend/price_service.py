@@ -29,6 +29,46 @@ class PriceService:
     _price_cache_updated_at = {}
 
     @classmethod
+    def _normalize_ticker(cls, ticker):
+        return str(ticker or '').strip().upper()
+
+    @classmethod
+    def needs_history_sync(cls, ticker, required_start_date=None):
+        """
+        Returns True when local history is missing/stale or does not cover required_start_date.
+        """
+        clean_ticker = cls._normalize_ticker(ticker)
+        if not clean_ticker:
+            return False
+
+        db = get_db()
+        bounds = db.execute(
+            'SELECT MIN(date) as min_date, MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
+            (clean_ticker,)
+        ).fetchone()
+
+        max_date_str = bounds['max_date'] if bounds else None
+        if not max_date_str:
+            return True
+
+        max_date = datetime.strptime(max_date_str, '%Y-%m-%d').date() if isinstance(max_date_str, str) else max_date_str
+        if max_date < (date.today() - timedelta(days=1)):
+            return True
+
+        if required_start_date:
+            required_date = (
+                datetime.strptime(required_start_date, '%Y-%m-%d').date()
+                if isinstance(required_start_date, str)
+                else required_start_date
+            )
+            min_date_str = bounds['min_date'] if bounds else None
+            min_date = datetime.strptime(min_date_str, '%Y-%m-%d').date() if isinstance(min_date_str, str) else min_date_str
+            if not min_date or required_date < min_date:
+                return True
+
+        return False
+
+    @classmethod
     def _download_with_retry(cls, *args, **kwargs):
         """Download wrapper with simple retry + exponential backoff."""
         attempts = 3
@@ -148,12 +188,16 @@ class PriceService:
         """
         Incremental sync of stock prices from yfinance to local DB.
         """
+        clean_ticker = cls._normalize_ticker(ticker)
+        if not clean_ticker:
+            return None
+
         db = get_db()
         
         # 1. Find the latest date available in DB
         result = db.execute(
             'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
-            (ticker,)
+            (clean_ticker,)
         ).fetchone()
         
         max_date_str = result['max_date']
@@ -184,18 +228,18 @@ class PriceService:
             fetch_start = max_date + timedelta(days=1)
         else:
             # Already up to date
-            print(f"History for {ticker} is already up to date (last: {max_date})")
+            print(f"History for {clean_ticker} is already up to date (last: {max_date})")
             return max_date_str
 
         if fetch_start >= today:
              return max_date_str
 
-        print(f"Syncing {ticker} history starting from {fetch_start}...")
+        print(f"Syncing {clean_ticker} history starting from {fetch_start}...")
 
         try:
             # 3. Fetch from yfinance (with retry)
             # Use fetch_start to today
-            data = cls._download_with_retry(ticker, start=fetch_start, interval="1d", threads=False)
+            data = cls._download_with_retry(clean_ticker, start=fetch_start, interval="1d", threads=False)
 
             if not data.empty:
                 # 4. Save to DB
@@ -213,21 +257,21 @@ class PriceService:
                         cursor.execute(
                             '''INSERT OR IGNORE INTO stock_prices (ticker, date, close_price)
                                VALUES (?, ?, ?)''',
-                            (ticker, price_date.isoformat(), round(float(price), 2))
+                            (clean_ticker, price_date.isoformat(), round(float(price), 2))
                         )
                 db.commit()
-                print(f"Successfully synced {ticker} history.")
+                print(f"Successfully synced {clean_ticker} history.")
             else:
-                print(f"No history data found for {ticker} from {fetch_start}")
+                print(f"No history data found for {clean_ticker} from {fetch_start}")
 
         except Exception as e:
-            print(f"Error syncing history for {ticker}: {e}")
+            print(f"Error syncing history for {clean_ticker}: {e}")
             db.rollback()
 
         # Return latest date in DB
         new_max = db.execute(
             'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
-            (ticker,)
+            (clean_ticker,)
         ).fetchone()
         return new_max['max_date']
 
