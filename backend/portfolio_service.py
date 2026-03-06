@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Optional, Any
 import pandas as pd
 import re
+from difflib import get_close_matches
 
 
 @dataclass
@@ -21,8 +22,12 @@ class SymbolMapping:
 
 class PortfolioService:
     @staticmethod
+    def _normalize_symbol_input(symbol_input: str) -> str:
+        return ' '.join(str(symbol_input or '').strip().upper().split())
+
+    @staticmethod
     def resolve_symbol(symbol_input: str) -> Optional[str]:
-        normalized_symbol = str(symbol_input or '').strip().upper()
+        normalized_symbol = PortfolioService._normalize_symbol_input(symbol_input)
         if not normalized_symbol:
             return None
 
@@ -31,7 +36,24 @@ class PortfolioService:
             'SELECT ticker FROM symbol_mappings WHERE symbol_input = ?',
             (normalized_symbol,)
         ).fetchone()
-        return mapping['ticker'] if mapping else None
+        if mapping:
+            return mapping['ticker']
+
+        rows = db.execute('SELECT symbol_input, ticker FROM symbol_mappings').fetchall()
+        normalized_lookup: dict[str, str] = {}
+        for row in rows:
+            row_symbol = PortfolioService._normalize_symbol_input(row['symbol_input'])
+            if row_symbol and row_symbol not in normalized_lookup:
+                normalized_lookup[row_symbol] = row['ticker']
+
+        if normalized_symbol in normalized_lookup:
+            return normalized_lookup[normalized_symbol]
+
+        closest = get_close_matches(normalized_symbol, list(normalized_lookup.keys()), n=1, cutoff=0.92)
+        if closest:
+            return normalized_lookup[closest[0]]
+
+        return None
 
     @staticmethod
     def import_xtb_csv(portfolio_id: int, df: pd.DataFrame) -> dict[str, Any]:
