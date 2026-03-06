@@ -53,29 +53,42 @@ export interface BudgetSummary {
   flow_analysis?: FlowAnalysis;
 }
 
-const API_URL = 'http://localhost:5000/api/budget';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const API_URL = `${API_BASE_URL}/api/budget`;
+
+const buildUrl = (path: string, params?: Record<string, string | number | undefined>) => {
+  const url = new URL(`${API_URL}${path}`, window.location.origin);
+
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        url.searchParams.set(key, String(value));
+      }
+    });
+  }
+
+  return `${url.pathname}${url.search}`;
+};
 
 export const budgetApi = {
   getSummary: async (accountId?: number, month?: string): Promise<BudgetSummary> => {
-    let url = accountId ? `${API_URL}/summary?account_id=${accountId}` : `${API_URL}/summary?`;
-    if (month) url += `&month=${month}`;
-    const res = await fetch(url);
+    const res = await fetch(buildUrl('/summary', { account_id: accountId, month }));
     if (!res.ok) throw new Error('Failed to fetch summary');
     return res.json();
   },
 
   getTransactions: async (accountId: number, envelopeId?: number | null, categoryId?: number | null) => {
-    let url = `${API_URL}/transactions?account_id=${accountId}`;
-    if (envelopeId) url += `&envelope_id=${envelopeId}`;
-    if (categoryId) url += `&category_id=${categoryId}`;
-    
-    const res = await fetch(url);
+    const res = await fetch(buildUrl('/transactions', {
+      account_id: accountId,
+      envelope_id: envelopeId ?? undefined,
+      category_id: categoryId ?? undefined,
+    }));
     if (!res.ok) throw new Error('Failed to fetch transactions');
     return res.json();
   },
 
   getAnalytics: async (accountId: number, year: number, month: number) => {
-    const res = await fetch(`${API_URL}/analytics?account_id=${accountId}&year=${year}&month=${month}`);
+    const res = await fetch(buildUrl('/analytics', { account_id: accountId, year, month }));
     if (!res.ok) throw new Error('Failed to fetch analytics');
     return res.json();
   },
