@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, date
 import time
 import random
 import logging
-import uuid
 
 # Force yfinance to use a persistent cache directory to reuse cookies/crumbs
 cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_portfel')
