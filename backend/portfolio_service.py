@@ -732,8 +732,18 @@ class PortfolioService:
 
 
     @staticmethod
+    def _normalize_currency_code(currency: Optional[str]) -> str:
+        code = str(currency or 'PLN').strip().upper()
+        alias_map = {
+            'GBX': 'GBP',
+            'GBPENCE': 'GBP',
+            'PENCE': 'GBP',
+        }
+        return alias_map.get(code, code or 'PLN')
+
+    @staticmethod
     def _get_fx_rates_to_pln(currencies: set[str]) -> dict[str, float]:
-        normalized = {str(c or '').strip().upper() for c in currencies if c}
+        normalized = {PortfolioService._normalize_currency_code(c) for c in currencies if c}
         normalized.discard('PLN')
         if not normalized:
             return {'PLN': 1.0}
@@ -764,7 +774,7 @@ class PortfolioService:
         name = (meta.get('company_name') or clean_ticker) if isinstance(meta, dict) else clean_ticker
         sector = (meta.get('sector') if isinstance(meta, dict) else None)
         industry = (meta.get('industry') if isinstance(meta, dict) else None)
-        currency = ((meta.get('currency') if isinstance(meta, dict) else None) or 'PLN')
+        currency = PortfolioService._normalize_currency_code((meta.get('currency') if isinstance(meta, dict) else None) or 'PLN')
 
         db = get_db()
         db.execute(
@@ -776,7 +786,7 @@ class PortfolioService:
                    industry = excluded.industry,
                    currency = excluded.currency,
                    updated_at = CURRENT_TIMESTAMP""",
-            (clean_ticker, name, sector, industry, str(currency).upper())
+            (clean_ticker, name, sector, industry, PortfolioService._normalize_currency_code(currency))
         )
 
     @staticmethod
@@ -809,15 +819,15 @@ class PortfolioService:
             h_dict['company_name'] = (metadata['name'] if metadata and metadata['name'] else h_dict['ticker'])
             h_dict['sector'] = metadata['sector'] if metadata else None
             h_dict['industry'] = metadata['industry'] if metadata else None
-            h_dict['currency'] = ((metadata['currency'] if metadata and metadata['currency'] else h_dict.get('currency')) or 'PLN').upper()
+            h_dict['currency'] = PortfolioService._normalize_currency_code((metadata['currency'] if metadata and metadata['currency'] else h_dict.get('currency')) or 'PLN')
 
             price_native = current_prices.get(h_dict['ticker'])
             if price_native is None:
-                currency = (h_dict.get('currency') or 'PLN').upper()
+                currency = PortfolioService._normalize_currency_code(h_dict.get('currency') or 'PLN')
                 fx_rate = fx_rates.get(currency, 1.0)
                 price_native = (h_dict['average_buy_price'] / fx_rate) if fx_rate else h_dict['average_buy_price']
 
-            currency = (h_dict.get('currency') or 'PLN').upper()
+            currency = PortfolioService._normalize_currency_code(h_dict.get('currency') or 'PLN')
             fx_rate = fx_rates.get(currency, 1.0)
             price_pln = price_native * fx_rate
 
@@ -1041,7 +1051,7 @@ class PortfolioService:
                 list(tickers)
             ).fetchall()
             metadata_currency = {
-                str(row['ticker']).strip().upper(): (str(row['currency']).strip().upper() if row['currency'] else 'PLN')
+                str(row['ticker']).strip().upper(): PortfolioService._normalize_currency_code(str(row['currency']).strip().upper() if row['currency'] else 'PLN')
                 for row in metadata_rows
                 if row['ticker']
             }
@@ -1057,12 +1067,12 @@ class PortfolioService:
             if has_trade_currency:
                 raw_trade_currency = t['trade_currency']
                 if raw_trade_currency:
-                    trade_currency = str(raw_trade_currency).strip().upper()
+                    trade_currency = PortfolioService._normalize_currency_code(str(raw_trade_currency).strip().upper())
 
             if trade_currency:
                 ticker_currency[ticker] = trade_currency
             elif ticker not in ticker_currency:
-                ticker_currency[ticker] = metadata_currency.get(ticker, 'PLN') or 'PLN'
+                ticker_currency[ticker] = PortfolioService._normalize_currency_code(metadata_currency.get(ticker, 'PLN') or 'PLN')
 
         fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
 
@@ -1070,6 +1080,15 @@ class PortfolioService:
         sync_tickers.update(fx_tickers)
         if benchmark_ticker:
             sync_tickers.add(benchmark_ticker)
+
+        # Ensure both instrument and FX histories are available for monthly valuation.
+        # This is especially important for non-PLN assets where historical FX can be missing.
+        if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
+            for ticker in sync_tickers:
+                try:
+                    PriceService.sync_stock_history(ticker, required_start_date=start_date)
+                except Exception as sync_error:
+                    print(f"History sync failed for {ticker}: {sync_error}")
 
         # Load already-synced prices from the database into memory.
         price_history = {}
