@@ -986,7 +986,17 @@ class PortfolioService:
                 except Exception:
                     ticker_currency[ticker] = 'PLN'
 
+        benchmark_currency = 'PLN'
+        if benchmark_ticker:
+            try:
+                benchmark_meta = PriceService.fetch_metadata(benchmark_ticker)
+                benchmark_currency = ((benchmark_meta or {}).get('currency') or 'PLN').upper()
+            except Exception:
+                benchmark_currency = 'PLN'
+
         fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
+        if benchmark_ticker and benchmark_currency != 'PLN':
+            fx_tickers.add(f"{benchmark_currency}PLN=X")
 
         sync_tickers = set(tickers)
         sync_tickers.update(fx_tickers)
@@ -1068,14 +1078,22 @@ class PortfolioService:
                     invested_capital += t_val
                     # Benchmark Simulation
                     if benchmark_ticker:
-                        bp = get_price_at_date(benchmark_ticker, t_date)
+                        bp_native = get_price_at_date(benchmark_ticker, t_date)
+                        benchmark_fx_rate = 1.0 if benchmark_currency == 'PLN' else get_price_at_date(f"{benchmark_currency}PLN=X", t_date)
+                        if benchmark_fx_rate <= 0:
+                            benchmark_fx_rate = 1.0
+                        bp = bp_native * benchmark_fx_rate
                         if bp > 0:
                             benchmark_shares += (t_val / bp)
                 elif t['type'] == 'WITHDRAW':
                     invested_capital -= t_val
                     # Benchmark Simulation
                     if benchmark_ticker:
-                        bp = get_price_at_date(benchmark_ticker, t_date)
+                        bp_native = get_price_at_date(benchmark_ticker, t_date)
+                        benchmark_fx_rate = 1.0 if benchmark_currency == 'PLN' else get_price_at_date(f"{benchmark_currency}PLN=X", t_date)
+                        if benchmark_fx_rate <= 0:
+                            benchmark_fx_rate = 1.0
+                        bp = bp_native * benchmark_fx_rate
                         if bp > 0:
                             benchmark_shares -= (t_val / bp)
                 
@@ -1106,7 +1124,11 @@ class PortfolioService:
             }
             
             if benchmark_ticker:
-                bp_end = get_price_at_date(benchmark_ticker, end_date)
+                bp_native_end = get_price_at_date(benchmark_ticker, end_date)
+                benchmark_fx_rate_end = 1.0 if benchmark_currency == 'PLN' else get_price_at_date(f"{benchmark_currency}PLN=X", end_date)
+                if benchmark_fx_rate_end <= 0:
+                    benchmark_fx_rate_end = 1.0
+                bp_end = bp_native_end * benchmark_fx_rate_end
                 metrics["benchmark_value"] = round(benchmark_shares * bp_end, 2)
             
             monthly_data[end_date.strftime('%Y-%m')] = metrics
