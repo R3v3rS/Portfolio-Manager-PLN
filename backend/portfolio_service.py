@@ -330,6 +330,57 @@ class PortfolioService:
             raise
 
     @staticmethod
+    def reconcile_portfolio_cash(portfolio_id: int, apply_changes: bool = False) -> dict[str, Any]:
+        """
+        Recompute cash balance from transaction ledger and optionally persist corrected value.
+        """
+        db = get_db()
+
+        portfolio = db.execute(
+            'SELECT id, current_cash FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+
+        cash_in_row = db.execute(
+            """SELECT COALESCE(SUM(total_value), 0) AS total
+               FROM transactions
+               WHERE portfolio_id = ?
+                 AND type IN ('DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST')""",
+            (portfolio_id,)
+        ).fetchone()
+        cash_out_row = db.execute(
+            """SELECT COALESCE(SUM(total_value), 0) AS total
+               FROM transactions
+               WHERE portfolio_id = ?
+                 AND type IN ('WITHDRAW', 'BUY')""",
+            (portfolio_id,)
+        ).fetchone()
+
+        cash_in = float(cash_in_row['total'] or 0.0)
+        cash_out = float(cash_out_row['total'] or 0.0)
+        expected_cash = cash_in - cash_out
+        current_cash = float(portfolio['current_cash'] or 0.0)
+        delta = expected_cash - current_cash
+
+        if apply_changes and abs(delta) > 0.000001:
+            db.execute(
+                'UPDATE portfolios SET current_cash = ? WHERE id = ?',
+                (expected_cash, portfolio_id)
+            )
+            db.commit()
+
+        return {
+            'success': True,
+            'portfolio_id': portfolio_id,
+            'current_cash': current_cash,
+            'expected_cash': expected_cash,
+            'delta': delta,
+            'applied': bool(apply_changes and abs(delta) > 0.000001)
+        }
+
+    @staticmethod
     def get_tax_limits():
         db = get_db()
         current_year = date.today().year

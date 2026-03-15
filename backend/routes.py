@@ -354,6 +354,19 @@ def repair_xtb_csv_prices(portfolio_id):
         return jsonify({'error': str(e)}), 400
 
 
+
+@portfolio_bp.route('/<int:portfolio_id>/reconcile-cash', methods=['POST'])
+def reconcile_portfolio_cash(portfolio_id):
+    payload = request.get_json(silent=True) or {}
+    apply_changes = bool(payload.get('apply', False))
+
+    try:
+        result = PortfolioService.reconcile_portfolio_cash(portfolio_id, apply_changes=apply_changes)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
 @portfolio_bp.route('/<int:portfolio_id>/closed-positions', methods=['GET'])
 def closed_positions(portfolio_id):
     db = get_db()
