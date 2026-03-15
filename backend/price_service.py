@@ -316,6 +316,18 @@ class PriceService:
         except Exception as e:
             print(f"Cache warmup failed: {e}")
 
+    @staticmethod
+    def _latest_expected_market_day(reference_date=None):
+        """
+        Returns the latest day that can reasonably have a market close.
+        Uses weekday calendar (Mon-Fri) to avoid weekend re-sync loops.
+        """
+        current = reference_date or date.today()
+        candidate = current - timedelta(days=1)
+        while candidate.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            candidate -= timedelta(days=1)
+        return candidate
+
     @classmethod
     def get_tickers_requiring_history_sync(cls, tickers, required_start_date=None):
         """
@@ -336,8 +348,7 @@ class PriceService:
         ).fetchall()
         latest_by_ticker = {row['ticker']: row['max_date'] for row in rows}
 
-        today = date.today()
-        yesterday = today - timedelta(days=1)
+        expected_latest_day = cls._latest_expected_market_day()
 
         required_start = None
         if required_start_date:
@@ -355,7 +366,7 @@ class PriceService:
                 needs_sync.append(ticker)
                 continue
 
-            if max_dt < yesterday:
+            if max_dt < expected_latest_day:
                 needs_sync.append(ticker)
 
         return needs_sync
@@ -383,7 +394,7 @@ class PriceService:
                 max_date = max_date_str # Handle if sqlite returns date object
 
         today = date.today()
-        yesterday = today - timedelta(days=1)
+        expected_latest_day = cls._latest_expected_market_day(today)
         
         # 2. Determine fetch start date
         required_start = None
@@ -391,7 +402,7 @@ class PriceService:
             required_start = datetime.strptime(required_start_date, '%Y-%m-%d').date() if isinstance(required_start_date, str) else required_start_date
 
         if max_date:
-            if max_date >= yesterday:
+            if max_date >= expected_latest_day:
                 logger.info("%s history already up to date (last_date=%s)", ticker, max_date.isoformat())
                 return max_date_str
             fetch_start = max_date + timedelta(days=1)
