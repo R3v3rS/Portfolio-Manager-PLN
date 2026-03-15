@@ -595,7 +595,7 @@ class BudgetService:
         envelope_totals_rows = db.execute("""
             SELECT
                 envelope_id,
-                COALESCE(SUM(CASE WHEN type = 'ALLOCATE' THEN amount ELSE 0 END), 0) AS total_allocated,
+                COALESCE(SUM(CASE WHEN type IN ('ALLOCATE', 'INCOME') THEN amount ELSE 0 END), 0) AS total_allocated,
                 COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END), 0) AS total_spent_lifetime
             FROM budget_transactions
             WHERE envelope_id IS NOT NULL
