@@ -173,6 +173,21 @@ def sell():
         return jsonify({'error': str(e)}), 400
 
 
+
+@portfolio_bp.route('/<int:portfolio_id>/clear', methods=['POST'])
+def clear_portfolio(portfolio_id):
+    try:
+        result = PortfolioService.clear_portfolio_data(portfolio_id)
+        return jsonify({'message': 'Portfolio data cleared successfully', **result}), 200
+    except ValueError as e:
+        message = str(e)
+        if message == 'Portfolio not found':
+            return jsonify({'error': message}), 404
+        return jsonify({'error': message}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @portfolio_bp.route('/<int:portfolio_id>', methods=['DELETE'])
 def delete_portfolio(portfolio_id):
     try:
@@ -199,7 +214,8 @@ def get_value(portfolio_id):
 @portfolio_bp.route('/holdings/<int:portfolio_id>', methods=['GET'])
 def get_holdings(portfolio_id):
     try:
-        holdings = PortfolioService.get_holdings(portfolio_id)
+        force_refresh = request.args.get('refresh') == '1'
+        holdings = PortfolioService.get_holdings(portfolio_id, force_price_refresh=force_refresh)
         return jsonify({'holdings': holdings}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -334,6 +350,7 @@ def import_xtb_csv(portfolio_id):
         return jsonify({'message': 'Import successful', **result}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
 
 @portfolio_bp.route('/<int:portfolio_id>/closed-positions', methods=['GET'])
 def closed_positions(portfolio_id):

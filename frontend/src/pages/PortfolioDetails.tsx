@@ -1,6 +1,6 @@
 import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw, HelpCircle } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2 } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition } from '../types';
@@ -120,7 +120,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
   return (
     <>
       <button
-        className="px-4 py-2 bg-blue-600 text-white rounded mb-4"
+        className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
         onClick={() => fileInput.current?.click()}
       >
         Import XTB CSV
@@ -210,6 +210,44 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
 }
 
 
+
+function ClearPortfolioButton({ portfolioId, portfolioName, onSuccess }: { portfolioId: number; portfolioName: string; onSuccess: () => void }) {
+  const [clearing, setClearing] = useState(false);
+
+  const handleClear = async () => {
+    const confirmed = window.confirm(
+      `To usunie wszystkie transakcje, aktywa, dywidendy i obligacje z portfela "${portfolioName}". Czy kontynuować?`
+    );
+
+    if (!confirmed) return;
+
+    setClearing(true);
+    try {
+      await api.post(`/${portfolioId}/clear`);
+      alert('Portfolio zostało wyczyszczone. Możesz zaimportować dane od nowa.');
+      onSuccess();
+    } catch (err: any) {
+      const message = err?.response?.data?.error || 'Nie udało się wyczyścić portfela';
+      alert(message);
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className="mb-4 inline-flex items-center gap-2 rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700 disabled:opacity-60"
+      onClick={handleClear}
+      disabled={clearing}
+    >
+      <Trash2 className="h-4 w-4" />
+      {clearing ? 'Czyszczenie...' : 'Wyczyść portfolio'}
+    </button>
+  );
+}
+
+
 function PPKContributionForm({ portfolioId, onSuccess }: { portfolioId: number; onSuccess: () => void }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [employeeUnits, setEmployeeUnits] = useState('');
@@ -274,6 +312,7 @@ const PortfolioDetails: React.FC = () => {
   const [historyData, setHistoryData] = useState<{ date: string; close_price: number }[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [portfolioTransactions, setPortfolioTransactions] = useState<Transaction[]>([]);
 
   // Monthly Dividend state
@@ -402,6 +441,26 @@ const PortfolioDetails: React.FC = () => {
     }
   };
 
+  const refreshStockPrices = async () => {
+    if (!id || !(portfolio?.account_type === 'STANDARD' || portfolio?.account_type === 'IKE')) return;
+
+    setRefreshingPrices(true);
+    try {
+      const [holdingsResponse, valueResponse] = await Promise.all([
+        api.get(`/holdings/${id}?refresh=1`),
+        api.get(`/value/${id}`),
+      ]);
+
+      setHoldings(holdingsResponse.data.holdings || []);
+      setValueData(valueResponse.data);
+    } catch (err) {
+      console.error('Failed to refresh stock prices', err);
+      alert('Nie udało się odświeżyć cen akcji. Spróbuj ponownie.');
+    } finally {
+      setRefreshingPrices(false);
+    }
+  };
+
   const fetchHistory = async (ticker: string) => {
     setHistoryLoading(true);
     setSelectedTicker(ticker);
@@ -471,9 +530,12 @@ const PortfolioDetails: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Import XTB CSV button */}
+      {/* Import / reset actions */}
       {portfolio && portfolio.account_type !== 'PPK' && (
-        <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchData} />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchData} />
+          <ClearPortfolioButton portfolioId={portfolio.id} portfolioName={portfolio.name} onSuccess={fetchData} />
+        </div>
       )}
       <div className="flex items-center space-x-4">
         <Link to="/portfolios" className="text-gray-500 hover:text-gray-700">
@@ -643,6 +705,18 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'holdings' && (
             <div className="space-y-6">
+              {(portfolio.account_type === 'STANDARD' || portfolio.account_type === 'IKE') && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={refreshStockPrices}
+                    disabled={refreshingPrices}
+                    className="inline-flex items-center px-4 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
+                    {refreshingPrices ? 'Odświeżanie cen...' : 'Odśwież ceny z giełdy'}
+                  </button>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
