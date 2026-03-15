@@ -90,7 +90,7 @@ class PortfolioService:
         try:
             for _, row in df.iterrows():
                 typ = row['Type']
-                typ_lower = str(typ).lower()
+                typ_lower = str(typ).strip().lower()
                 time = row['Time']
                 amount = float(str(row['Amount']).replace(',', '.'))
                 comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
@@ -117,15 +117,27 @@ class PortfolioService:
                             missing_symbols.append(normalized_symbol)
                         continue
 
-                if typ_lower == 'deposit':
+                if typ_lower in {'deposit', 'ike deposit'}:
+                    deposit_amount = abs(amount)
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (amount, portfolio_id)
+                        (deposit_amount, portfolio_id)
                     )
                     cursor.execute(
                         '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
                            VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, time)
+                        (portfolio_id, 'CASH', 'DEPOSIT', 1, deposit_amount, deposit_amount, time)
+                    )
+                elif typ_lower == 'free funds interest':
+                    interest_amount = abs(amount)
+                    cursor.execute(
+                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
+                        (interest_amount, portfolio_id)
+                    )
+                    cursor.execute(
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, 'CASH', 'INTEREST', 1, interest_amount, interest_amount, time)
                     )
                 elif typ_lower == 'withdrawal':
                     cursor.execute(
