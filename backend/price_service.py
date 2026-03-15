@@ -28,7 +28,7 @@ class PriceService:
     _price_cache_updated_at = {}
     _metadata_cache = {}
     _metadata_cache_updated_at = {}
-    _metadata_ttl = timedelta(days=7)
+    _metadata_ttl = timedelta(days=30)
     _default_history_start = date(2000, 1, 1)
 
     @staticmethod
@@ -56,7 +56,7 @@ class PriceService:
         return float(value)
 
     @classmethod
-    def _load_metadata_from_db(cls, ticker):
+    def _load_metadata_from_db(cls, ticker, allow_stale=False):
         db = get_db()
         row = db.execute(
             '''SELECT company_name, sector, industry, currency, updated_at
@@ -76,7 +76,8 @@ class PriceService:
         except ValueError:
             return None
 
-        if datetime.now() - updated_dt > cls._metadata_ttl:
+        is_stale = (datetime.now() - updated_dt) > cls._metadata_ttl
+        if is_stale and not allow_stale:
             return None
 
         metadata = {
@@ -480,20 +481,28 @@ class PriceService:
         ticker = ticker.strip().upper()
         now = datetime.now()
 
+        stale_db_cached = None
+
         if not force_refresh:
             cached = cls._metadata_cache.get(ticker)
             updated_at = cls._metadata_cache_updated_at.get(ticker)
             if cached and updated_at and (now - updated_at) <= cls._metadata_ttl:
+                logging.info("Metadata cache hit for %s", ticker)
                 return cached
 
             db_cached = cls._load_metadata_from_db(ticker)
             if db_cached:
+                logging.info("Metadata cache hit for %s", ticker)
                 return db_cached
 
+            stale_db_cached = cls._load_metadata_from_db(ticker, allow_stale=True)
+
         try:
-            print(f"Fetching metadata for {ticker}...")
+            logging.info("Fetching metadata from Yahoo for %s", ticker)
             t = yf.Ticker(ticker)
             info = t.info
+            if not isinstance(info, dict) or not info:
+                raise ValueError("Empty or invalid metadata response")
             
             # Helper to safely get string
             def clean(val):
@@ -510,14 +519,24 @@ class PriceService:
                 'industry': industry,
                 'currency': currency
             }
+
             cls._save_metadata_to_db(ticker, metadata)
+            if stale_db_cached:
+                logging.info("Metadata refreshed from Yahoo for %s", ticker)
+            else:
+                logging.info("Metadata fetched from Yahoo for %s", ticker)
             return metadata
         except Exception as e:
-            print(f"Metadata fetch error for {ticker}: {e}")
-            # Fallback to stale cache if available.
+            logging.warning("Metadata fetch error for %s: %s", ticker, e)
+            # Fallback to stale in-memory cache if available.
             stale_cached = cls._metadata_cache.get(ticker)
             if stale_cached:
+                logging.info("Using stale in-memory metadata for %s", ticker)
                 return stale_cached
+            # Fallback to stale DB cache if available.
+            if stale_db_cached:
+                logging.info("Using stale DB metadata for %s", ticker)
+                return stale_db_cached
             return None
 
     @classmethod
