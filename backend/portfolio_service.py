@@ -144,11 +144,16 @@ class PortfolioService:
                     if not m:
                         raise ValueError(f"Could not parse purchase comment: {comment}")
                     qty = float(str(m.group(1)).replace(',', '.'))
+                    unit_price_from_comment = float(str(m.group(2)).replace(',', '.'))
                     total_cost = abs(amount)
                     # XTB CSV amount is cash movement in account currency (PLN for this app),
                     # while comment unit price may be in instrument currency (e.g. EUR for EUNL.DE).
-                    # Keep transaction and holding prices in PLN per unit to avoid mixed-currency math.
-                    price = total_cost / qty if qty else 0.0
+                    # For PLN instruments we can trust the comment unit price directly.
+                    # For non-PLN instruments keep PLN-per-unit based on account cash flow to avoid mixed-currency math.
+                    if ticker_currency == 'PLN':
+                        price = unit_price_from_comment
+                    else:
+                        price = total_cost / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
                         (total_cost, portfolio_id)
