@@ -134,12 +134,82 @@ class PriceService:
                 delay *= 2
 
     @classmethod
-    def get_prices(cls, tickers):
+    def _load_price_cache_from_db(cls, tickers):
+        db = get_db()
+        placeholders = ','.join('?' for _ in tickers)
+        rows = db.execute(
+            f'''SELECT ticker, price, updated_at
+                FROM price_cache
+                WHERE ticker IN ({placeholders})''',
+            tuple(tickers)
+        ).fetchall()
+
+        for row in rows:
+            ticker = row['ticker']
+            cls._price_cache[ticker] = float(row['price']) if row['price'] is not None else None
+            cls._price_cache_updated_at[ticker] = row['updated_at']
+
+    @classmethod
+    def _save_price_cache_to_db(cls, ticker, price, updated_at=None):
+        db = get_db()
+        now_iso = datetime.now().isoformat(timespec='seconds')
+        effective_updated_at = updated_at or now_iso
+        db.execute(
+            '''INSERT INTO price_cache (ticker, price, updated_at, last_attempted_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(ticker)
+               DO UPDATE SET
+                    price = excluded.price,
+                    updated_at = excluded.updated_at,
+                    last_attempted_at = excluded.last_attempted_at''',
+            (ticker, price, effective_updated_at, now_iso)
+        )
+        db.commit()
+
+    @classmethod
+    def _mark_price_refresh_attempt(cls, ticker):
+        db = get_db()
+        now_iso = datetime.now().isoformat(timespec='seconds')
+        db.execute(
+            '''INSERT INTO price_cache (ticker, last_attempted_at)
+               VALUES (?, ?)
+               ON CONFLICT(ticker)
+               DO UPDATE SET
+                    last_attempted_at = excluded.last_attempted_at''',
+            (ticker, now_iso)
+        )
+        db.commit()
+
+    @staticmethod
+    def _is_same_day(timestamp):
+        if not timestamp:
+            return False
+        try:
+            parsed = datetime.fromisoformat(str(timestamp))
+        except ValueError:
+            return False
+        return parsed.date() == datetime.now().date()
+
+    @classmethod
+    def get_prices(cls, tickers, force_refresh=False):
         if not tickers:
             return {}
-        
-        # Identify missing tickers in cache
-        missing_tickers = [t for t in tickers if t not in cls._price_cache]
+
+        normalized_tickers = sorted({str(t).strip().upper() for t in tickers if t})
+        if not normalized_tickers:
+            return {}
+
+        cls._load_price_cache_from_db(normalized_tickers)
+
+        missing_tickers = []
+        for ticker in normalized_tickers:
+            if force_refresh:
+                missing_tickers.append(ticker)
+                continue
+
+            updated_at = cls._price_cache_updated_at.get(ticker)
+            if ticker not in cls._price_cache or not cls._is_same_day(updated_at):
+                missing_tickers.append(ticker)
         
         if missing_tickers:
             print(f"Fetching prices for: {missing_tickers}")
@@ -169,8 +239,11 @@ class PriceService:
                             if not df_cleaned.empty:
                                 price = cls._safe_float_from_value(df_cleaned['Close'].iloc[-1])
                                 if price is not None:
-                                    cls._price_cache[ticker] = round(price, 2)
-                                cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
+                                    normalized_price = round(price, 2)
+                                    now_iso = datetime.now().isoformat(timespec='seconds')
+                                    cls._price_cache[ticker] = normalized_price
+                                    cls._price_cache_updated_at[ticker] = now_iso
+                                    cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
                         
                     except Exception as e:
                         logger = logging.getLogger(__name__)
@@ -193,28 +266,35 @@ class PriceService:
                         if hist is not None and not hist.empty and 'Close' in hist.columns:
                             price = cls._safe_float_from_value(hist['Close'].iloc[-1])
                             if price is not None:
-                                cls._price_cache[ticker] = round(price, 2)
-                            cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
+                                normalized_price = round(price, 2)
+                                now_iso = datetime.now().isoformat(timespec='seconds')
+                                cls._price_cache[ticker] = normalized_price
+                                cls._price_cache_updated_at[ticker] = now_iso
+                                cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
                         else:
                             # Try fast_info as last resort
                             try:
                                 price = t.fast_info.last_price
                                 if price:
-                                    cls._price_cache[ticker] = round(float(price), 2)
-                                    cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
+                                    normalized_price = round(float(price), 2)
+                                    now_iso = datetime.now().isoformat(timespec='seconds')
+                                    cls._price_cache[ticker] = normalized_price
+                                    cls._price_cache_updated_at[ticker] = now_iso
+                                    cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
                             except:
                                 print(f"[WARNING] No data for {ticker}")
                     except Exception as e:
                         logger = logging.getLogger(__name__)
                         logger.error(f"Error processing yfinance data for {ticker}: {e}")
 
-            # Final Safety Step: Mark any missing tickers as None
+            # Final safety step: remember refresh attempt (prevents repeated retries during market close)
             for ticker in missing_tickers:
                 if ticker not in cls._price_cache:
                     cls._price_cache[ticker] = None
                     cls._price_cache_updated_at[ticker] = None
-        
-        return cls._price_cache
+                cls._mark_price_refresh_attempt(ticker)
+
+        return {ticker: cls._price_cache.get(ticker) for ticker in normalized_tickers}
 
     @classmethod
     def get_price_updates(cls, tickers):
@@ -236,6 +316,18 @@ class PriceService:
         except Exception as e:
             print(f"Cache warmup failed: {e}")
 
+    @staticmethod
+    def _latest_expected_market_day(reference_date=None):
+        """
+        Returns the latest day that can reasonably have a market close.
+        Uses weekday calendar (Mon-Fri) to avoid weekend re-sync loops.
+        """
+        current = reference_date or date.today()
+        candidate = current - timedelta(days=1)
+        while candidate.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            candidate -= timedelta(days=1)
+        return candidate
+
     @classmethod
     def get_tickers_requiring_history_sync(cls, tickers, required_start_date=None):
         """
@@ -256,8 +348,7 @@ class PriceService:
         ).fetchall()
         latest_by_ticker = {row['ticker']: row['max_date'] for row in rows}
 
-        today = date.today()
-        yesterday = today - timedelta(days=1)
+        expected_latest_day = cls._latest_expected_market_day()
 
         required_start = None
         if required_start_date:
@@ -275,7 +366,7 @@ class PriceService:
                 needs_sync.append(ticker)
                 continue
 
-            if max_dt < yesterday:
+            if max_dt < expected_latest_day:
                 needs_sync.append(ticker)
 
         return needs_sync
@@ -303,7 +394,7 @@ class PriceService:
                 max_date = max_date_str # Handle if sqlite returns date object
 
         today = date.today()
-        yesterday = today - timedelta(days=1)
+        expected_latest_day = cls._latest_expected_market_day(today)
         
         # 2. Determine fetch start date
         required_start = None
@@ -311,7 +402,7 @@ class PriceService:
             required_start = datetime.strptime(required_start_date, '%Y-%m-%d').date() if isinstance(required_start_date, str) else required_start_date
 
         if max_date:
-            if max_date >= yesterday:
+            if max_date >= expected_latest_day:
                 logger.info("%s history already up to date (last_date=%s)", ticker, max_date.isoformat())
                 return max_date_str
             fetch_start = max_date + timedelta(days=1)
