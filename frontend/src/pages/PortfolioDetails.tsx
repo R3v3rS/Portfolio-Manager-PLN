@@ -274,6 +274,7 @@ const PortfolioDetails: React.FC = () => {
   const [historyData, setHistoryData] = useState<{ date: string; close_price: number }[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [portfolioTransactions, setPortfolioTransactions] = useState<Transaction[]>([]);
 
   // Monthly Dividend state
@@ -399,6 +400,26 @@ const PortfolioDetails: React.FC = () => {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshStockPrices = async () => {
+    if (!id || !(portfolio?.account_type === 'STANDARD' || portfolio?.account_type === 'IKE')) return;
+
+    setRefreshingPrices(true);
+    try {
+      const [holdingsResponse, valueResponse] = await Promise.all([
+        api.get(`/holdings/${id}?refresh=1`),
+        api.get(`/value/${id}`),
+      ]);
+
+      setHoldings(holdingsResponse.data.holdings || []);
+      setValueData(valueResponse.data);
+    } catch (err) {
+      console.error('Failed to refresh stock prices', err);
+      alert('Nie udało się odświeżyć cen akcji. Spróbuj ponownie.');
+    } finally {
+      setRefreshingPrices(false);
     }
   };
 
@@ -643,6 +664,18 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'holdings' && (
             <div className="space-y-6">
+              {(portfolio.account_type === 'STANDARD' || portfolio.account_type === 'IKE') && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={refreshStockPrices}
+                    disabled={refreshingPrices}
+                    className="inline-flex items-center px-4 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
+                    {refreshingPrices ? 'Odświeżanie cen...' : 'Odśwież ceny z giełdy'}
+                  </button>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">

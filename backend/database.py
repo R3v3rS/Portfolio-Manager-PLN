@@ -128,6 +128,16 @@ def init_db(app):
         db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_stock_prices_date ON stock_prices(date);')
 
+        # Latest price cache state (limits automatic refreshes to once per day)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS price_cache (
+                ticker VARCHAR(20) PRIMARY KEY,
+                price DECIMAL(12,4),
+                updated_at TEXT,
+                last_attempted_at TEXT
+            );
+        ''')
+
         # Radar cache table (snapshot to avoid frequent API calls)
         db.execute('''
             CREATE TABLE IF NOT EXISTS radar_cache (

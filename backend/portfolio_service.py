@@ -740,7 +740,7 @@ class PortfolioService:
 
 
     @staticmethod
-    def get_holdings(portfolio_id):
+    def get_holdings(portfolio_id, force_price_refresh=False):
         db = get_db()
         holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
 
@@ -750,7 +750,7 @@ class PortfolioService:
             return results
 
         tickers = [h['ticker'] for h in holdings]
-        current_prices = PriceService.get_prices(tickers)
+        current_prices = PriceService.get_prices(tickers, force_refresh=force_price_refresh)
         price_updates = PriceService.get_price_updates(tickers)
         fx_rates = PortfolioService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
 

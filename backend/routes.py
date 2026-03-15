@@ -199,7 +199,8 @@ def get_value(portfolio_id):
 @portfolio_bp.route('/holdings/<int:portfolio_id>', methods=['GET'])
 def get_holdings(portfolio_id):
     try:
-        holdings = PortfolioService.get_holdings(portfolio_id)
+        force_refresh = request.args.get('refresh') == '1'
+        holdings = PortfolioService.get_holdings(portfolio_id, force_price_refresh=force_refresh)
         return jsonify({'holdings': holdings}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
