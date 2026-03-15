@@ -836,10 +836,19 @@ export default function BudgetDashboard() {
                                 </div>
                                 <div className="text-right">
                                      <span className="text-lg font-bold text-gray-900">
-                                        {env.balance.toFixed(2)}
+                                        {(env.total_allocated ?? 0).toFixed(2)}
                                      </span>
-                                     <span className="text-xs text-gray-400 block">Saved</span>
+                                     <span className="text-xs text-gray-400 block">Wpłacono</span>
                                 </div>
+                              </div>
+
+                              <div className="flex items-center justify-between text-xs mb-2">
+                                <span className="text-gray-500">Wydano łącznie</span>
+                                <span className="font-semibold text-blue-600">{(env.total_spent_lifetime ?? 0).toFixed(2)} PLN</span>
+                              </div>
+                              <div className="flex items-center justify-between text-xs mb-4">
+                                <span className="text-gray-500">Dostępne teraz</span>
+                                <span className="font-semibold text-gray-700">{env.balance.toFixed(2)} PLN</span>
                               </div>
                               
                               {/* Progress Bar (Always show for Long Term if target exists) */}
@@ -847,13 +856,13 @@ export default function BudgetDashboard() {
                                 <div className="w-full bg-gray-100 rounded-full h-3 mb-2 overflow-hidden">
                                   <div 
                                     className={`h-3 rounded-full transition-all duration-500 bg-purple-500`}
-                                    style={{ width: `${Math.min((Math.max(env.balance, 0) / env.target_amount) * 100, 100)}%` }}
+                                    style={{ width: `${Math.min((Math.max(env.total_allocated ?? 0, 0) / env.target_amount) * 100, 100)}%` }}
                                   ></div>
                                 </div>
                               )}
                               {env.target_amount && (
                                   <p className="text-xs text-right text-gray-500 mb-4">
-                                      {((env.balance / env.target_amount) * 100).toFixed(0)}% Complete
+                                      {(((env.total_allocated ?? 0) / env.target_amount) * 100).toFixed(0)}% Wpłacono
                                   </p>
                               )}
 

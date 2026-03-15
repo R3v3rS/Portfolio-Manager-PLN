@@ -20,6 +20,8 @@ export interface Envelope {
   target_amount?: number;
   balance: number;
   total_spent?: number;
+  total_allocated?: number;
+  total_spent_lifetime?: number;
   category_name?: string;
   outstanding_loans?: number;
   type?: 'MONTHLY' | 'LONG_TERM';

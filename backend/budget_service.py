@@ -592,6 +592,24 @@ class BudgetService:
         
         spent_map = {row['envelope_id']: row['spent'] for row in expenses_rows}
 
+        envelope_totals_rows = db.execute("""
+            SELECT
+                envelope_id,
+                COALESCE(SUM(CASE WHEN type IN ('ALLOCATE', 'INCOME') THEN amount ELSE 0 END), 0) AS total_allocated,
+                COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END), 0) AS total_spent_lifetime
+            FROM budget_transactions
+            WHERE envelope_id IS NOT NULL
+            GROUP BY envelope_id
+        """).fetchall()
+
+        totals_map = {
+            row['envelope_id']: {
+                'total_allocated': row['total_allocated'],
+                'total_spent_lifetime': row['total_spent_lifetime']
+            }
+            for row in envelope_totals_rows
+        }
+
         for env in envelopes_rows:
             env_dict = dict(env)
             # Calculate outstanding loans for this envelope
@@ -600,6 +618,9 @@ class BudgetService:
             
             # Add total_spent
             env_dict['total_spent'] = spent_map.get(env['id'], 0.0)
+            env_totals = totals_map.get(env['id'], {})
+            env_dict['total_allocated'] = env_totals.get('total_allocated', 0.0)
+            env_dict['total_spent_lifetime'] = env_totals.get('total_spent_lifetime', 0.0)
             
             envelopes.append(env_dict)
 
