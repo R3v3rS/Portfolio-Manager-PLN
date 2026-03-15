@@ -144,11 +144,16 @@ class PortfolioService:
                     if not m:
                         raise ValueError(f"Could not parse purchase comment: {comment}")
                     qty = float(str(m.group(1)).replace(',', '.'))
+                    unit_price_from_comment = float(str(m.group(2)).replace(',', '.'))
                     total_cost = abs(amount)
                     # XTB CSV amount is cash movement in account currency (PLN for this app),
                     # while comment unit price may be in instrument currency (e.g. EUR for EUNL.DE).
-                    # Keep transaction and holding prices in PLN per unit to avoid mixed-currency math.
-                    price = total_cost / qty if qty else 0.0
+                    # For PLN instruments we can trust the comment unit price directly.
+                    # For non-PLN instruments keep PLN-per-unit based on account cash flow to avoid mixed-currency math.
+                    if ticker_currency == 'PLN':
+                        price = unit_price_from_comment
+                    else:
+                        price = total_cost / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
                         (total_cost, portfolio_id)
@@ -221,6 +226,7 @@ class PortfolioService:
         except Exception:
             db.rollback()
             raise
+
 
     @staticmethod
     def get_tax_limits():
@@ -380,6 +386,46 @@ class PortfolioService:
         except Exception as e:
             print(f"DB FETCH ERROR: {e}")
             raise e
+
+    @staticmethod
+    def clear_portfolio_data(portfolio_id: int) -> dict[str, Any]:
+        """
+        Delete all investment data for a portfolio and reset balances,
+        preserving the portfolio row so it can be re-imported from scratch.
+        """
+        db = get_db()
+        portfolio = db.execute(
+            'SELECT id, name, account_type FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+
+        try:
+            tx_deleted = db.execute('DELETE FROM transactions WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            holdings_deleted = db.execute('DELETE FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            dividends_deleted = db.execute('DELETE FROM dividends WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            bonds_deleted = db.execute('DELETE FROM bonds WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+
+            db.execute(
+                'UPDATE portfolios SET current_cash = 0, total_deposits = 0 WHERE id = ?',
+                (portfolio_id,)
+            )
+            db.commit()
+
+            return {
+                'success': True,
+                'portfolio_id': portfolio_id,
+                'deleted': {
+                    'transactions': tx_deleted,
+                    'holdings': holdings_deleted,
+                    'dividends': dividends_deleted,
+                    'bonds': bonds_deleted
+                }
+            }
+        except Exception:
+            db.rollback()
+            raise
 
     @staticmethod
     def delete_portfolio(portfolio_id):
