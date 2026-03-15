@@ -227,6 +227,108 @@ class PortfolioService:
             db.rollback()
             raise
 
+
+    @staticmethod
+    def repair_xtb_pln_buy_prices(portfolio_id: int, df: pd.DataFrame) -> dict[str, Any]:
+        """
+        Safely fix historical BUY transaction unit prices imported from XTB CSV for PLN instruments.
+        This updates only transactions.price and leaves cash/total_value/holdings untouched.
+        """
+        df = df.sort_values('Time')
+
+        db = get_db()
+        cursor = db.cursor()
+
+        normalized_columns = {str(col).strip().lower(): col for col in df.columns}
+        symbol_column = normalized_columns.get('symbol')
+        instrument_column = normalized_columns.get('instrument')
+
+        updated = 0
+        skipped = 0
+        missing_symbols: list[str] = []
+        unmatched_rows: list[dict[str, Any]] = []
+
+        db.execute('BEGIN')
+        try:
+            for _, row in df.iterrows():
+                typ_lower = str(row['Type']).lower()
+                if typ_lower != 'stock purchase':
+                    continue
+
+                time = str(row['Time']).strip()
+                comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
+
+                m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
+                if not m:
+                    skipped += 1
+                    continue
+
+                qty = float(str(m.group(1)).replace(',', '.'))
+                unit_price_from_comment = float(str(m.group(2)).replace(',', '.'))
+
+                symbol_input = ''
+                if symbol_column is not None:
+                    symbol_value = row[symbol_column]
+                    symbol_input = '' if pd.isna(symbol_value) else str(symbol_value)
+                elif instrument_column is not None:
+                    instrument_value = row[instrument_column]
+                    symbol_input = '' if pd.isna(instrument_value) else str(instrument_value)
+
+                mapping = PortfolioService.resolve_symbol_mapping(symbol_input)
+                if mapping is None:
+                    normalized_symbol = symbol_input.strip().upper()
+                    if normalized_symbol and normalized_symbol not in missing_symbols:
+                        missing_symbols.append(normalized_symbol)
+                    skipped += 1
+                    continue
+
+                ticker = mapping.ticker
+                ticker_currency = (mapping.currency or 'PLN').upper()
+                if ticker_currency != 'PLN':
+                    skipped += 1
+                    continue
+
+                tx = cursor.execute(
+                    """SELECT id, price
+                       FROM transactions
+                       WHERE portfolio_id = ?
+                         AND ticker = ?
+                         AND type = 'BUY'
+                         AND date = ?
+                         AND ABS(quantity - ?) < 0.000001
+                       ORDER BY id DESC
+                       LIMIT 1""",
+                    (portfolio_id, ticker, time, qty)
+                ).fetchone()
+
+                if not tx:
+                    unmatched_rows.append({'time': time, 'ticker': ticker, 'quantity': qty})
+                    skipped += 1
+                    continue
+
+                current_price = float(tx['price'])
+                if abs(current_price - unit_price_from_comment) < 0.000001:
+                    skipped += 1
+                    continue
+
+                cursor.execute(
+                    'UPDATE transactions SET price = ? WHERE id = ?',
+                    (unit_price_from_comment, tx['id'])
+                )
+                updated += 1
+
+            db.commit()
+            return {
+                'success': True,
+                'updated': updated,
+                'skipped': skipped,
+                'missing_symbols': missing_symbols,
+                'unmatched_rows': unmatched_rows
+            }
+        except Exception:
+            db.rollback()
+            raise
+
     @staticmethod
     def get_tax_limits():
         db = get_db()
