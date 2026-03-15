@@ -540,6 +540,85 @@ class PortfolioService:
             raise e
 
     @staticmethod
+    def clear_portfolio_data(portfolio_id: int) -> dict[str, Any]:
+        """
+        Delete all investment data for a portfolio and reset balances,
+        preserving the portfolio row so it can be re-imported from scratch.
+        """
+        db = get_db()
+        portfolio = db.execute(
+            'SELECT id, name, account_type FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+
+        try:
+            tx_deleted = db.execute('DELETE FROM transactions WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            holdings_deleted = db.execute('DELETE FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            dividends_deleted = db.execute('DELETE FROM dividends WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            bonds_deleted = db.execute('DELETE FROM bonds WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+
+            db.execute(
+                'UPDATE portfolios SET current_cash = 0, total_deposits = 0 WHERE id = ?',
+                (portfolio_id,)
+            )
+            db.commit()
+
+            return {
+                'success': True,
+                'portfolio_id': portfolio_id,
+                'deleted': {
+                    'transactions': tx_deleted,
+                    'holdings': holdings_deleted,
+                    'dividends': dividends_deleted,
+                    'bonds': bonds_deleted
+                }
+            }
+        except Exception:
+            db.rollback()
+            raise
+
+    @staticmethod
+    def hard_delete_portfolio(portfolio_id: int) -> dict[str, Any]:
+        """
+        Force-delete a portfolio and all dependent data.
+        Use when a full reset is needed and preserving the portfolio is unnecessary.
+        """
+        db = get_db()
+        portfolio = db.execute(
+            'SELECT id FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+
+        try:
+            tx_deleted = db.execute('DELETE FROM transactions WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            holdings_deleted = db.execute('DELETE FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            dividends_deleted = db.execute('DELETE FROM dividends WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            bonds_deleted = db.execute('DELETE FROM bonds WHERE portfolio_id = ?', (portfolio_id,)).rowcount
+            ppk_deleted = db.execute('DELETE FROM ppk_portfolios WHERE id = ?', (portfolio_id,)).rowcount
+            portfolio_deleted = db.execute('DELETE FROM portfolios WHERE id = ?', (portfolio_id,)).rowcount
+            db.commit()
+
+            return {
+                'success': True,
+                'portfolio_id': portfolio_id,
+                'deleted': {
+                    'transactions': tx_deleted,
+                    'holdings': holdings_deleted,
+                    'dividends': dividends_deleted,
+                    'bonds': bonds_deleted,
+                    'ppk_portfolios': ppk_deleted,
+                    'portfolios': portfolio_deleted
+                }
+            }
+        except Exception:
+            db.rollback()
+            raise
+
+    @staticmethod
     def delete_portfolio(portfolio_id):
         db = get_db()
         portfolio = db.execute(

@@ -173,6 +173,35 @@ def sell():
         return jsonify({'error': str(e)}), 400
 
 
+
+@portfolio_bp.route('/<int:portfolio_id>/clear', methods=['POST'])
+def clear_portfolio(portfolio_id):
+    try:
+        result = PortfolioService.clear_portfolio_data(portfolio_id)
+        return jsonify({'message': 'Portfolio data cleared successfully', **result}), 200
+    except ValueError as e:
+        message = str(e)
+        if message == 'Portfolio not found':
+            return jsonify({'error': message}), 404
+        return jsonify({'error': message}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@portfolio_bp.route('/<int:portfolio_id>/hard-delete', methods=['DELETE'])
+def hard_delete_portfolio(portfolio_id):
+    try:
+        result = PortfolioService.hard_delete_portfolio(portfolio_id)
+        return jsonify({'message': 'Portfolio hard-deleted successfully', **result}), 200
+    except ValueError as e:
+        message = str(e)
+        if message == 'Portfolio not found':
+            return jsonify({'error': message}), 404
+        return jsonify({'error': message}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @portfolio_bp.route('/<int:portfolio_id>', methods=['DELETE'])
 def delete_portfolio(portfolio_id):
     try:
