@@ -30,6 +30,30 @@ class PriceService:
     _metadata_cache_updated_at = {}
     _metadata_ttl = timedelta(days=7)
 
+    @staticmethod
+    def _normalize_yf_dataframe(df):
+        if df is None or df.empty:
+            return df
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.copy()
+            df.columns = df.columns.get_level_values(0)
+        return df
+
+    @staticmethod
+    def _safe_float_from_value(value):
+        if value is None:
+            return None
+        if isinstance(value, (pd.Series, pd.DataFrame)):
+            if value.empty:
+                return None
+            if isinstance(value, pd.DataFrame):
+                value = value.iloc[-1].squeeze()
+            elif len(value) > 1:
+                value = value.iloc[-1]
+        if pd.isna(value):
+            return None
+        return float(value)
+
     @classmethod
     def _load_metadata_from_db(cls, ticker):
         db = get_db()
@@ -138,17 +162,18 @@ class PriceService:
                         elif 'Close' in data.columns and len(missing_tickers) == 1:
                             ticker_df = data
 
-                        if ticker_df is not None and 'Close' in ticker_df.columns:
+                        ticker_df = cls._normalize_yf_dataframe(ticker_df)
+                        if ticker_df is not None and not ticker_df.empty and 'Close' in ticker_df.columns:
                             df_cleaned = ticker_df.dropna(subset=['Close'])
                             if not df_cleaned.empty:
-                                price = df_cleaned['Close'].iloc[-1]
-                                if hasattr(price, 'item'):
-                                    price = price.item()
-                                cls._price_cache[ticker] = round(float(price), 2)
+                                price = cls._safe_float_from_value(df_cleaned['Close'].iloc[-1])
+                                if price is not None:
+                                    cls._price_cache[ticker] = round(price, 2)
                                 cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
                         
                     except Exception as e:
-                        print(f"[ERROR] Failed to process bulk data for {ticker}: {e}")
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Error processing yfinance data for {ticker}: {e}")
 
             except Exception as e:
                 print(f"[WARNING] Bulk fetch failed ({e}). Switching to individual fallback.")
@@ -161,10 +186,13 @@ class PriceService:
                     try:
                         t = yf.Ticker(ticker)
                         # Try history first
-                        hist = t.history(period="5d")
-                        if not hist.empty:
-                            price = hist['Close'].iloc[-1]
-                            cls._price_cache[ticker] = round(float(price), 2)
+                        hist = cls._normalize_yf_dataframe(t.history(period="5d"))
+                        if hist is not None and not hist.empty and 'Close' in hist.columns:
+                            hist = hist.dropna(subset=['Close'])
+                        if hist is not None and not hist.empty and 'Close' in hist.columns:
+                            price = cls._safe_float_from_value(hist['Close'].iloc[-1])
+                            if price is not None:
+                                cls._price_cache[ticker] = round(price, 2)
                             cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
                         else:
                             # Try fast_info as last resort
@@ -176,7 +204,8 @@ class PriceService:
                             except:
                                 print(f"[WARNING] No data for {ticker}")
                     except Exception as e:
-                         print(f"[ERROR] Individual fetch failed for {ticker}: {e}")
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Error processing yfinance data for {ticker}: {e}")
 
             # Final Safety Step: Mark any missing tickers as None
             for ticker in missing_tickers:
@@ -302,25 +331,31 @@ class PriceService:
         try:
             # 3. Fetch from yfinance (with retry)
             # Use fetch_start to today
-            data = cls._download_with_retry(ticker, start=fetch_start, interval="1d", threads=False)
+            data = cls._normalize_yf_dataframe(
+                cls._download_with_retry(ticker, start=fetch_start, interval="1d", threads=False)
+            )
 
-            if not data.empty:
+            if data is not None and not data.empty:
+                if 'Close' not in data.columns:
+                    print(f"No 'Close' column found for {ticker}; skipping history sync")
+                    return max_date_str
+
+                data = data.dropna(subset=['Close'])
+                if data.empty:
+                    print(f"No valid close prices found for {ticker} from {fetch_start}")
+                    return max_date_str
+
                 # 4. Save to DB
                 cursor = db.cursor()
                 for timestamp, row in data.iterrows():
                     price_date = timestamp.date()
-                    # Check if 'Close' exists (handle MultiIndex if necessary)
-                    price = None
-                    if 'Close' in data.columns:
-                        price = row['Close']
-                        if hasattr(price, 'item'):
-                            price = price.item()
+                    price = cls._safe_float_from_value(row.get('Close'))
 
-                    if price is not None and not pd.isna(price):
+                    if price is not None:
                         cursor.execute(
                             '''INSERT OR IGNORE INTO stock_prices (ticker, date, close_price)
                                VALUES (?, ?, ?)''',
-                            (ticker, price_date.isoformat(), round(float(price), 2))
+                            (ticker, price_date.isoformat(), round(price, 2))
                         )
                 db.commit()
                 print(f"Successfully synced {ticker} history.")
@@ -328,7 +363,8 @@ class PriceService:
                 print(f"No history data found for {ticker} from {fetch_start}")
 
         except Exception as e:
-            print(f"Error syncing history for {ticker}: {e}")
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error processing yfinance data for {ticker}: {e}")
             db.rollback()
 
         # Return latest date in DB
@@ -404,9 +440,8 @@ class PriceService:
                 t = yf.Ticker(ticker)
                 
                 # Fetch 1 year history to calculate all changes
-                hist = t.history(period="1y")
-                
-                if hist.empty:
+                hist = cls._normalize_yf_dataframe(t.history(period="1y"))
+                if hist is None or hist.empty or 'Close' not in hist.columns:
                      # Fallback if no history
                     quotes[ticker] = {
                         'price': 0.0,
@@ -417,8 +452,21 @@ class PriceService:
                     }
                     continue
 
+                hist = hist.dropna(subset=['Close'])
+                if hist.empty:
+                    quotes[ticker] = {
+                        'price': 0.0,
+                        'change_1d': None,
+                        'change_7d': None,
+                        'change_1m': None,
+                        'change_1y': None
+                    }
+                    continue
+
                 # Get latest price
-                current_price = hist['Close'].iloc[-1]
+                current_price = cls._safe_float_from_value(hist['Close'].iloc[-1])
+                if current_price is None:
+                    raise ValueError(f"No valid latest close price for {ticker}")
                 
                 # Helper to calculate percentage change safely
                 def calc_change(current, old):
@@ -428,27 +476,31 @@ class PriceService:
                 # 1D Change (compare with previous row)
                 change_1d = None
                 if len(hist) >= 2:
-                    prev_close = hist['Close'].iloc[-2]
-                    change_1d = calc_change(current_price, prev_close)
+                    prev_close = cls._safe_float_from_value(hist['Close'].iloc[-2])
+                    if prev_close is not None:
+                        change_1d = calc_change(current_price, prev_close)
 
                 # 7D Change (approx 5 trading days ago)
                 change_7d = None
                 if len(hist) >= 6:
-                    price_7d_ago = hist['Close'].iloc[-6]
-                    change_7d = calc_change(current_price, price_7d_ago)
+                    price_7d_ago = cls._safe_float_from_value(hist['Close'].iloc[-6])
+                    if price_7d_ago is not None:
+                        change_7d = calc_change(current_price, price_7d_ago)
 
                 # 1M Change (approx 21 trading days ago)
                 change_1m = None
                 if len(hist) >= 22:
-                    price_1m_ago = hist['Close'].iloc[-22]
-                    change_1m = calc_change(current_price, price_1m_ago)
+                    price_1m_ago = cls._safe_float_from_value(hist['Close'].iloc[-22])
+                    if price_1m_ago is not None:
+                        change_1m = calc_change(current_price, price_1m_ago)
 
                 # 1Y Change (approx start of the dataframe if it has enough data)
                 change_1y = None
                 # If we asked for 1y, the first row is roughly 1y ago
                 if len(hist) > 0:
-                     price_1y_ago = hist['Close'].iloc[0]
-                     change_1y = calc_change(current_price, price_1y_ago)
+                     price_1y_ago = cls._safe_float_from_value(hist['Close'].iloc[0])
+                     if price_1y_ago is not None:
+                         change_1y = calc_change(current_price, price_1y_ago)
 
                 quotes[ticker] = {
                     'price': round(float(current_price), 2),
@@ -462,7 +514,8 @@ class PriceService:
                 cls._price_cache[ticker] = round(float(current_price), 2)
                     
             except Exception as e:
-                print(f"Error fetching quote for {ticker}: {e}")
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error processing yfinance data for {ticker}: {e}")
                 quotes[ticker] = {
                     'price': 0.0,
                     'change_1d': None,
@@ -660,8 +713,16 @@ class PriceService:
             
             try:
                 # Fetch 1 year of history + extra buffer for MA/RSI calculation
-                hist = t.history(period="1y")
-                
+                hist = cls._normalize_yf_dataframe(t.history(period="1y"))
+                if hist is None or hist.empty or 'Close' not in hist.columns:
+                    return {
+                        "fundamentals": fundamentals,
+                        "analyst": analyst,
+                        "technicals": technicals
+                    }
+
+                hist = hist.dropna(subset=['Close'])
+
                 if not hist.empty and len(hist) > 50:
                     # SMA 50
                     hist['SMA50'] = hist['Close'].rolling(window=50).mean()
