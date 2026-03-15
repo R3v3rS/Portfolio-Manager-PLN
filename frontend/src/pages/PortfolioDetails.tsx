@@ -1,6 +1,6 @@
 import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw, HelpCircle } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2 } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition } from '../types';
@@ -120,7 +120,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
   return (
     <>
       <button
-        className="px-4 py-2 bg-blue-600 text-white rounded mb-4"
+        className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
         onClick={() => fileInput.current?.click()}
       >
         Import XTB CSV
@@ -206,6 +206,44 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
         </div>
       )}
     </>
+  );
+}
+
+
+
+function ClearPortfolioButton({ portfolioId, portfolioName, onSuccess }: { portfolioId: number; portfolioName: string; onSuccess: () => void }) {
+  const [clearing, setClearing] = useState(false);
+
+  const handleClear = async () => {
+    const confirmed = window.confirm(
+      `To usunie wszystkie transakcje, aktywa, dywidendy i obligacje z portfela "${portfolioName}". Czy kontynuować?`
+    );
+
+    if (!confirmed) return;
+
+    setClearing(true);
+    try {
+      await api.post(`/${portfolioId}/clear`);
+      alert('Portfolio zostało wyczyszczone. Możesz zaimportować dane od nowa.');
+      onSuccess();
+    } catch (err: any) {
+      const message = err?.response?.data?.error || 'Nie udało się wyczyścić portfela';
+      alert(message);
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className="mb-4 inline-flex items-center gap-2 rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700 disabled:opacity-60"
+      onClick={handleClear}
+      disabled={clearing}
+    >
+      <Trash2 className="h-4 w-4" />
+      {clearing ? 'Czyszczenie...' : 'Wyczyść portfolio'}
+    </button>
   );
 }
 
@@ -492,9 +530,12 @@ const PortfolioDetails: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Import XTB CSV button */}
+      {/* Import / reset actions */}
       {portfolio && portfolio.account_type !== 'PPK' && (
-        <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchData} />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchData} />
+          <ClearPortfolioButton portfolioId={portfolio.id} portfolioName={portfolio.name} onSuccess={fetchData} />
+        </div>
       )}
       <div className="flex items-center space-x-4">
         <Link to="/portfolios" className="text-gray-500 hover:text-gray-700">
