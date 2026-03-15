@@ -29,6 +29,7 @@ class PriceService:
     _metadata_cache = {}
     _metadata_cache_updated_at = {}
     _metadata_ttl = timedelta(days=7)
+    _default_history_start = date(2000, 1, 1)
 
     @staticmethod
     def _normalize_yf_dataframe(df):
@@ -284,6 +285,7 @@ class PriceService:
         """
         Incremental sync of stock prices from yfinance to local DB.
         """
+        logger = logging.getLogger(__name__)
         db = get_db()
         
         # 1. Find the latest date available in DB
@@ -304,29 +306,23 @@ class PriceService:
         yesterday = today - timedelta(days=1)
         
         # 2. Determine fetch start date
-        fetch_start = None
-        
-        if not max_date:
-            # If no data, use required_start_date or default to 1 year ago
-            if required_start_date:
-                if isinstance(required_start_date, str):
-                    fetch_start = datetime.strptime(required_start_date, '%Y-%m-%d').date()
-                else:
-                    fetch_start = required_start_date
-            else:
-                fetch_start = today - timedelta(days=365)
-        elif max_date < yesterday:
-            # If data exists but is old, start from the day after max_date
+        required_start = None
+        if required_start_date:
+            required_start = datetime.strptime(required_start_date, '%Y-%m-%d').date() if isinstance(required_start_date, str) else required_start_date
+
+        if max_date:
+            if max_date >= yesterday:
+                logger.info("%s history already up to date (last_date=%s)", ticker, max_date.isoformat())
+                return max_date_str
             fetch_start = max_date + timedelta(days=1)
         else:
-            # Already up to date
-            print(f"History for {ticker} is already up to date (last: {max_date})")
-            return max_date_str
+            fetch_start = required_start or cls._default_history_start
 
         if fetch_start >= today:
-             return max_date_str
+            logger.info("Skipping %s history sync because start date %s is not before today", ticker, fetch_start.isoformat())
+            return max_date_str
 
-        print(f"Syncing {ticker} history starting from {fetch_start}...")
+        logger.info("Syncing %s history from %s", ticker, fetch_start.isoformat())
 
         try:
             # 3. Fetch from yfinance (with retry)
@@ -335,35 +331,43 @@ class PriceService:
                 cls._download_with_retry(ticker, start=fetch_start, interval="1d", threads=False)
             )
 
-            if data is not None and not data.empty:
-                if 'Close' not in data.columns:
-                    print(f"No 'Close' column found for {ticker}; skipping history sync")
-                    return max_date_str
+            if data is None or data.empty:
+                logger.info("No new history data for %s from %s", ticker, fetch_start.isoformat())
+                return max_date_str
 
-                data = data.dropna(subset=['Close'])
-                if data.empty:
-                    print(f"No valid close prices found for {ticker} from {fetch_start}")
-                    return max_date_str
+            if 'Close' not in data.columns:
+                logger.warning("No 'Close' column found for %s; skipping history sync", ticker)
+                return max_date_str
 
-                # 4. Save to DB
-                cursor = db.cursor()
-                for timestamp, row in data.iterrows():
-                    price_date = timestamp.date()
-                    price = cls._safe_float_from_value(row.get('Close'))
+            data = data.dropna(subset=['Close'])
+            if data.empty:
+                logger.info("No valid close prices found for %s from %s", ticker, fetch_start.isoformat())
+                return max_date_str
 
-                    if price is not None:
-                        cursor.execute(
-                            '''INSERT OR IGNORE INTO stock_prices (ticker, date, close_price)
-                               VALUES (?, ?, ?)''',
-                            (ticker, price_date.isoformat(), round(price, 2))
-                        )
-                db.commit()
-                print(f"Successfully synced {ticker} history.")
+            # 4. Save to DB (duplicate-safe)
+            cursor = db.cursor()
+            inserted_rows = 0
+            for timestamp, row in data.iterrows():
+                price_date = timestamp.date() if hasattr(timestamp, 'date') else pd.to_datetime(timestamp).date()
+                price = cls._safe_float_from_value(row.get('Close'))
+                if price is None:
+                    continue
+
+                cursor.execute(
+                    '''INSERT OR IGNORE INTO stock_prices (ticker, date, close_price)
+                       VALUES (?, ?, ?)''',
+                    (ticker, price_date.isoformat(), round(price, 2))
+                )
+                inserted_rows += cursor.rowcount
+
+            db.commit()
+
+            if inserted_rows == 0:
+                logger.info("%s history already up to date (last_date=%s)", ticker, max_date.isoformat() if max_date else 'none')
             else:
-                print(f"No history data found for {ticker} from {fetch_start}")
+                logger.info("Inserted %s new history rows for %s", inserted_rows, ticker)
 
         except Exception as e:
-            logger = logging.getLogger(__name__)
             logger.error(f"Error processing yfinance data for {ticker}: {e}")
             db.rollback()
 
