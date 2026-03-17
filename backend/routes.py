@@ -3,6 +3,8 @@ from portfolio_service import PortfolioService
 from bond_service import BondService
 from price_service import PriceService
 from modules.ppk.ppk_service import PPKService
+from collections import defaultdict
+from datetime import datetime
 import pandas as pd
 from database import get_db
 
@@ -397,6 +399,120 @@ def closed_positions(portfolio_id):
     ]
     return jsonify({
         'positions': positions,
+        'total_historical_profit': total
+    })
+
+
+@portfolio_bp.route('/<int:portfolio_id>/closed-position-cycles', methods=['GET'])
+def closed_position_cycles(portfolio_id):
+    db = get_db()
+    tx_rows = db.execute(
+        '''SELECT id, ticker, type, quantity, total_value, realized_profit, date
+           FROM transactions
+           WHERE portfolio_id = ?
+             AND type IN ('BUY', 'SELL')''',
+        (portfolio_id,)
+    ).fetchall()
+
+    def _parse_tx_date(value):
+        if not value:
+            return datetime.min
+        str_value = str(value)
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                return datetime.strptime(str_value, fmt)
+            except ValueError:
+                continue
+        return datetime.min
+
+    tx_rows = sorted(tx_rows, key=lambda tx: (_parse_tx_date(tx['date']), tx['id']))
+
+    company_rows = db.execute(
+        '''SELECT t.ticker as ticker,
+                  COALESCE(
+                      MAX(NULLIF(h.company_name, '')),
+                      MAX(NULLIF(m.company_name, ''))
+                  ) as company_name
+           FROM transactions t
+           LEFT JOIN holdings h ON h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker
+           LEFT JOIN asset_metadata m ON m.ticker = t.ticker
+           WHERE t.portfolio_id = ?
+           GROUP BY t.ticker''',
+        (portfolio_id,)
+    ).fetchall()
+
+    company_names = {row['ticker']: row['company_name'] for row in company_rows}
+    ticker_state = defaultdict(lambda: {
+        'open_qty': 0.0,
+        'cycle_id': 0,
+        'opened_at': None,
+        'invested_capital': 0.0,
+        'realized_profit': 0.0,
+        'buy_count': 0,
+        'sell_count': 0,
+    })
+    closed_cycles = []
+
+    for tx in tx_rows:
+        ticker = tx['ticker']
+        tx_type = tx['type']
+        quantity = float(tx['quantity'] or 0)
+        tx_date = tx['date']
+        state = ticker_state[ticker]
+
+        if tx_type == 'BUY':
+            if state['open_qty'] <= 1e-9:
+                state['cycle_id'] += 1
+                state['opened_at'] = tx_date
+                state['invested_capital'] = 0.0
+                state['realized_profit'] = 0.0
+                state['buy_count'] = 0
+                state['sell_count'] = 0
+
+            state['open_qty'] += quantity
+            state['invested_capital'] += float(tx['total_value'] or 0)
+            state['buy_count'] += 1
+            continue
+
+        if tx_type == 'SELL':
+            if state['open_qty'] <= 1e-9:
+                # Ignore broken history: sell without open position.
+                continue
+
+            state['open_qty'] -= quantity
+            state['realized_profit'] += float(tx['realized_profit'] or 0)
+            state['sell_count'] += 1
+
+            if state['open_qty'] <= 1e-9:
+                invested_capital = float(state['invested_capital'])
+                realized_profit = float(state['realized_profit'])
+                closed_cycles.append({
+                    'ticker': ticker,
+                    'company_name': company_names.get(ticker),
+                    'cycle_id': int(state['cycle_id']),
+                    'opened_at': str(state['opened_at']) if state['opened_at'] else None,
+                    'closed_at': str(tx_date) if tx_date else None,
+                    'invested_capital': invested_capital,
+                    'realized_profit': realized_profit,
+                    'profit_percent_on_capital': (realized_profit / invested_capital * 100) if invested_capital > 0 else None,
+                    'buy_count': int(state['buy_count']),
+                    'sell_count': int(state['sell_count'])
+                })
+                state['open_qty'] = 0.0
+
+    closed_cycles.sort(
+        key=lambda item: (
+            item['closed_at'] or '',
+            item['ticker'],
+            item['cycle_id']
+        ),
+        reverse=True
+    )
+
+    total = sum(item['realized_profit'] for item in closed_cycles)
+
+    return jsonify({
+        'positions': closed_cycles,
         'total_historical_profit': total
     })
 
