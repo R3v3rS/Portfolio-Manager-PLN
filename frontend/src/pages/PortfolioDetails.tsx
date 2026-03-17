@@ -1112,7 +1112,9 @@ const PortfolioDetails: React.FC = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nazwa spółki</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ostatnia sprzedaż</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zaangażowany kapitał</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zysk % na kapitale</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -1121,17 +1123,26 @@ const PortfolioDetails: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.ticker}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.company_name || "-"}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatSellDate(p.last_sell_date)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{p.invested_capital.toFixed(2)} PLN</td>
                         <td className={cn(
                           "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
                           p.realized_profit >= 0 ? "text-green-600" : "text-red-600"
                         )}>
                           {p.realized_profit.toFixed(2)} PLN
                         </td>
+                        <td className={cn(
+                          "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
+                          (p.profit_percent_on_capital ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                        )}>
+                          {p.profit_percent_on_capital === null || p.profit_percent_on_capital === undefined
+                            ? "-"
+                            : `${p.profit_percent_on_capital.toFixed(2)}%`}
+                        </td>
                       </tr>
                     ))}
                     {closedPositions.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
+                        <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
                       </tr>
                     )}
                   </tbody>

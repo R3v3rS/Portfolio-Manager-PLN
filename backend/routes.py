@@ -359,6 +359,13 @@ def closed_positions(portfolio_id):
         '''SELECT t.ticker,
                   SUM(t.realized_profit) as realized_profit,
                   MAX(t.date) as last_sell_date,
+                  COALESCE((
+                      SELECT SUM(tb.total_value)
+                      FROM transactions tb
+                      WHERE tb.portfolio_id = t.portfolio_id
+                        AND tb.ticker = t.ticker
+                        AND tb.type = 'BUY'
+                  ), 0) as invested_capital,
                   COALESCE(
                       MAX(NULLIF(h.company_name, '')),
                       MAX(NULLIF(m.company_name, ''))
@@ -378,7 +385,13 @@ def closed_positions(portfolio_id):
             'ticker': r['ticker'],
             'company_name': r['company_name'],
             'realized_profit': float(r['realized_profit'] or 0),
-            'last_sell_date': str(r['last_sell_date']) if r['last_sell_date'] else None
+            'last_sell_date': str(r['last_sell_date']) if r['last_sell_date'] else None,
+            'invested_capital': float(r['invested_capital'] or 0),
+            'profit_percent_on_capital': (
+                (float(r['realized_profit'] or 0) / float(r['invested_capital'])) * 100
+                if (r['invested_capital'] or 0) > 0
+                else None
+            )
         }
         for r in rows
     ]

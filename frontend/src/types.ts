@@ -83,6 +83,8 @@ export interface ClosedPosition {
   ticker: string;
   company_name?: string | null;
   realized_profit: number;
+  invested_capital: number;
+  profit_percent_on_capital?: number | null;
   last_sell_date?: string | null;
 }
 
