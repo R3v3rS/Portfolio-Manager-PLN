@@ -75,6 +75,7 @@ export interface PortfolioValue {
   cash_value: number;
   holdings_value: number;
   total_dividends: number;
+  total_interest?: number;
   open_positions_result: number;
   total_result: number;
   total_result_percent: number;
