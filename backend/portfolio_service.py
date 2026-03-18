@@ -1381,6 +1381,7 @@ class PortfolioService:
         current_cash = float(portfolio['current_cash'])
         holdings_value = 0.0
         live_interest = 0.0
+        open_positions_result = 0.0
         extra_data = {}
         ppk_total_contribution = None
         ppk_total_result = None
@@ -1419,6 +1420,7 @@ class PortfolioService:
             # STANDARD or IKE
             holdings = PortfolioService.get_holdings(portfolio_id)
             holdings_value = sum(float(h.get('current_value', 0.0) or 0.0) for h in holdings)
+            open_positions_result = sum(float(h.get('profit_loss', 0.0) or 0.0) for h in holdings)
             total_value = current_cash + holdings_value
         
         # Get total dividends
@@ -1485,6 +1487,7 @@ class PortfolioService:
             'cash_value': current_cash + live_interest, # Include live interest in cash display for SAVINGS
             'holdings_value': holdings_value,
             'total_dividends': total_dividends,
+            'open_positions_result': open_positions_result,
             'total_result': total_result,
             'total_result_percent': total_result_percent,
             'xirr_percent': xirr_percent,

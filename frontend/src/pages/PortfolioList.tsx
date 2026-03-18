@@ -221,6 +221,13 @@ const PortfolioList: React.FC = () => {
                         {portfolio.total_result_percent?.toFixed(2)}%
                       </dd>
                     </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-xs font-medium text-gray-500">Otwarte pozycje (aktualny wynik)</dt>
+                      <dd className={cn("mt-1 text-sm font-medium",
+                        (portfolio.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
+                        {(portfolio.open_positions_result || 0).toFixed(2)} PLN
+                      </dd>
+                    </div>
                   </dl>
                 </div>
               </div>

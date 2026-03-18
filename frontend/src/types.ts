@@ -11,6 +11,7 @@ export interface Portfolio {
   cash_value?: number;
   holdings_value?: number;
   total_dividends?: number;
+  open_positions_result?: number;
   total_result?: number;
   total_result_percent?: number;
   is_empty?: boolean;
@@ -74,6 +75,7 @@ export interface PortfolioValue {
   cash_value: number;
   holdings_value: number;
   total_dividends: number;
+  open_positions_result: number;
   total_result: number;
   total_result_percent: number;
   xirr_percent?: number;
