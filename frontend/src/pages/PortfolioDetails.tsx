@@ -557,7 +557,7 @@ const PortfolioDetails: React.FC = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-5">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-6">
         <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-blue-500">
           <dt className="text-sm font-medium text-gray-500 truncate">Wartość Całkowita</dt>
           <dd className="mt-1 text-2xl font-semibold text-gray-900">{valueData.portfolio_value.toFixed(2)} PLN</dd>
@@ -600,6 +600,13 @@ const PortfolioDetails: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-emerald-500">
+          <dt className="text-sm font-medium text-gray-500 truncate">Otwarte pozycje</dt>
+          <dd className={cn("mt-1 text-2xl font-semibold", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
+            {(valueData.open_positions_result || 0).toFixed(2)} PLN
+          </dd>
+          <dd className="mt-2 text-xs text-gray-400">Aktualny zysk/strata niezrealizowanych pozycji.</dd>
         </div>
         {portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' ? (
           <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
