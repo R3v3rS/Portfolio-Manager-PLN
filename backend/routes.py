@@ -4,7 +4,7 @@ from bond_service import BondService
 from price_service import PriceService
 from modules.ppk.ppk_service import PPKService
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 from database import get_db
 
@@ -416,16 +416,31 @@ def closed_position_cycles(portfolio_id):
 
     def _parse_tx_date(value):
         if not value:
-            return datetime.min
+            return None
         str_value = str(value)
         for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
             try:
                 return datetime.strptime(str_value, fmt)
             except ValueError:
                 continue
-        return datetime.min
+        return None
 
-    tx_rows = sorted(tx_rows, key=lambda tx: (_parse_tx_date(tx['date']), tx['id']))
+    def _seconds_between(start, end):
+        if not start or not end:
+            return 0.0
+        return max((end - start).total_seconds(), 0.0)
+
+    def _annualized_return(realized_profit, average_capital, duration_seconds):
+        if average_capital <= 1e-9 or duration_seconds <= 0:
+            return None
+
+        years = duration_seconds / (365.25 * 24 * 60 * 60)
+        if years <= 0:
+            return None
+
+        return realized_profit / average_capital / years * 100
+
+    tx_rows = sorted(tx_rows, key=lambda tx: (_parse_tx_date(tx['date']) or datetime.min, tx['id']))
 
     company_rows = db.execute(
         '''SELECT t.ticker as ticker,
@@ -447,9 +462,12 @@ def closed_position_cycles(portfolio_id):
         'cycle_id': 0,
         'opened_at': None,
         'invested_capital': 0.0,
+        'cost_basis_open': 0.0,
         'realized_profit': 0.0,
         'buy_count': 0,
         'sell_count': 0,
+        'capital_time_sum': 0.0,
+        'last_event_at': None,
     })
     closed_cycles = []
 
@@ -457,44 +475,66 @@ def closed_position_cycles(portfolio_id):
         ticker = tx['ticker']
         tx_type = tx['type']
         quantity = float(tx['quantity'] or 0)
-        tx_date = tx['date']
+        tx_date_raw = tx['date']
+        tx_dt = _parse_tx_date(tx_date_raw)
         state = ticker_state[ticker]
+
+        if state['last_event_at'] and tx_dt:
+            state['capital_time_sum'] += state['cost_basis_open'] * _seconds_between(state['last_event_at'], tx_dt)
 
         if tx_type == 'BUY':
             if state['open_qty'] <= 1e-9:
                 state['cycle_id'] += 1
-                state['opened_at'] = tx_date
+                state['opened_at'] = tx_date_raw
                 state['invested_capital'] = 0.0
+                state['cost_basis_open'] = 0.0
                 state['realized_profit'] = 0.0
                 state['buy_count'] = 0
                 state['sell_count'] = 0
+                state['capital_time_sum'] = 0.0
 
             state['open_qty'] += quantity
-            state['invested_capital'] += float(tx['total_value'] or 0)
+            buy_value = float(tx['total_value'] or 0)
+            state['invested_capital'] += buy_value
+            state['cost_basis_open'] += buy_value
             state['buy_count'] += 1
+            state['last_event_at'] = tx_dt
             continue
 
         if tx_type == 'SELL':
             if state['open_qty'] <= 1e-9:
                 # Ignore broken history: sell without open position.
+                state['last_event_at'] = tx_dt
                 continue
 
-            state['open_qty'] -= quantity
+            previous_qty = state['open_qty']
+            if previous_qty > 1e-9:
+                average_cost_per_share = state['cost_basis_open'] / previous_qty if state['cost_basis_open'] > 0 else 0.0
+                state['cost_basis_open'] = max(0.0, state['cost_basis_open'] - average_cost_per_share * quantity)
+
+            state['open_qty'] = max(0.0, state['open_qty'] - quantity)
             state['realized_profit'] += float(tx['realized_profit'] or 0)
             state['sell_count'] += 1
+            state['last_event_at'] = tx_dt
 
             if state['open_qty'] <= 1e-9:
-                invested_capital = float(state['invested_capital'])
                 realized_profit = float(state['realized_profit'])
+                closed_dt = tx_dt
+                opened_dt = _parse_tx_date(state['opened_at'])
+                duration_seconds = _seconds_between(opened_dt, closed_dt)
+                average_capital = (state['capital_time_sum'] / duration_seconds) if duration_seconds > 0 else None
                 closed_cycles.append({
                     'ticker': ticker,
                     'company_name': company_names.get(ticker),
                     'cycle_id': int(state['cycle_id']),
                     'opened_at': str(state['opened_at']) if state['opened_at'] else None,
-                    'closed_at': str(tx_date) if tx_date else None,
-                    'invested_capital': invested_capital,
+                    'closed_at': str(tx_date_raw) if tx_date_raw else None,
+                    'invested_capital': float(state['invested_capital']),
+                    'average_invested_capital': average_capital,
+                    'holding_period_days': duration_seconds / (24 * 60 * 60) if duration_seconds > 0 else None,
                     'realized_profit': realized_profit,
-                    'profit_percent_on_capital': (realized_profit / invested_capital * 100) if invested_capital > 0 else None,
+                    'profit_percent_on_capital': (realized_profit / state['invested_capital'] * 100) if state['invested_capital'] > 0 else None,
+                    'annualized_return_percent': _annualized_return(realized_profit, average_capital or 0.0, duration_seconds),
                     'buy_count': int(state['buy_count']),
                     'sell_count': int(state['sell_count']),
                     'status': 'CLOSED',
@@ -502,12 +542,27 @@ def closed_position_cycles(portfolio_id):
                     'remaining_quantity': 0.0
                 })
                 state['open_qty'] = 0.0
+                state['invested_capital'] = 0.0
+                state['cost_basis_open'] = 0.0
+                state['capital_time_sum'] = 0.0
+                state['last_event_at'] = tx_dt
 
     # Include currently open-but-partially-closed cycles (at least one SELL made, quantity still > 0)
+    now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
     for ticker, state in ticker_state.items():
         if state['open_qty'] > 1e-9 and state['sell_count'] > 0:
             invested_capital = float(state['invested_capital'])
             realized_profit = float(state['realized_profit'])
+            effective_end_dt = state['last_event_at'] or now_dt
+            capital_time_sum = state['capital_time_sum']
+            if state['last_event_at']:
+                capital_time_sum += state['cost_basis_open'] * _seconds_between(state['last_event_at'], now_dt)
+                effective_end_dt = now_dt
+
+            opened_dt = _parse_tx_date(state['opened_at'])
+            duration_seconds = _seconds_between(opened_dt, effective_end_dt)
+            average_capital = (capital_time_sum / duration_seconds) if duration_seconds > 0 else None
+
             closed_cycles.append({
                 'ticker': ticker,
                 'company_name': company_names.get(ticker),
@@ -515,8 +570,11 @@ def closed_position_cycles(portfolio_id):
                 'opened_at': str(state['opened_at']) if state['opened_at'] else None,
                 'closed_at': None,
                 'invested_capital': invested_capital,
+                'average_invested_capital': average_capital,
+                'holding_period_days': duration_seconds / (24 * 60 * 60) if duration_seconds > 0 else None,
                 'realized_profit': realized_profit,
                 'profit_percent_on_capital': (realized_profit / invested_capital * 100) if invested_capital > 0 else None,
+                'annualized_return_percent': _annualized_return(realized_profit, average_capital or 0.0, duration_seconds),
                 'buy_count': int(state['buy_count']),
                 'sell_count': int(state['sell_count']),
                 'status': 'PARTIALLY_CLOSED',
