@@ -496,12 +496,37 @@ def closed_position_cycles(portfolio_id):
                     'realized_profit': realized_profit,
                     'profit_percent_on_capital': (realized_profit / invested_capital * 100) if invested_capital > 0 else None,
                     'buy_count': int(state['buy_count']),
-                    'sell_count': int(state['sell_count'])
+                    'sell_count': int(state['sell_count']),
+                    'status': 'CLOSED',
+                    'is_partially_closed': False,
+                    'remaining_quantity': 0.0
                 })
                 state['open_qty'] = 0.0
 
+    # Include currently open-but-partially-closed cycles (at least one SELL made, quantity still > 0)
+    for ticker, state in ticker_state.items():
+        if state['open_qty'] > 1e-9 and state['sell_count'] > 0:
+            invested_capital = float(state['invested_capital'])
+            realized_profit = float(state['realized_profit'])
+            closed_cycles.append({
+                'ticker': ticker,
+                'company_name': company_names.get(ticker),
+                'cycle_id': int(state['cycle_id']),
+                'opened_at': str(state['opened_at']) if state['opened_at'] else None,
+                'closed_at': None,
+                'invested_capital': invested_capital,
+                'realized_profit': realized_profit,
+                'profit_percent_on_capital': (realized_profit / invested_capital * 100) if invested_capital > 0 else None,
+                'buy_count': int(state['buy_count']),
+                'sell_count': int(state['sell_count']),
+                'status': 'PARTIALLY_CLOSED',
+                'is_partially_closed': True,
+                'remaining_quantity': float(state['open_qty'])
+            })
+
     closed_cycles.sort(
         key=lambda item: (
+            1 if item.get('is_partially_closed') else 0,
             item['closed_at'] or '',
             item['ticker'],
             item['cycle_id']

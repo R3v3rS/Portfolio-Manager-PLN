@@ -100,6 +100,9 @@ export interface ClosedPositionCycle {
   profit_percent_on_capital?: number | null;
   buy_count?: number;
   sell_count?: number;
+  status?: 'CLOSED' | 'PARTIALLY_CLOSED';
+  is_partially_closed?: boolean;
+  remaining_quantity?: number;
 }
 
 export interface RadarItem {

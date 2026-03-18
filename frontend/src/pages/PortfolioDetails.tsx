@@ -1173,6 +1173,7 @@ const PortfolioDetails: React.FC = () => {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cykl</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nazwa spółki</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Otwarcie</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zamknięcie</th>
@@ -1186,9 +1187,20 @@ const PortfolioDetails: React.FC = () => {
                       <tr key={`${p.ticker}-${p.cycle_id}`}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.ticker}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">#{p.cycle_id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                          {p.is_partially_closed ? (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                              Częściowo zamknięta ({(p.remaining_quantity ?? 0).toFixed(4)} szt.)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
+                              Zamknięta
+                            </span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.company_name || '-'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatSellDate(p.opened_at)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatSellDate(p.closed_at)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.closed_at ? formatSellDate(p.closed_at) : '-'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{p.invested_capital.toFixed(2)} PLN</td>
                         <td className={cn(
                           "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
@@ -1208,7 +1220,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {closedPositionCycles.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji cyklicznych.</td>
+                        <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych lub częściowo zamkniętych pozycji cyklicznych.</td>
                       </tr>
                     )}
                   </tbody>
