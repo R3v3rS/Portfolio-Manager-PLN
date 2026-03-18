@@ -91,6 +91,23 @@ export interface ClosedPosition {
   last_sell_date?: string | null;
 }
 
+
+export interface ClosedPositionCycle {
+  ticker: string;
+  company_name?: string | null;
+  cycle_id: number;
+  opened_at?: string | null;
+  closed_at?: string | null;
+  realized_profit: number;
+  invested_capital: number;
+  profit_percent_on_capital?: number | null;
+  buy_count?: number;
+  sell_count?: number;
+  status?: 'CLOSED' | 'PARTIALLY_CLOSED';
+  is_partially_closed?: boolean;
+  remaining_quantity?: number;
+}
+
 export interface RadarItem {
   ticker: string;
   price: number | null;

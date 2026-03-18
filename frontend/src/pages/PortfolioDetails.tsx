@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2 } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
-import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition } from '../types';
+import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
@@ -299,7 +299,7 @@ const PortfolioDetails: React.FC = () => {
   const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string } | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'results' | 'ppk' | 'ppk_history'>('holdings');
+  const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history'>('holdings');
   
   // Modals state
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -328,11 +328,14 @@ const PortfolioDetails: React.FC = () => {
   // Closed Positions
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
   const [totalClosedProfit, setTotalClosedProfit] = useState(0);
+  const [closedPositionCycles, setClosedPositionCycles] = useState<ClosedPositionCycle[]>([]);
+  const [totalClosedCyclesProfit, setTotalClosedCyclesProfit] = useState(0);
 
   const dividendTickers = Array.from(
     new Set([
       ...holdings.map((h) => h.ticker),
       ...closedPositions.map((p) => p.ticker),
+      ...closedPositionCycles.map((p) => p.ticker),
     ])
   );
 
@@ -375,13 +378,14 @@ const PortfolioDetails: React.FC = () => {
     if (!id) return;
     setLoading(true);
     try {
-      const [pRes, hRes, vRes, mRes, tRes, cRes, bAccRes] = await Promise.all([
+      const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes] = await Promise.all([
         api.get(`/list`), 
         api.get(`/holdings/${id}`),
         api.get(`/value/${id}`),
         api.get(`/dividends/monthly/${id}`),
         api.get(`/transactions/${id}`),
         api.get(`/${id}/closed-positions`),
+        api.get(`/${id}/closed-position-cycles`),
         budgetApi.getSummary() // Fetch budget accounts
       ]);
       
@@ -393,6 +397,8 @@ const PortfolioDetails: React.FC = () => {
       setPortfolioTransactions(tRes.data.transactions);
       setClosedPositions(cRes.data.positions);
       setTotalClosedProfit(cRes.data.total_historical_profit);
+      setClosedPositionCycles(ccRes.data.positions || []);
+      setTotalClosedCyclesProfit(ccRes.data.total_historical_profit || 0);
       setBudgetAccounts(bAccRes.accounts || []);
 
       if (found?.account_type === 'BONDS') {
@@ -521,6 +527,7 @@ const PortfolioDetails: React.FC = () => {
     bonds: 'Obligacje',
     savings: 'Oszczędności',
     closed: 'Zamknięte Pozycje',
+    closed_cycles: 'Zamknięte Pozycje (cykle)',
     ppk: 'PPK',
     ppk_history: 'Historia wpłat'
   };
@@ -666,7 +673,7 @@ const PortfolioDetails: React.FC = () => {
                   ? ['bonds', 'history']
                   : portfolio.account_type === 'PPK'
                     ? ['ppk', 'ppk_history']
-                    : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed']
+                    : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed', 'closed_cycles']
             ).map((tab) => (
               <button
                 key={tab}
@@ -1181,6 +1188,77 @@ const PortfolioDetails: React.FC = () => {
                     {closedPositions.length === 0 && (
                       <tr>
                         <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych pozycji.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'closed_cycles' && (
+            <div className="space-y-6">
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
+                <h3 className="text-lg font-medium text-gray-900">Całkowity Zrealizowany Zysk (cykle)</h3>
+                <p className={cn("text-3xl font-bold mt-2", totalClosedCyclesProfit >= 0 ? "text-green-600" : "text-red-600")}>
+                  {totalClosedCyclesProfit.toFixed(2)} PLN
+                </p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cykl</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nazwa spółki</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Otwarcie</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zamknięcie</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zaangażowany kapitał</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zysk % na kapitale</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {closedPositionCycles.map((p) => (
+                      <tr key={`${p.ticker}-${p.cycle_id}`}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.ticker}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">#{p.cycle_id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                          {p.is_partially_closed ? (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                              Częściowo zamknięta ({(p.remaining_quantity ?? 0).toFixed(4)} szt.)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
+                              Zamknięta
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.company_name || '-'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatSellDate(p.opened_at)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.closed_at ? formatSellDate(p.closed_at) : '-'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{p.invested_capital.toFixed(2)} PLN</td>
+                        <td className={cn(
+                          "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
+                          p.realized_profit >= 0 ? "text-green-600" : "text-red-600"
+                        )}>
+                          {p.realized_profit.toFixed(2)} PLN
+                        </td>
+                        <td className={cn(
+                          "px-6 py-4 whitespace-nowrap text-sm text-right font-medium",
+                          (p.profit_percent_on_capital ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                        )}>
+                          {p.profit_percent_on_capital === null || p.profit_percent_on_capital === undefined
+                            ? '-'
+                            : `${p.profit_percent_on_capital.toFixed(2)}%`}
+                        </td>
+                      </tr>
+                    ))}
+                    {closedPositionCycles.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych lub częściowo zamkniętych pozycji cyklicznych.</td>
                       </tr>
                     )}
                   </tbody>
