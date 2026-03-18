@@ -576,6 +576,28 @@ const PortfolioDetails: React.FC = () => {
           <dd className={cn("mt-1 text-2xl font-semibold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
             {valueData.total_result.toFixed(2)} PLN
           </dd>
+          {(portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS') && (
+            <div className="mt-3 space-y-1 text-xs text-gray-500">
+              <div className="flex items-center justify-between">
+                <span>Zamknięte pozycje</span>
+                <span className={cn("font-medium", totalClosedProfit >= 0 ? "text-green-600" : "text-red-600")}>{totalClosedProfit.toFixed(2)} PLN</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Otwarte pozycje</span>
+                <span className={cn("font-medium", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>{(valueData.open_positions_result || 0).toFixed(2)} PLN</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Dywidendy</span>
+                <span className="font-medium text-blue-600">{valueData.total_dividends.toFixed(2)} PLN</span>
+              </div>
+              {(valueData.total_interest || 0) !== 0 && (
+                <div className="flex items-center justify-between">
+                  <span>Odsetki / free funds interest</span>
+                  <span className="font-medium text-emerald-600">{(valueData.total_interest || 0).toFixed(2)} PLN</span>
+                </div>
+              )}
+            </div>
+          )}
           
           <div className="mt-2 flex justify-between items-end text-sm border-t pt-2">
             <div className="flex flex-col">
@@ -1110,6 +1132,15 @@ const PortfolioDetails: React.FC = () => {
                 <p className={cn("text-3xl font-bold mt-2", totalClosedProfit >= 0 ? "text-green-600" : "text-red-600")}>
                   {totalClosedProfit.toFixed(2)} PLN
                 </p>
+                <p className="mt-2 text-sm text-gray-500">
+                  Ta wartość obejmuje tylko zrealizowany wynik na transakcjach SELL. Całkowity wynik portfela może być inny,
+                  bo uwzględnia też otwarte pozycje, dywidendy oraz odsetki gotówkowe.
+                </p>
+                {(valueData?.total_interest || 0) !== 0 && (
+                  <p className="mt-2 text-sm text-emerald-600">
+                    Odsetki zaksięgowane w portfelu: {(valueData?.total_interest || 0).toFixed(2)} PLN
+                  </p>
+                )}
               </div>
 
               <div className="overflow-x-auto">

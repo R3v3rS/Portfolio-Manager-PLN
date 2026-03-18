@@ -1423,13 +1423,19 @@ class PortfolioService:
             open_positions_result = sum(float(h.get('profit_loss', 0.0) or 0.0) for h in holdings)
             total_value = current_cash + holdings_value
         
-        # Get total dividends
+        # Get total dividends and cash interest recorded on the account.
         db = get_db()
         div_result = db.execute(
             'SELECT SUM(amount) as total_div FROM dividends WHERE portfolio_id = ?',
             (portfolio_id,)
         ).fetchone()
         total_dividends = div_result['total_div'] or 0.0
+
+        interest_result = db.execute(
+            "SELECT COALESCE(SUM(total_value), 0) AS total_interest FROM transactions WHERE portfolio_id = ? AND type = 'INTEREST'",
+            (portfolio_id,)
+        ).fetchone()
+        total_interest = interest_result['total_interest'] or 0.0
         
         # Use net contributed capital (deposits - withdrawals) as the performance baseline.
         # This keeps profit/loss meaningful after partial withdrawals.
@@ -1487,6 +1493,7 @@ class PortfolioService:
             'cash_value': current_cash + live_interest, # Include live interest in cash display for SAVINGS
             'holdings_value': holdings_value,
             'total_dividends': total_dividends,
+            'total_interest': total_interest,
             'open_positions_result': open_positions_result,
             'total_result': total_result,
             'total_result_percent': total_result_percent,
