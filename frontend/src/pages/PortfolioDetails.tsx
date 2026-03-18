@@ -1218,6 +1218,7 @@ const PortfolioDetails: React.FC = () => {
                       <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Kapitał</th>
                       <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk</th>
                       <th className="w-24 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk %</th>
+                      <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Stopa roczna</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -1254,11 +1255,21 @@ const PortfolioDetails: React.FC = () => {
                             ? '-'
                             : `${p.profit_percent_on_capital.toFixed(2)}%`}
                         </td>
+                        <td className={cn(
+                          "px-3 py-4 text-sm text-right font-medium",
+                          (p.annualized_return_percent ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                        )} title={p.average_invested_capital && p.holding_period_days
+                          ? `Średnio zaangażowany kapitał: ${p.average_invested_capital.toFixed(2)} PLN | Okres: ${p.holding_period_days.toFixed(1)} dni`
+                          : undefined}>
+                          {p.annualized_return_percent === null || p.annualized_return_percent === undefined
+                            ? '-'
+                            : `${p.annualized_return_percent.toFixed(2)}%`}
+                        </td>
                       </tr>
                     ))}
                     {closedPositionCycles.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych lub częściowo zamkniętych pozycji cyklicznych.</td>
+                        <td colSpan={10} className="px-6 py-4 text-center text-sm text-gray-500">Brak zamkniętych lub częściowo zamkniętych pozycji cyklicznych.</td>
                       </tr>
                     )}
                   </tbody>

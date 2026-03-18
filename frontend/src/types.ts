@@ -100,7 +100,10 @@ export interface ClosedPositionCycle {
   closed_at?: string | null;
   realized_profit: number;
   invested_capital: number;
+  average_invested_capital?: number | null;
+  holding_period_days?: number | null;
   profit_percent_on_capital?: number | null;
+  annualized_return_percent?: number | null;
   buy_count?: number;
   sell_count?: number;
   status?: 'CLOSED' | 'PARTIALLY_CLOSED';
