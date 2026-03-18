@@ -757,15 +757,15 @@ const PortfolioDetails: React.FC = () => {
                 <table className="w-full table-fixed divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Śr. Cena</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Obecna Cena</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktualizacja Ceny</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zysk/Strata</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Waga</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Akcje</th>
+                      <th className="w-[30%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                      <th className="w-20 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
+                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Śr. Cena</th>
+                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Obecna Cena</th>
+                      <th className="w-32 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktualizacja Ceny</th>
+                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
+                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zysk/Strata</th>
+                      <th className="w-16 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Waga</th>
+                      <th className="w-28 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Akcje</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -775,42 +775,42 @@ const PortfolioDetails: React.FC = () => {
                         className={cn("cursor-pointer hover:bg-gray-50", selectedTicker === h.ticker && "bg-blue-50")}
                         onClick={() => fetchHistory(h.ticker)}
                       >
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          <div>
-                            <div className="font-bold">{h.company_name || h.ticker}</div>
-                            <div className="text-xs text-gray-500">{h.ticker}</div>
-                            <div className="flex gap-1 mt-1 flex-wrap">
+                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900">
+                          <div className="min-w-0">
+                            <div className="font-bold leading-snug break-words whitespace-normal">{h.company_name || h.ticker}</div>
+                            <div className="text-xs text-gray-500 break-all">{h.ticker}</div>
+                            <div className="mt-1 flex flex-wrap gap-1">
                               {h.sector && h.sector !== 'Unknown' && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 whitespace-normal break-words">
                                   🏢 {h.sector}
                                 </span>
                               )}
                               {h.industry && h.industry !== 'Unknown' && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800 whitespace-normal break-words">
                                   💻 {h.industry}
                                 </span>
                               )}
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500">
                           {parseFloat(Number(h.quantity).toFixed(4))}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{h.average_buy_price.toFixed(2)} PLN</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500">{h.average_buy_price.toFixed(2)} PLN</td>
+                        <td className="px-3 py-4 text-sm text-right text-gray-500">
                           {h.current_price ? `${h.current_price.toFixed(2)} ${h.currency || 'PLN'}` : '-'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500">
                           {formatPriceUpdateTimestamp(h.price_last_updated_at)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500">
                           {h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}
                         </td>
                         <td className={cn(
                           "px-4 py-4 text-sm text-right font-medium",
                           (h.profit_loss || 0) >= 0 ? "text-green-600" : "text-red-600"
                         )}>
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                               {h.profit_loss ? `${h.profit_loss.toFixed(2)} PLN` : '-'}
                               {h.auto_fx_fees && (
                                   <div className="group relative">
@@ -827,17 +827,17 @@ const PortfolioDetails: React.FC = () => {
                               )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 font-medium">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500 font-medium">
                           {h.weight_percent ? `${h.weight_percent}%` : '-'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
-                          <div className="flex justify-end gap-2">
+                        <td className="px-3 py-4 text-sm text-right font-medium">
+                          <div className="flex flex-wrap justify-end gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 initiateSell(h);
                               }}
-                              className="text-red-600 hover:text-red-900 bg-red-50 px-3 py-1 rounded-md transition-colors"
+                              className="rounded-md bg-red-50 px-2.5 py-1 text-xs text-red-600 transition-colors hover:text-red-900 sm:px-3 sm:text-sm"
                             >
                               Sprzedaj
                             </button>
@@ -847,7 +847,7 @@ const PortfolioDetails: React.FC = () => {
                                   e.stopPropagation();
                                   closePositionAtLastPrice(h);
                                 }}
-                                className="text-orange-700 hover:text-orange-900 bg-orange-100 px-3 py-1 rounded-md transition-colors"
+                                className="rounded-md bg-orange-100 px-2.5 py-1 text-xs text-orange-700 transition-colors hover:text-orange-900 sm:px-3 sm:text-sm"
                                 title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
                               >
                                 Zamknij
