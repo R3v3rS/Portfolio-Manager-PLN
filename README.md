@@ -116,6 +116,10 @@ Aplikacja działa w architekturze **frontend + backend**:
 │   │   └── lib/                  # Narzędzia pomocnicze
 │   └── package.json
 │
+├── docs/
+│   ├── ARCHITECTURE_FLOW.md      # Szczegółowy opis przepływów, zależności i onboardingu
+│   └── ARCHITECTURE_REVIEW.md    # Notatki o jakości i spójności architektury
+│
 └── README.md
 ```
 
@@ -159,6 +163,22 @@ npm run dev
 ```
 
 Aplikacja będzie dostępna pod adresem: `http://localhost:5173`.
+
+---
+
+## 📚 Dokumentacja dla developerów
+
+Jeśli zaczynasz pracę z repo, poza tym README zajrzyj od razu do:
+
+- `docs/ARCHITECTURE_FLOW.md` — szczegółowy opis działania backendu i frontendu, przepływów requestów, zależności między plikami, diagramu zależności oraz krótkiego onboardingu dla nowych developerów.
+- `docs/ARCHITECTURE_REVIEW.md` — przegląd jakości architektury, najważniejszych problemów i rekomendowanych usprawnień.
+
+Najlepsza ścieżka wejścia do projektu:
+
+1. przeczytaj ten `README.md`,
+2. otwórz `backend/app.py` i `frontend/src/App.tsx`,
+3. przejdź do `docs/ARCHITECTURE_FLOW.md`,
+4. wybierz jeden moduł (`portfolio`, `budget`, `loans`, `radar`) i prześledź go end-to-end.
 
 ---
 
