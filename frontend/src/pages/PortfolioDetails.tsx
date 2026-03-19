@@ -271,12 +271,12 @@ function PPKContributionForm({ portfolioId, onSuccess }: { portfolioId: number; 
 
   return (
     <form onSubmit={submit} className="bg-white border border-purple-100 rounded-lg p-4 space-y-3">
-      <button type="submit" className="px-3 py-2 text-sm bg-purple-600 text-white rounded">+ Add Monthly Contribution</button>
+      <button type="submit" className="px-3 py-2 text-sm bg-purple-600 text-white rounded">+ Dodaj miesięczną wpłatę</button>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="p-2 border rounded" required />
-        <input type="number" step="0.0001" value={employeeUnits} onChange={(e) => setEmployeeUnits(e.target.value)} placeholder="Employee units" className="p-2 border rounded" required />
-        <input type="number" step="0.0001" value={employerUnits} onChange={(e) => setEmployerUnits(e.target.value)} placeholder="Employer units" className="p-2 border rounded" required />
-        <input type="number" step="0.0001" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Price per unit" className="p-2 border rounded" required />
+        <input type="number" step="0.0001" value={employeeUnits} onChange={(e) => setEmployeeUnits(e.target.value)} placeholder="Jednostki pracownika" className="p-2 border rounded" required />
+        <input type="number" step="0.0001" value={employerUnits} onChange={(e) => setEmployerUnits(e.target.value)} placeholder="Jednostki pracodawcy" className="p-2 border rounded" required />
+        <input type="number" step="0.0001" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Cena za jednostkę" className="p-2 border rounded" required />
       </div>
     </form>
   );
