@@ -156,16 +156,10 @@ class PortfolioService:
                     if not m:
                         raise ValueError(f"Could not parse purchase comment: {comment}")
                     qty = float(str(m.group(1)).replace(',', '.'))
-                    unit_price_from_comment = float(str(m.group(2)).replace(',', '.'))
                     total_cost = abs(amount)
-                    # XTB CSV amount is cash movement in account currency (PLN for this app),
-                    # while comment unit price may be in instrument currency (e.g. EUR for EUNL.DE).
-                    # For PLN instruments we can trust the comment unit price directly.
-                    # For non-PLN instruments keep PLN-per-unit based on account cash flow to avoid mixed-currency math.
-                    if ticker_currency == 'PLN':
-                        price = unit_price_from_comment
-                    else:
-                        price = total_cost / qty if qty else 0.0
+                    # XTB CSV amount is the authoritative PLN cash movement for the transaction.
+                    # Store per-share price derived from the PLN total only to avoid any FX recomputation.
+                    price = total_cost / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
                         (total_cost, portfolio_id)
@@ -652,12 +646,10 @@ class PortfolioService:
             currency = (meta.get('currency') if meta else None) or 'PLN'
         currency = currency.upper()
 
-        fx_rate = PortfolioService._get_fx_rates_to_pln({currency}).get(currency, 1.0)
-        unit_price_pln = float(price) * fx_rate
-        gross_cost = quantity * unit_price_pln
+        unit_price_pln = float(price)
         base_commission = float(commission or 0.0)
-        fx_fee = PortfolioService._calculate_fx_fee(gross_cost, currency)
-        total_commission = base_commission + fx_fee
+        total_commission = base_commission
+        gross_cost = quantity * unit_price_pln
         total_cost = gross_cost + total_commission
 
         # Default to today if no date provided
@@ -722,7 +714,7 @@ class PortfolioService:
 
 
     @staticmethod
-    def sell_stock(portfolio_id, ticker, quantity, price):
+    def sell_stock(portfolio_id, ticker, quantity, price, sell_date=None):
         db = get_db()
         holding = db.execute(
             'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
@@ -732,14 +724,13 @@ class PortfolioService:
         if not holding or holding['quantity'] < quantity:
             raise ValueError("Insufficient shares")
 
-        holding_currency = (holding['currency'] or 'PLN').upper()
-        fx_rate = PortfolioService._get_fx_rates_to_pln({holding_currency}).get(holding_currency, 1.0)
-        unit_price_pln = price * fx_rate
-        gross_total_value = quantity * unit_price_pln
-        sell_fx_fee = PortfolioService._calculate_fx_fee(gross_total_value, holding_currency)
-        total_value = gross_total_value - sell_fx_fee
+        unit_price_pln = float(price)
+        total_value = quantity * unit_price_pln
         cost_basis = quantity * holding['average_buy_price']
         realized_profit = total_value - cost_basis
+
+        if not sell_date:
+            sell_date = date.today().isoformat()
 
         try:
             # Update cash
@@ -748,12 +739,12 @@ class PortfolioService:
                 (total_value, portfolio_id)
             )
 
-            # Record transaction with realized_profit
+            # Record transaction using authoritative PLN proceeds only.
             db.execute(
                 '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, commission) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit, sell_fx_fee)
+                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit, sell_date, 0.0)
             )
 
             # Update holdings
