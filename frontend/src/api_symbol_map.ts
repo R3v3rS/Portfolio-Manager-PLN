@@ -1,3 +1,5 @@
+import { http } from './lib/http';
+
 const API_URL = '/api/symbol-map';
 
 export type MappingCurrency = 'PLN' | 'USD' | 'EUR' | 'GBP';
@@ -21,41 +23,11 @@ export interface UpdateSymbolMappingPayload {
   currency?: MappingCurrency;
 }
 
-async function parseJsonResponse<T>(response: Response): Promise<T> {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = (data as { error?: string })?.error || 'Request failed';
-    throw new Error(message);
-  }
-  return data as T;
-}
-
 export const symbolMapApi = {
-  async getAll(): Promise<SymbolMapping[]> {
-    const response = await fetch(API_URL);
-    return parseJsonResponse<SymbolMapping[]>(response);
-  },
-
-  async create(payload: CreateSymbolMappingPayload): Promise<SymbolMapping> {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    return parseJsonResponse<SymbolMapping>(response);
-  },
-
-  async update(id: number, payload: UpdateSymbolMappingPayload): Promise<SymbolMapping> {
-    const response = await fetch(`${API_URL}/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    return parseJsonResponse<SymbolMapping>(response);
-  },
-
-  async delete(id: number): Promise<void> {
-    const response = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
-    await parseJsonResponse<{ success: boolean }>(response);
+  getAll: (): Promise<SymbolMapping[]> => http.get(API_URL),
+  create: (payload: CreateSymbolMappingPayload): Promise<SymbolMapping> => http.post(API_URL, payload),
+  update: (id: number, payload: UpdateSymbolMappingPayload): Promise<SymbolMapping> => http.put(`${API_URL}/${id}`, payload),
+  delete: async (id: number): Promise<void> => {
+    await http.delete(`${API_URL}/${id}`);
   },
 };

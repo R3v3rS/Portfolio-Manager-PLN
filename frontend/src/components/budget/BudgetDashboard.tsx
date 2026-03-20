@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { budgetApi, BudgetSummary, Envelope } from '../../api_budget';
+import { http, getErrorMessage } from '../../lib/http';
 import { Banknote, Plus, FolderPlus, Wallet, MinusCircle, ArrowRightLeft, TrendingUp, PieChart, AlertTriangle, Percent, ChevronLeft, ChevronRight, Copy, XCircle, Pencil } from 'lucide-react';
 import TransactionHistory from './TransactionHistory';
 import BudgetAnalytics from './BudgetAnalytics';
@@ -14,8 +15,6 @@ interface BudgetPortfolioOption {
   id: number;
   name: string;
 }
-
-const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Wystąpił nieznany błąd';
 
 export default function BudgetDashboard() {
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
@@ -94,8 +93,7 @@ export default function BudgetDashboard() {
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/budget/categories');
-      const data = await res.json() as BudgetCategoryOption[];
+      const data = await http.get<BudgetCategoryOption[]>('/api/budget/categories');
       setCategories(data);
     } catch (err) {
       console.error(err);
@@ -104,8 +102,7 @@ export default function BudgetDashboard() {
 
   const fetchPortfolios = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/portfolio/list');
-      const data = await res.json() as { portfolios?: BudgetPortfolioOption[] };
+      const data = await http.get<{ portfolios?: BudgetPortfolioOption[] }>('/api/portfolio/list');
       setPortfolios(data.portfolios || []);
     } catch (err) {
       console.error(err);
@@ -326,7 +323,7 @@ export default function BudgetDashboard() {
   const handleReset = async () => {
     if (confirm("WARNING: This will DELETE ALL budget data (Transactions, Envelopes, Loans). Are you sure?")) {
       try {
-        await fetch('http://localhost:5000/api/budget/reset', { method: 'POST' });
+        await http.post('/api/budget/reset');
         alert("Budget data reset successfully.");
         window.location.reload(); // Reload to clear all states
       } catch (err: unknown) {

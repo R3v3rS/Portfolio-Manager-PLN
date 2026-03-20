@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Radar, Plus, Trash2, TrendingUp, TrendingDown, Calendar, AlertCircle, RefreshCw, PauseCircle, PlayCircle } from 'lucide-react';
 import { RadarItem } from '../types';
 import StockProfilerModal from '../components/StockProfilerModal';
+import { radarApi } from '../api_radar';
+import { getErrorMessage } from '../lib/http';
 
 const InvestmentRadar: React.FC = () => {
   const [radarItems, setRadarItems] = useState<RadarItem[]>([]);
@@ -15,43 +17,29 @@ const InvestmentRadar: React.FC = () => {
   const fetchRadarData = async (refresh = false) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/radar${refresh ? '?refresh=1' : ''}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch radar data');
-      }
-      const data = await response.json();
+      const data = await radarApi.getItems(refresh);
       setRadarItems(data);
       setError(null);
     } catch (err) {
       console.error('Error fetching radar data:', err);
-      setError('Nie udało się pobrać danych radaru.');
+      setError(getErrorMessage(err, 'Nie udało się pobrać danych radaru.'));
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchRadarData(autoRefreshEnabled);
+    void fetchRadarData(autoRefreshEnabled);
   }, [autoRefreshEnabled]);
 
   const refreshSelectedTickers = async (tickers?: string[]) => {
     try {
-      const response = await fetch('/api/radar/refresh', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tickers: tickers || [] }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to refresh radar data');
-      }
-
+      await radarApi.refresh(tickers || []);
       await fetchRadarData(false);
+      setError(null);
     } catch (err) {
       console.error('Error refreshing radar:', err);
-      setError('Nie udało się odświeżyć danych.');
+      setError(getErrorMessage(err, 'Nie udało się odświeżyć danych.'));
     }
   };
 
@@ -72,23 +60,12 @@ const InvestmentRadar: React.FC = () => {
     if (!newTicker.trim()) return;
 
     try {
-      const response = await fetch('/api/radar/watchlist', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ ticker: newTicker.toUpperCase() }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to add ticker');
-      }
-
+      await radarApi.addToWatchlist(newTicker.trim());
       setNewTicker('');
-      fetchRadarData(false);
+      await fetchRadarData(false);
     } catch (err) {
       console.error('Error adding ticker:', err);
-      setError('Nie udało się dodać tickera.');
+      setError(getErrorMessage(err, 'Nie udało się dodać tickera.'));
     }
   };
 
@@ -96,18 +73,11 @@ const InvestmentRadar: React.FC = () => {
     if (!confirm(`Czy na pewno chcesz usunąć ${ticker} z obserwowanych?`)) return;
 
     try {
-      const response = await fetch(`/api/radar/watchlist/${ticker}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to remove ticker');
-      }
-
-      fetchRadarData(false);
+      await radarApi.removeFromWatchlist(ticker);
+      await fetchRadarData(false);
     } catch (err) {
       console.error('Error removing ticker:', err);
-      setError('Nie udało się usunąć tickera.');
+      setError(getErrorMessage(err, 'Nie udało się usunąć tickera.'));
     }
   };
 

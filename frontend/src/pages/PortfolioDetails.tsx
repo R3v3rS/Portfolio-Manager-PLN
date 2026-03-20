@@ -1,15 +1,15 @@
-import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
+import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2 } from 'lucide-react';
 import api from '../api';
-import { budgetApi, BudgetAccount } from '../api_budget';
-import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
+import { Holding } from '../types';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import { cn } from '../lib/utils';
-import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
+import { getErrorMessage } from '../lib/http';
+import { usePortfolioDetailsData } from '../hooks/usePortfolioDetailsData';
 
 
 const PortfolioChart = lazy(() => import('../components/PortfolioChart'));
@@ -68,7 +68,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
         return;
       }
 
-      const errorMessage = maybeResponse?.data?.error || (err instanceof Error ? err.message : 'Unknown error');
+      const errorMessage = maybeResponse?.data?.error || getErrorMessage(err, 'Import failed.');
       alert('Import failed: ' + errorMessage);
     }
   };
@@ -112,7 +112,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
       closeMissingModal();
       await importFile(pendingFile);
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save mappings');
+      alert(getErrorMessage(error, 'Failed to save mappings'));
       setSavingMappings(false);
     }
   };
@@ -227,8 +227,7 @@ function ClearPortfolioButton({ portfolioId, portfolioName, onSuccess }: { portf
       alert('Portfolio zostało wyczyszczone. Możesz zaimportować dane od nowa.');
       onSuccess();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Nie udało się wyczyścić portfela';
-      alert(message);
+      alert(getErrorMessage(err, 'Nie udało się wyczyścić portfela'));
     } finally {
       setClearing(false);
     }
@@ -291,14 +290,33 @@ const formatSellDate = (value?: string | null) => {
 
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [bonds, setBonds] = useState<Bond[]>([]);
-  const [ppkTransactions, setPpkTransactions] = useState<PPKTx[]>([]);
-  const [ppkSummary, setPpkSummary] = useState<PPKSummary | null>(null);
-  const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string } | null>(null);
-  const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    data: {
+      portfolio,
+      holdings,
+      bonds,
+      ppkTransactions,
+      ppkSummary,
+      ppkCurrentPrice,
+      valueData,
+      portfolioTransactions,
+      monthlyDividends,
+      portfolioHistory,
+      portfolioProfitHistory,
+      portfolioProfit30dHistory,
+      portfolioValue30dHistory,
+      closedPositions,
+      totalClosedProfit,
+      closedPositionCycles,
+      totalClosedCyclesProfit,
+      budgetAccounts,
+    },
+    loading,
+    fetchAll: fetchData,
+    refreshMarketData,
+    fetchTickerHistory,
+    fetchBenchmarkHistory,
+  } = usePortfolioDetailsData(id);
   const [activeTab, setActiveTab] = useState<'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history'>('holdings');
   
   // Modals state
@@ -313,23 +331,9 @@ const PortfolioDetails: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
-  const [portfolioTransactions, setPortfolioTransactions] = useState<Transaction[]>([]);
 
   // Monthly Dividend state
-  const [monthlyDividends, setMonthlyDividends] = useState<{ label: string; amount: number }[]>([]);
-  
-  // Portfolio History (Monthly)
-  const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number; benchmark_value?: number }[]>([]);
-  const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
-  const [portfolioProfit30dHistory, setPortfolioProfit30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
-  const [portfolioValue30dHistory, setPortfolioValue30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
-
-  // Closed Positions
-  const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
-  const [totalClosedProfit, setTotalClosedProfit] = useState(0);
-  const [closedPositionCycles, setClosedPositionCycles] = useState<ClosedPositionCycle[]>([]);
-  const [totalClosedCyclesProfit, setTotalClosedCyclesProfit] = useState(0);
 
   const dividendTickers = Array.from(
     new Set([
@@ -338,9 +342,6 @@ const PortfolioDetails: React.FC = () => {
       ...closedPositionCycles.map((p) => p.ticker),
     ])
   );
-
-  // Budget Integration
-  const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
 
   const initiateSell = (h: Holding) => {
     setSelectedHoldingForSell(h);
@@ -370,99 +371,19 @@ const PortfolioDetails: React.FC = () => {
       });
       await fetchData();
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Nieznany błąd';
-      alert('Nie udało się zamknąć pozycji: ' + errorMessage);
+      alert('Nie udało się zamknąć pozycji: ' + getErrorMessage(err, 'Nieznany błąd'));
     }
   };
-
-  const fetchData = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    try {
-      const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes] = await Promise.all([
-        api.get(`/list`), 
-        api.get(`/holdings/${id}`),
-        api.get(`/value/${id}`),
-        api.get(`/dividends/monthly/${id}`),
-        api.get(`/transactions/${id}`),
-        api.get(`/${id}/closed-positions`),
-        api.get(`/${id}/closed-position-cycles`),
-        budgetApi.getSummary() // Fetch budget accounts
-      ]);
-      
-      const found = pRes.data.portfolios.find((p: Portfolio) => p.id === parseInt(id));
-      setPortfolio(found || null);
-      setHoldings(hRes.data.holdings);
-      setValueData(vRes.data);
-      setMonthlyDividends(mRes.data.monthly_dividends);
-      setPortfolioTransactions(tRes.data.transactions);
-      setClosedPositions(cRes.data.positions);
-      setTotalClosedProfit(cRes.data.total_historical_profit);
-      setClosedPositionCycles(ccRes.data.positions || []);
-      setTotalClosedCyclesProfit(ccRes.data.total_historical_profit || 0);
-      setBudgetAccounts(bAccRes.accounts || []);
-
-      if (found?.account_type === 'BONDS') {
-        const bRes = await api.get(`/bonds/${id}`);
-        setBonds(bRes.data.bonds);
-      }
-      
-      if (found?.account_type === 'SAVINGS') {
-        const histRes = await api.get(`/history/monthly/${id}`);
-        setPortfolioHistory(histRes.data.history);
-      }
-      if (found?.account_type === 'PPK') {
-        const ppkRes = await api.get(`/ppk/transactions/${id}`);
-        setPpkTransactions(ppkRes.data.transactions || []);
-        setPpkSummary(ppkRes.data.summary || null);
-        setPpkCurrentPrice(ppkRes.data.currentPrice || null);
-      }
-      
-      // Only set active tab if it's the first load (to preserve tab on refresh)
-      // Actually, standard behavior is fine, but let's just ensure we don't overwrite user selection if we were to re-fetch periodically
-      if (activeTab === 'holdings' && found) {
-          if (found.account_type === 'BONDS') setActiveTab('bonds');
-          else if (found.account_type === 'SAVINGS') setActiveTab('savings');
-          else if (found.account_type === 'PPK') setActiveTab('ppk');
-      }
-
-      // Fetch histories for standard portfolios
-      if (found?.account_type !== 'BONDS' && found?.account_type !== 'SAVINGS') {
-        const histRes = await api.get(`/history/monthly/${id}`);
-        setPortfolioHistory(histRes.data.history);
-        
-        const profitRes = await api.get(`/history/profit/${id}`);
-        setPortfolioProfitHistory(profitRes.data.history);
-
-        const profit30dRes = await api.get(`/history/profit/${id}?days=30`);
-        setPortfolioProfit30dHistory(profit30dRes.data.history || []);
-
-        const value30dRes = await api.get(`/history/value/${id}?days=30`);
-        setPortfolioValue30dHistory(value30dRes.data.history || []);
-      }
-
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeTab, id]);
 
   const refreshStockPrices = async () => {
     if (!id || !(portfolio?.account_type === 'STANDARD' || portfolio?.account_type === 'IKE')) return;
 
     setRefreshingPrices(true);
     try {
-      const [holdingsResponse, valueResponse] = await Promise.all([
-        api.get(`/holdings/${id}?refresh=1`),
-        api.get(`/value/${id}`),
-      ]);
-
-      setHoldings(holdingsResponse.data.holdings || []);
-      setValueData(valueResponse.data);
+      await refreshMarketData();
     } catch (err) {
       console.error('Failed to refresh stock prices', err);
-      alert('Nie udało się odświeżyć cen akcji. Spróbuj ponownie.');
+      alert(getErrorMessage(err, 'Nie udało się odświeżyć cen akcji. Spróbuj ponownie.'));
     } finally {
       setRefreshingPrices(false);
     }
@@ -472,9 +393,9 @@ const PortfolioDetails: React.FC = () => {
     setHistoryLoading(true);
     setSelectedTicker(ticker);
     try {
-      const response = await api.get(`/history/${ticker}`);
-      setHistoryData(response.data.history);
-      setLastUpdated(response.data.last_updated);
+      const response = await fetchTickerHistory(ticker);
+      setHistoryData(response.history);
+      setLastUpdated(response.last_updated);
     } catch (err) {
       console.error('Failed to fetch history', err);
     } finally {
@@ -485,22 +406,22 @@ const PortfolioDetails: React.FC = () => {
   useEffect(() => {
     // Fetch history separately when tab changes or initially
     if (activeTab === 'value_history' && id) {
-      const url = selectedBenchmark 
-        ? `/history/monthly/${id}?benchmark=${selectedBenchmark}`
-        : `/history/monthly/${id}`;
-
-      api.get(url).then(res => {
-        setPortfolioHistory(res.data.history);
-      });
-      api.get(`/history/profit/${id}`).then(res => {
-        setPortfolioProfitHistory(res.data.history);
-      });
+      void fetchBenchmarkHistory(selectedBenchmark);
     }
-  }, [activeTab, id, selectedBenchmark]);
+  }, [activeTab, id, selectedBenchmark, fetchBenchmarkHistory]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    void fetchData().then((foundPortfolio) => {
+      if (!foundPortfolio) return;
+      if (activeTab === 'holdings') {
+        if (foundPortfolio.account_type === 'BONDS') setActiveTab('bonds');
+        else if (foundPortfolio.account_type === 'SAVINGS') setActiveTab('savings');
+        else if (foundPortfolio.account_type === 'PPK') setActiveTab('ppk');
+      }
+    }).catch((err) => {
+      console.error(err);
+    });
+  }, [activeTab, fetchData]);
 
 
   const formatPriceUpdateTimestamp = (timestamp?: string | null) => {

@@ -1,32 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import { dashboardApi, GlobalSummary } from '../api_dashboard';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
 import { cn } from '../lib/utils';
-
-interface GlobalSummary {
-  net_worth: number;
-  total_assets: number;
-  total_liabilities: number;
-  liabilities_breakdown: {
-    short_term: number;
-    long_term: number;
-  };
-  assets_breakdown: {
-    budget_cash: number;
-    invest_cash: number;
-    savings: number;
-    bonds: number;
-    stocks: number;
-    ppk: number;
-  };
-  quick_stats: {
-    free_pool: number;
-    next_loan_installment: number;
-    next_loan_date: string | null;
-  };
-}
 
 const MainDashboard: React.FC = () => {
   const [data, setData] = useState<GlobalSummary | null>(null);
@@ -36,8 +13,8 @@ const MainDashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await axios.get('/api/dashboard/global-summary');
-        setData(res.data);
+        const summary = await dashboardApi.getGlobalSummary();
+        setData(summary);
       } catch (err) {
         console.error(err);
         setError('Nie udało się pobrać danych kokpitu.');

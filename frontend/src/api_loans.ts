@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { createApiClient } from './lib/http';
 
 export interface LoanPayload {
   name: string;
@@ -28,12 +28,7 @@ export interface ScheduleQuery {
   simulated_action?: 'REDUCE_TERM' | 'REDUCE_INSTALLMENT';
 }
 
-const api = axios.create({
-  baseURL: '/api/loans',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const api = createApiClient('/api/loans');
 
 export const getLoans = () => api.get('/');
 export const createLoan = (data: LoanPayload) => api.post('/', data);
