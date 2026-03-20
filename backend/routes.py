@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from portfolio_service import PortfolioService
 from bond_service import BondService
 from price_service import PriceService
@@ -7,8 +7,16 @@ from collections import defaultdict
 from datetime import datetime, timezone
 import pandas as pd
 from database import get_db
+import os
 
 portfolio_bp = Blueprint('portfolio', __name__)
+
+
+def _is_admin_debug_request() -> bool:
+    admin_token = os.getenv('PORTFOLIO_ADMIN_TOKEN')
+    if admin_token:
+        return request.headers.get('X-Admin-Token') == admin_token
+    return bool(current_app.debug)
 
 @portfolio_bp.route('/limits', methods=['GET'])
 def get_tax_limits():
@@ -353,6 +361,35 @@ def import_xtb_csv(portfolio_id):
         return jsonify({'message': 'Import successful', **result}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+
+@portfolio_bp.route('/<int:portfolio_id>/audit', methods=['GET'])
+def audit_portfolio(portfolio_id):
+    try:
+        result = PortfolioService.audit_portfolio_integrity(portfolio_id)
+        return jsonify(result), 200
+    except ValueError as e:
+        message = str(e)
+        status = 404 if message == 'Portfolio not found' else 400
+        return jsonify({'error': message}), status
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@portfolio_bp.route('/<int:portfolio_id>/rebuild', methods=['POST'])
+def rebuild_portfolio(portfolio_id):
+    if not _is_admin_debug_request():
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        result = PortfolioService.repair_portfolio_state(portfolio_id)
+        return jsonify(result), 200
+    except ValueError as e:
+        message = str(e)
+        status = 404 if message == 'Portfolio not found' else 400
+        return jsonify({'error': message}), status
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @portfolio_bp.route('/<int:portfolio_id>/closed-positions', methods=['GET'])
