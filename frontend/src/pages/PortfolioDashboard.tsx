@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight, ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart, Plus } from 'lucide-react';
 import api from '../api';
 import { Portfolio } from '../types';
-import { cn } from '../lib/utils';
+import { cn } from '../lib/utils.ts';
 
 interface TaxLimitData {
   deposited: number;

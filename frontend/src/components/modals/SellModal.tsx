@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import api from '../../api';
 import { Holding } from '../../types';
-import { cn } from '../../lib/utils';
+import { cn } from '../../lib/utils.ts';
 
 interface SellModalProps {
   isOpen: boolean;

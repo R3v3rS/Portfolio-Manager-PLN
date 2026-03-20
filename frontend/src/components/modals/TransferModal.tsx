@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import api from '../../api';
 import { budgetApi, BudgetAccount } from '../../api_budget';
-import { cn } from '../../lib/utils';
+import { cn } from '../../lib/utils.ts';
 
 interface TransferModalProps {
   isOpen: boolean;
