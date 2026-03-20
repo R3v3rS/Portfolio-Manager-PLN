@@ -1,0 +1,9 @@
+{
+  "name": "portfolio-manager-pln",
+  "private": true,
+  "scripts": {
+    "check": "npm --prefix frontend run check",
+    "build": "npm --prefix frontend run build",
+    "test:smoke:backend": "python -m pytest tests/test_backend_smoke.py -q"
+  }
+}
