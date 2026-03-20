@@ -119,7 +119,8 @@ python -m compileall .
 Aktualna dokumentacja repo jest rozbita na dwa poziomy:
 
 - `README.md` — szybki opis produktu, stosu i uruchomienia,
-- `docs/PROJECT_GUIDE.md` — pełny przewodnik po architekturze, modułach, zależnościach, danych, przepływach requestów i onboarding dla developera lub AI.
+- `docs/PROJECT_GUIDE.md` — pełny przewodnik po architekturze, modułach, zależnościach, danych, przepływach requestów i onboarding dla developera lub AI,
+- `docs/IMPROVEMENT_PLAN.md` — plan usprawnień aplikacji z priorytetami, etapami wdrożenia i listą quick wins.
 
 Jeśli zaczynasz pracę w projekcie, najlepsza kolejność to:
 
