@@ -1305,33 +1305,37 @@ const PortfolioDetails: React.FC = () => {
                 )}
               </div>
 
-              <div className="overflow-x-auto lg:overflow-x-visible">
-                <table className="w-full table-fixed divide-y divide-gray-200">
+              <div className="overflow-x-auto">
+                <table className="min-w-[760px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="w-24 px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Symbol</th>
-                      <th className="w-[28%] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Nazwa spółki</th>
-                      <th className="w-28 px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Ostatnia sprzedaż</th>
-                      <th className="w-32 px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Kapitał</th>
-                      <th className="w-32 px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk</th>
-                      <th className="w-28 px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk %</th>
+                      <th className="min-w-[140px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Symbol</th>
+                      <th className="min-w-[220px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Nazwa spółki</th>
+                      <th className="min-w-[120px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Ostatnia sprzedaż</th>
+                      <th className="min-w-[120px] px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Kapitał</th>
+                      <th className="min-w-[120px] px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk</th>
+                      <th className="min-w-[100px] px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk %</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {closedPositions.map((p) => (
                       <tr key={p.ticker}>
-                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900">{p.ticker}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700 break-words">{p.company_name || "-"}</td>
-                        <td className="px-4 py-4 text-sm text-gray-700">{formatSellDate(p.last_sell_date)}</td>
-                        <td className="px-4 py-4 text-sm text-right text-gray-700">{p.invested_capital.toFixed(2)} PLN</td>
+                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900">
+                          <div className="min-w-[140px] break-all sm:break-normal">{p.ticker}</div>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 break-words">
+                          <div className="min-w-[220px] break-words">{p.company_name || "-"}</div>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 whitespace-nowrap">{formatSellDate(p.last_sell_date)}</td>
+                        <td className="px-4 py-4 text-sm text-right text-gray-700 whitespace-nowrap">{p.invested_capital.toFixed(2)} PLN</td>
                         <td className={cn(
-                          "px-4 py-4 text-sm text-right font-medium",
+                          "px-4 py-4 text-sm text-right font-medium whitespace-nowrap",
                           p.realized_profit >= 0 ? "text-green-600" : "text-red-600"
                         )}>
                           {p.realized_profit.toFixed(2)} PLN
                         </td>
                         <td className={cn(
-                          "px-3 py-4 text-sm text-right font-medium",
+                          "px-4 py-4 text-sm text-right font-medium whitespace-nowrap",
                           (p.profit_percent_on_capital ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                         )}>
                           {p.profit_percent_on_capital === null || p.profit_percent_on_capital === undefined
@@ -1360,27 +1364,29 @@ const PortfolioDetails: React.FC = () => {
                 </p>
               </div>
 
-              <div className="overflow-x-auto lg:overflow-x-visible">
-                <table className="w-full table-fixed divide-y divide-gray-200">
+              <div className="overflow-x-auto">
+                <table className="min-w-[1120px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="w-20 px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Symbol</th>
-                      <th className="w-16 px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Cykl</th>
-                      <th className="w-[16%] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
-                      <th className="w-[20%] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Nazwa spółki</th>
-                      <th className="w-24 px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Otwarcie</th>
-                      <th className="w-24 px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Zamknięcie</th>
-                      <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Kapitał</th>
-                      <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk</th>
-                      <th className="w-24 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk %</th>
-                      <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Stopa roczna</th>
+                      <th className="min-w-[140px] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Symbol</th>
+                      <th className="min-w-[80px] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Cykl</th>
+                      <th className="min-w-[180px] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
+                      <th className="min-w-[220px] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Nazwa spółki</th>
+                      <th className="min-w-[120px] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Otwarcie</th>
+                      <th className="min-w-[120px] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Zamknięcie</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Kapitał</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk</th>
+                      <th className="min-w-[100px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk %</th>
+                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Stopa roczna</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {closedPositionCycles.map((p) => (
                       <tr key={`${p.ticker}-${p.cycle_id}`}>
-                        <td className="px-3 py-4 align-top text-sm font-medium text-gray-900">{p.ticker}</td>
-                        <td className="px-3 py-4 align-top text-sm text-gray-700">#{p.cycle_id}</td>
+                        <td className="px-3 py-4 align-top text-sm font-medium text-gray-900">
+                          <div className="min-w-[140px] break-all sm:break-normal">{p.ticker}</div>
+                        </td>
+                        <td className="px-3 py-4 align-top text-sm text-gray-700 whitespace-nowrap">#{p.cycle_id}</td>
                         <td className="px-3 py-4 text-sm text-gray-700">
                           {p.is_partially_closed ? (
                             <span className="inline-flex max-w-full items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 leading-5 whitespace-normal break-words">
@@ -1392,18 +1398,18 @@ const PortfolioDetails: React.FC = () => {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-4 text-sm text-gray-700 break-words">{p.company_name || '-'}</td>
-                        <td className="px-3 py-4 text-sm text-gray-700">{formatSellDate(p.opened_at)}</td>
-                        <td className="px-3 py-4 text-sm text-gray-700">{p.closed_at ? formatSellDate(p.closed_at) : '-'}</td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-700">{p.invested_capital.toFixed(2)} PLN</td>
+                        <td className="px-3 py-4 text-sm text-gray-700 break-words"><div className="min-w-[220px] break-words">{p.company_name || '-'}</div></td>
+                        <td className="px-3 py-4 text-sm text-gray-700 whitespace-nowrap">{formatSellDate(p.opened_at)}</td>
+                        <td className="px-3 py-4 text-sm text-gray-700 whitespace-nowrap">{p.closed_at ? formatSellDate(p.closed_at) : '-'}</td>
+                        <td className="px-3 py-4 text-sm text-right text-gray-700 whitespace-nowrap">{p.invested_capital.toFixed(2)} PLN</td>
                         <td className={cn(
-                          "px-3 py-4 text-sm text-right font-medium",
+                          "px-3 py-4 text-sm text-right font-medium whitespace-nowrap",
                           p.realized_profit >= 0 ? "text-green-600" : "text-red-600"
                         )}>
                           {p.realized_profit.toFixed(2)} PLN
                         </td>
                         <td className={cn(
-                          "px-3 py-4 text-sm text-right font-medium",
+                          "px-3 py-4 text-sm text-right font-medium whitespace-nowrap",
                           (p.profit_percent_on_capital ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                         )}>
                           {p.profit_percent_on_capital === null || p.profit_percent_on_capital === undefined
@@ -1411,7 +1417,7 @@ const PortfolioDetails: React.FC = () => {
                             : `${p.profit_percent_on_capital.toFixed(2)}%`}
                         </td>
                         <td className={cn(
-                          "px-3 py-4 text-sm text-right font-medium",
+                          "px-3 py-4 text-sm text-right font-medium whitespace-nowrap",
                           (p.annualized_return_percent ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                         )} title={p.average_invested_capital && p.holding_period_days
                           ? `Średnio zaangażowany kapitał: ${p.average_invested_capital.toFixed(2)} PLN | Okres: ${p.holding_period_days.toFixed(1)} dni`
