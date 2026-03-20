@@ -83,7 +83,6 @@ const LoansDashboard: React.FC = () => {
     return new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' }).format(amount);
   };
 
-  const totalOriginalAmount = loans.reduce((sum, loan) => sum + Number(loan.original_amount), 0);
   // Note: We don't have remaining balance in the list API yet, only in details.
   // For now, I'll just show original amount sum or fetch details for each loan if needed.
   // The requirement says "Total Debt (Remaining Amount)". 
@@ -94,7 +93,11 @@ const LoansDashboard: React.FC = () => {
   // Let's assume for now I show original amount or just leave it as placeholder until I update backend or fetch details.
   // Actually, I can fetch details for all loans in parallel.
 
-  const [loansWithDetails, setLoansWithDetails] = useState<any[]>([]);
+  interface LoanScheduleEntry { date: string; remaining_balance: number; installment: number; }
+
+  interface LoanDetails extends Loan { current_balance: number; current_installment: number; }
+
+  const [loansWithDetails, setLoansWithDetails] = useState<LoanDetails[]>([]);
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -119,7 +122,7 @@ const LoansDashboard: React.FC = () => {
             // For now, let's just take the first entry's remaining balance? No, that's after 1st payment.
             // Let's use the schedule to find the latest "remaining_balance" that is closest to today.
             const today = new Date();
-            const currentEntry = schedule.find((entry: any) => new Date(entry.date) > today) || schedule[schedule.length - 1];
+            const currentEntry = schedule.find((entry: LoanScheduleEntry) => new Date(entry.date) > today) || schedule[schedule.length - 1];
             return {
                 ...res.data.loan,
                 current_balance: currentEntry ? currentEntry.remaining_balance : 0,
@@ -340,7 +343,7 @@ const LoansDashboard: React.FC = () => {
                     <select
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       value={newLoan.installment_type}
-                      onChange={(e) => setNewLoan({ ...newLoan, installment_type: e.target.value as any })}
+                      onChange={(e) => setNewLoan({ ...newLoan, installment_type: e.target.value as 'EQUAL' | 'DECREASING' })}
                     >
                       <option value="EQUAL">Raty Równe</option>
                       <option value="DECREASING">Raty Malejące</option>

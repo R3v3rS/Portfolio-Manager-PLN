@@ -72,7 +72,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
     setLoading(true);
     try {
       let endpoint = '';
-      let payload: any = { portfolio_id: portfolioId };
+      let payload: Record<string, string | number | boolean> = { portfolio_id: portfolioId };
 
       if (type === 'BUY') {
         endpoint = '/buy';
@@ -102,9 +102,10 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
       await api.post(endpoint, payload);
       onSuccess();
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      alert(err.response?.data?.error || 'Transaction failed');
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }

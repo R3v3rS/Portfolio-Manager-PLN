@@ -9,7 +9,7 @@ import {
   Tooltip,
   Legend,
   Filler,
-  ScriptableContext
+  ChartOptions,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
@@ -31,44 +31,30 @@ interface PortfolioProfitChartProps {
 
 const PortfolioProfitChart: React.FC<PortfolioProfitChartProps> = ({ data, title = 'Wyniki Zysku/Straty' }) => {
   const chartData = {
-    labels: data.map(d => d.label),
+    labels: data.map((d) => d.label),
     datasets: [
       {
         label: 'Skumulowany Zysk (PLN)',
-        data: data.map(d => d.value),
-        borderColor: (context: ScriptableContext<'line'>) => {
-          const ctx = context.chart.ctx;
-          const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height);
-          // Simple check: if the latest value is positive, use green, else red?
-          // Or we can just use a fixed color, but user asked for green/red areas.
-          // Let's use a solid color for the line based on the last value for now, 
-          // or we can use segment styling if we want the line to change color at 0.
-          return '#6366f1'; // Indigo default
-        },
-        segment: {
-          borderColor: (ctx: any) => ctx.p0.parsed.y >= 0 ? '#10b981' : '#ef4444', // Green if start >= 0, Red if < 0 (approx)
-          backgroundColor: (ctx: any) => ctx.p0.parsed.y >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-        },
+        data: data.map((d) => d.value),
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.15)',
         fill: {
-            target: 'origin',
-            above: 'rgba(16, 185, 129, 0.2)',   // Area will be green above the origin
-            below: 'rgba(239, 68, 68, 0.2)'    // And red below the origin
+          target: 'origin',
+          above: 'rgba(16, 185, 129, 0.2)',
+          below: 'rgba(239, 68, 68, 0.2)',
         },
         tension: 0.3,
         pointRadius: 3,
-        pointBackgroundColor: (context: any) => {
-            const val = context.raw;
-            return val >= 0 ? '#10b981' : '#ef4444';
-        }
+        pointBackgroundColor: data.map((entry) => entry.value >= 0 ? '#10b981' : '#ef4444'),
       },
     ],
   };
 
-  const options = {
+  const options: ChartOptions<'line'> = {
     responsive: true,
     plugins: {
       legend: {
-        position: 'top' as const,
+        position: 'top',
       },
       title: {
         display: true,
@@ -77,19 +63,12 @@ const PortfolioProfitChart: React.FC<PortfolioProfitChartProps> = ({ data, title
     },
     scales: {
       y: {
-        beginAtZero: true, // Important for the 0 line
+        beginAtZero: true,
         grid: {
-            color: (context: any) => {
-                if (context.tick.value === 0) return '#374151'; // Darker line at 0
-                return '#e5e7eb';
-            },
-            lineWidth: (context: any) => {
-                if (context.tick.value === 0) return 2;
-                return 1;
-            }
+          color: '#e5e7eb',
         },
         ticks: {
-          callback: (value: any) => `${value} PLN`,
+          callback: (value) => `${value} PLN`,
         },
       },
     },

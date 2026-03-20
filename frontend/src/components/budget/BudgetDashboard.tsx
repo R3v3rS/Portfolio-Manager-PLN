@@ -1,8 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { budgetApi, BudgetSummary, Envelope, EnvelopeLoan } from '../../api_budget';
-import { Banknote, Plus, FolderPlus, Wallet, Send, MinusCircle, ArrowRightLeft, TrendingUp, PieChart, AlertTriangle, ChevronDown, Percent, ChevronLeft, ChevronRight, Copy, XCircle, Pencil } from 'lucide-react';
+import { budgetApi, BudgetSummary, Envelope } from '../../api_budget';
+import { Banknote, Plus, FolderPlus, Wallet, MinusCircle, ArrowRightLeft, TrendingUp, PieChart, AlertTriangle, Percent, ChevronLeft, ChevronRight, Copy, XCircle, Pencil } from 'lucide-react';
 import TransactionHistory from './TransactionHistory';
 import BudgetAnalytics from './BudgetAnalytics';
+
+interface BudgetCategoryOption {
+  id: number;
+  name: string;
+  icon: string;
+}
+
+interface BudgetPortfolioOption {
+  id: number;
+  name: string;
+}
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Wystąpił nieznany błąd';
 
 export default function BudgetDashboard() {
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
@@ -45,14 +58,15 @@ export default function BudgetDashboard() {
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountBalance, setNewAccountBalance] = useState('');
 
-  const [categories, setCategories] = useState<any[]>([]);
-  const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [categories, setCategories] = useState<BudgetCategoryOption[]>([]);
+  const [portfolios, setPortfolios] = useState<BudgetPortfolioOption[]>([]);
 
   useEffect(() => {
-    fetchData();
-    if (categories.length === 0) fetchCategories();
-    if (portfolios.length === 0) fetchPortfolios();
-  }, [selectedAccountId, selectedMonth]);
+    void fetchData();
+    if (categories.length === 0) void fetchCategories();
+    if (portfolios.length === 0) void fetchPortfolios();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId, selectedMonth, categories.length, portfolios.length]);
 
   useEffect(() => {
     if (targetAccountId) {
@@ -71,8 +85,8 @@ export default function BudgetDashboard() {
       if (data.accounts.length > 0 && !selectedAccountId) {
         setSelectedAccountId(data.accounts[0].id);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -81,7 +95,7 @@ export default function BudgetDashboard() {
   const fetchCategories = async () => {
     try {
       const res = await fetch('http://localhost:5000/api/budget/categories');
-      const data = await res.json();
+      const data = await res.json() as BudgetCategoryOption[];
       setCategories(data);
     } catch (err) {
       console.error(err);
@@ -91,7 +105,7 @@ export default function BudgetDashboard() {
   const fetchPortfolios = async () => {
     try {
       const res = await fetch('http://localhost:5000/api/portfolio/list');
-      const data = await res.json();
+      const data = await res.json() as { portfolios?: BudgetPortfolioOption[] };
       setPortfolios(data.portfolios || []);
     } catch (err) {
       console.error(err);
@@ -105,8 +119,8 @@ export default function BudgetDashboard() {
       setShowIncomeModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -117,8 +131,8 @@ export default function BudgetDashboard() {
       setShowAllocateModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -131,8 +145,8 @@ export default function BudgetDashboard() {
       setShowQuickExpenseModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -147,8 +161,8 @@ export default function BudgetDashboard() {
       setShowTransferModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -167,8 +181,8 @@ export default function BudgetDashboard() {
       resetForms();
       fetchData();
       alert("Pomyślnie przesłano środki do portfela inwestycyjnego!");
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -179,8 +193,8 @@ export default function BudgetDashboard() {
       setShowBorrowModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -191,8 +205,8 @@ export default function BudgetDashboard() {
       setShowCategoryModal(false);
       setNewCategoryName('');
       fetchCategories();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -212,8 +226,8 @@ export default function BudgetDashboard() {
       setNewEnvelopeName('');
       setTargetAmount('');
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -222,9 +236,9 @@ export default function BudgetDashboard() {
       try {
         await budgetApi.closeEnvelope(id);
         fetchData();
-      } catch (err: any) {
-        alert(err.message);
-      }
+      } catch (err: unknown) {
+      alert(getErrorMessage(err));
+    }
     }
   };
 
@@ -247,9 +261,9 @@ export default function BudgetDashboard() {
          try {
              await budgetApi.cloneBudget(selectedAccountId, prevMonthStr, selectedMonth);
              fetchData();
-         } catch (err: any) {
-             alert(err.message);
-         }
+         } catch (err: unknown) {
+      alert(getErrorMessage(err));
+    }
     }
   };
 
@@ -261,8 +275,8 @@ export default function BudgetDashboard() {
       setNewAccountName('');
       setNewAccountBalance('');
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -295,8 +309,8 @@ export default function BudgetDashboard() {
       setEditPlanAmount('');
       setEditEnvelopeName('');
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -304,8 +318,8 @@ export default function BudgetDashboard() {
     try {
       await budgetApi.repay(loanId, amount);
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err));
     }
   };
 
@@ -315,8 +329,8 @@ export default function BudgetDashboard() {
         await fetch('http://localhost:5000/api/budget/reset', { method: 'POST' });
         alert("Budget data reset successfully.");
         window.location.reload(); // Reload to clear all states
-      } catch (err: any) {
-        alert("Error resetting data: " + err.message);
+      } catch (err: unknown) {
+        alert("Error resetting data: " + getErrorMessage(err));
       }
     }
   };
@@ -333,15 +347,6 @@ export default function BudgetDashboard() {
     setEditPlanAmount('');
     setEditEnvelopeName('');
     // Don't reset selectedAccountId
-  };
-
-  const getProgressColorClass = (balance: number, target: number) => {
-    if (balance < 0) return 'bg-red-500';
-    if (!target) return 'bg-blue-500';
-    const ratio = balance / target;
-    if (ratio >= 1) return 'bg-green-500'; // Well funded
-    if (ratio > 0.2) return 'bg-yellow-400'; // Moderate
-    return 'bg-red-400'; // Nearly empty / Critical
   };
 
   if (loading && !summary) return <div className="p-8 text-center">Loading budget...</div>;

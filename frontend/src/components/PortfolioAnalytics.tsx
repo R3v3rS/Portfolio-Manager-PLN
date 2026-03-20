@@ -7,12 +7,28 @@ interface PortfolioAnalyticsProps {
   cashBalance: number;
 }
 
+interface PieLabelProps {
+  cx?: number;
+  cy?: number;
+  midAngle?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  percent?: number;
+}
+
+interface ChartDatum {
+  name: string;
+  value: number;
+}
+
 const COLORS = [
   '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#8dd1e1', '#a4de6c', '#d0ed57', '#ff6b6b'
 ];
 
-const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
+const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: PieLabelProps) => {
   const RADIAN = Math.PI / 180;
+    if ([cx, cy, midAngle, innerRadius, outerRadius, percent].some((value) => value === undefined)) return null;
+
   const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
@@ -27,20 +43,19 @@ const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent
 };
 
 const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashBalance }) => {
-  
-  const assetData = useMemo(() => {
+  const assetData = useMemo<ChartDatum[]>(() => {
     const data = holdings.map(h => ({
       name: h.ticker,
       value: h.current_value || (h.quantity * h.average_buy_price)
     }));
-    
+
     if (cashBalance > 0.01) {
-        data.push({ name: 'Gotówka', value: cashBalance });
+      data.push({ name: 'Gotówka', value: cashBalance });
     }
     return data.sort((a, b) => b.value - a.value);
   }, [holdings, cashBalance]);
 
-  const sectorData = useMemo(() => {
+  const sectorData = useMemo<ChartDatum[]>(() => {
     const sectors: Record<string, number> = {};
     holdings.forEach(h => {
       const sector = h.sector && h.sector !== 'Unknown' ? h.sector : 'Inne';
@@ -49,7 +64,7 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
     });
 
     if (cashBalance > 0.01) {
-        sectors['Gotówka'] = cashBalance;
+      sectors['Gotówka'] = cashBalance;
     }
 
     return Object.entries(sectors)
@@ -57,7 +72,7 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
       .sort((a, b) => b.value - a.value);
   }, [holdings, cashBalance]);
 
-  const industryData = useMemo(() => {
+  const industryData = useMemo<ChartDatum[]>(() => {
     const industries: Record<string, number> = {};
     holdings.forEach(h => {
       const industry = h.industry && h.industry !== 'Unknown' ? h.industry : 'Inne';
@@ -65,8 +80,8 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
       industries[industry] = (industries[industry] || 0) + val;
     });
 
-     if (cashBalance > 0.01) {
-        industries['Gotówka'] = cashBalance;
+    if (cashBalance > 0.01) {
+      industries['Gotówka'] = cashBalance;
     }
 
     return Object.entries(industries)
@@ -76,25 +91,14 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
 
   const formatTooltip = (value: number) => `${value.toFixed(2)} PLN`;
 
-  const ChartSection = ({ title, data }: { title: string, data: any[] }) => (
+  const ChartSection = ({ title, data }: { title: string, data: ChartDatum[] }) => (
     <div className="bg-white p-6 rounded-lg shadow border border-gray-200 flex flex-col items-center">
       <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">{title}</h3>
       <div className="w-full h-64">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={80}
-              fill="#8884d8"
-              paddingAngle={2}
-              dataKey="value"
-              label={renderCustomLabel}
-              labelLine={false}
-            >
-              {data.map((entry, index) => (
+            <Pie data={data} cx="50%" cy="50%" innerRadius={60} outerRadius={80} fill="#8884d8" paddingAngle={2} dataKey="value" label={renderCustomLabel} labelLine={false}>
+              {data.map((_, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
               ))}
             </Pie>

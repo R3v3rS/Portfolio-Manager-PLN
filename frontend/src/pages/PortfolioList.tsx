@@ -56,15 +56,15 @@ const PortfolioList: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!window.confirm(`Czy na pewno chcesz usunąć puste portfolio \"${portfolio.name}\"?`)) {
+    if (!window.confirm(`Czy na pewno chcesz usunąć puste portfolio "${portfolio.name}"?`)) {
       return;
     }
 
     try {
       await api.delete(`/${portfolio.id}`);
       await fetchPortfolios();
-    } catch (err: any) {
-      const message = err?.response?.data?.error || 'Nie udało się usunąć portfolio. Usuń najpierw wszystkie operacje.';
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Nie udało się usunąć portfolio. Usuń najpierw wszystkie operacje.';
       alert(message);
     }
   };
@@ -118,7 +118,7 @@ const PortfolioList: React.FC = () => {
               <select
                 id="type"
                 value={accountType}
-                onChange={(e) => setAccountType(e.target.value as any)}
+                onChange={(e) => setAccountType(e.target.value as 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK')}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
               >
                 <option value="STANDARD">Standard Stocks</option>

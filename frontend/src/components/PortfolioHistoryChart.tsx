@@ -15,7 +15,7 @@ interface PortfolioHistoryChartProps {
   title?: string;
 }
 
-const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data, title = 'Wartość Portfela w Czasie' }) => {
+const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data }) => {
   return (
     <div className="h-80 w-full">
       {/* Title is handled by parent or chart configuration, but Recharts doesn't have a built-in Title component like Chart.js 

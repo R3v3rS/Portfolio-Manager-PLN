@@ -22,12 +22,6 @@ export default function BudgetAnalytics({ selectedAccountId }: Props) {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
 
-  useEffect(() => {
-    if (selectedAccountId) {
-      fetchAnalytics();
-    }
-  }, [selectedAccountId, month, year]);
-
   const fetchAnalytics = async () => {
     try {
       setLoading(true);
@@ -39,6 +33,13 @@ export default function BudgetAnalytics({ selectedAccountId }: Props) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (selectedAccountId) {
+      void fetchAnalytics();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId, month, year]);
 
   const months = [
     "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", 

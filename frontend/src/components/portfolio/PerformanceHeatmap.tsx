@@ -26,7 +26,7 @@ const PerformanceHeatmap: React.FC<PerformanceHeatmapProps> = ({ portfolioId }) 
         const response = await api.get(`/${portfolioId}/performance`);
         setMatrix(response.data.matrix);
         setError(null);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to fetch performance matrix:', err);
         setError('Nie udało się pobrać danych o wynikach.');
       } finally {

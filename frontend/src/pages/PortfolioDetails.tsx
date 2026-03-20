@@ -1,4 +1,4 @@
-import React, { lazy, useEffect, useState, useRef } from 'react';
+import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2 } from 'lucide-react';
 import api from '../api';
@@ -226,8 +226,8 @@ function ClearPortfolioButton({ portfolioId, portfolioName, onSuccess }: { portf
       await api.post(`/${portfolioId}/clear`);
       alert('Portfolio zostało wyczyszczone. Możesz zaimportować dane od nowa.');
       onSuccess();
-    } catch (err: any) {
-      const message = err?.response?.data?.error || 'Nie udało się wyczyścić portfela';
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Nie udało się wyczyścić portfela';
       alert(message);
     } finally {
       setClearing(false);
@@ -369,12 +369,13 @@ const PortfolioDetails: React.FC = () => {
         price: holding.current_price,
       });
       await fetchData();
-    } catch (err: any) {
-      alert('Nie udało się zamknąć pozycji: ' + (err.response?.data?.error || err.message));
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Nieznany błąd';
+      alert('Nie udało się zamknąć pozycji: ' + errorMessage);
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
@@ -445,7 +446,7 @@ const PortfolioDetails: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, id]);
 
   const refreshStockPrices = async () => {
     if (!id || !(portfolio?.account_type === 'STANDARD' || portfolio?.account_type === 'IKE')) return;
@@ -499,7 +500,7 @@ const PortfolioDetails: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [id]);
+  }, [fetchData]);
 
 
   const formatPriceUpdateTimestamp = (timestamp?: string | null) => {
@@ -677,7 +678,7 @@ const PortfolioDetails: React.FC = () => {
             ).map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => setActiveTab(tab as typeof activeTab)}
                 className={cn(
                   activeTab === tab
                     ? 'bg-blue-50 text-blue-700'

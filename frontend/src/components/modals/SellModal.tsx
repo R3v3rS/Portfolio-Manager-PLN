@@ -47,9 +47,10 @@ const SellModal: React.FC<SellModalProps> = ({
       });
       onSuccess();
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      alert(err.response?.data?.error || 'Transaction failed');
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }

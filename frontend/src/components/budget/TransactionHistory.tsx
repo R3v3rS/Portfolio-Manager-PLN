@@ -26,12 +26,6 @@ export default function TransactionHistory({ selectedAccountId, categories, enve
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (selectedAccountId) {
-      fetchTransactions();
-    }
-  }, [selectedAccountId, selectedCategoryId, selectedEnvelopeId]);
-
   const fetchTransactions = async () => {
     if (!selectedAccountId) return;
     setLoading(true);
@@ -44,6 +38,11 @@ export default function TransactionHistory({ selectedAccountId, categories, enve
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void fetchTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId, selectedCategoryId, selectedEnvelopeId]);
 
   // Filter envelopes based on selected category if any
   const filteredEnvelopes = selectedCategoryId
