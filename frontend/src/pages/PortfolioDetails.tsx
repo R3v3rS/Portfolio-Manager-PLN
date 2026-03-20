@@ -7,7 +7,7 @@ import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, 
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
-import { cn } from '../lib/utils';
+import { cn } from '../lib/utils.ts';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
 

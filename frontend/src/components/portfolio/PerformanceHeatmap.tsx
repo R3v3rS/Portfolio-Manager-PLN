@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../api';
-import { cn } from '../../lib/utils';
+import { cn } from '../../lib/utils.ts';
 
 interface PerformanceHeatmapProps {
   portfolioId: number;
