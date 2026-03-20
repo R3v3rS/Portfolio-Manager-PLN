@@ -1,6 +1,6 @@
 import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench, LayoutDashboard, PiggyBank } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
@@ -618,45 +618,26 @@ const PortfolioDetails: React.FC = () => {
           </button>
         </div>
       )}
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/portfolios"
-            className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Wróć do inwestycji</span>
-          </Link>
-          <div className="flex items-center space-x-2">
-            <h1 className="text-2xl font-bold text-gray-900">{portfolio.name}</h1>
-            <span className={cn(
-              "text-xs uppercase tracking-wider font-bold px-2 py-1 rounded-full",
-              portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
-              portfolio.account_type === 'BONDS' ? "bg-amber-100 text-amber-800" :
-              portfolio.account_type === 'IKE' ? "bg-indigo-100 text-indigo-800" :
-              portfolio.account_type === 'PPK' ? "bg-purple-100 text-purple-800" :
-              "bg-gray-100 text-gray-800"
-            )}>
-              {portfolio.account_type}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 md:hidden">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 rounded-md bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200"
-          >
-            <LayoutDashboard className="h-4 w-4" />
-            <span>Pulpit</span>
-          </Link>
-          <Link
-            to="/budget"
-            className="inline-flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
-          >
-            <PiggyBank className="h-4 w-4" />
-            <span>Budżet</span>
-          </Link>
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          to="/portfolios"
+          className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>Wróć do inwestycji</span>
+        </Link>
+        <div className="flex items-center space-x-2">
+          <h1 className="text-2xl font-bold text-gray-900">{portfolio.name}</h1>
+          <span className={cn(
+            "text-xs uppercase tracking-wider font-bold px-2 py-1 rounded-full",
+            portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
+            portfolio.account_type === 'BONDS' ? "bg-amber-100 text-amber-800" :
+            portfolio.account_type === 'IKE' ? "bg-indigo-100 text-indigo-800" :
+            portfolio.account_type === 'PPK' ? "bg-purple-100 text-purple-800" :
+            "bg-gray-100 text-gray-800"
+          )}>
+            {portfolio.account_type}
+          </span>
         </div>
       </div>
 

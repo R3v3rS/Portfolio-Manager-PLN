@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, History, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings } from 'lucide-react';
+import { LayoutDashboard, Wallet, History, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 
@@ -11,6 +11,11 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    setIsMobileNavOpen(false);
+  }, [location.pathname]);
 
   const navItems = [
     { name: 'Pulpit', path: '/', icon: LayoutDashboard },
@@ -27,11 +32,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <nav className="bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
-            <div className="flex">
-              <div className="flex-shrink-0 flex items-center">
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen((prev) => !prev)}
+                className="flex flex-shrink-0 items-center rounded-md px-2 py-1 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 sm:pointer-events-none sm:px-0 sm:py-0 sm:hover:bg-transparent"
+                aria-expanded={isMobileNavOpen}
+                aria-label="Przełącz nawigację mobilną"
+              >
                 <PieChart className="h-8 w-8 text-blue-600" />
                 <span className="ml-2 text-xl font-bold text-gray-900 dark:text-gray-100">Portfolio Manager</span>
-              </div>
+                <span className="ml-2 sm:hidden">
+                  {isMobileNavOpen ? <ChevronUp className="h-4 w-4 text-gray-500 dark:text-gray-300" /> : <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-300" />}
+                </span>
+              </button>
               <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
                 {navItems.map((item) => {
                   const Icon = item.icon;
@@ -66,6 +80,32 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </button>
             </div>
           </div>
+
+          {isMobileNavOpen && (
+            <div className="border-t border-gray-200 py-3 dark:border-gray-800 sm:hidden">
+              <div className="grid grid-cols-1 gap-2">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.path}
+                      className={cn(
+                        isActive
+                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200'
+                          : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800',
+                        'inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors'
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
