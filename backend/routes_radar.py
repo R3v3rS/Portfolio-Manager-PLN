@@ -5,6 +5,7 @@ from database import get_db
 
 radar_bp = Blueprint('radar', __name__)
 
+@radar_bp.route('', methods=['GET'])
 @radar_bp.route('/', methods=['GET'])
 def get_radar():
     try:
