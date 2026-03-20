@@ -1,6 +1,6 @@
 import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench } from 'lucide-react';
 import api from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
@@ -289,6 +289,23 @@ const formatSellDate = (value?: string | null) => {
   return parsed.toLocaleDateString('pl-PL');
 };
 
+type PortfolioAuditDifference = {
+  type: 'quantity_mismatch' | 'total_cost_mismatch' | 'cash_mismatch';
+  ticker?: string;
+  expected: number;
+  actual: number;
+};
+
+type PortfolioAuditResult = {
+  is_consistent: boolean;
+  differences: PortfolioAuditDifference[];
+  rebuilt_state?: {
+    cash: number;
+    realized_profit_total: number;
+    holdings: Record<string, { quantity: number; total_cost: number; avg_price: number }>;
+  };
+};
+
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -314,6 +331,9 @@ const PortfolioDetails: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [portfolioTransactions, setPortfolioTransactions] = useState<Transaction[]>([]);
+  const [auditResult, setAuditResult] = useState<PortfolioAuditResult | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [rebuildLoading, setRebuildLoading] = useState(false);
 
   // Monthly Dividend state
   const [monthlyDividends, setMonthlyDividends] = useState<{ label: string; amount: number }[]>([]);
@@ -467,6 +487,42 @@ const PortfolioDetails: React.FC = () => {
     }
   };
 
+  const runAudit = async () => {
+    if (!id) return;
+
+    setAuditLoading(true);
+    try {
+      const response = await api.get(`/${id}/audit`);
+      setAuditResult(response.data);
+    } catch (err: any) {
+      const message = err?.response?.data?.error || 'Nie udało się uruchomić audytu portfela.';
+      alert(message);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const runRebuild = async () => {
+    if (!id) return;
+
+    const confirmed = window.confirm(
+      'Naprawa nadpisze holdings i stan gotówki na podstawie transakcji. Czy kontynuować?'
+    );
+    if (!confirmed) return;
+
+    setRebuildLoading(true);
+    try {
+      await api.post(`/${id}/rebuild`);
+      await Promise.all([runAudit(), fetchData()]);
+      alert('Portfolio zostało przebudowane na podstawie transakcji.');
+    } catch (err: any) {
+      const message = err?.response?.data?.error || 'Nie udało się przebudować portfela.';
+      alert(message);
+    } finally {
+      setRebuildLoading(false);
+    }
+  };
+
   const fetchHistory = async (ticker: string) => {
     setHistoryLoading(true);
     setSelectedTicker(ticker);
@@ -542,6 +598,24 @@ const PortfolioDetails: React.FC = () => {
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchData} />
           <ClearPortfolioButton portfolioId={portfolio.id} portfolioName={portfolio.name} onSuccess={fetchData} />
+          <button
+            type="button"
+            onClick={runAudit}
+            disabled={auditLoading}
+            className="inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+          >
+            <ShieldAlert className="h-4 w-4" />
+            {auditLoading ? 'Audytowanie...' : 'Audit portfolio'}
+          </button>
+          <button
+            type="button"
+            onClick={runRebuild}
+            disabled={rebuildLoading}
+            className="inline-flex items-center gap-2 rounded border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+          >
+            <Wrench className="h-4 w-4" />
+            {rebuildLoading ? 'Rebuild...' : 'Rebuild from transactions'}
+          </button>
         </div>
       )}
       <div className="flex items-center space-x-4">
@@ -661,6 +735,81 @@ const PortfolioDetails: React.FC = () => {
             </div>
         </div>
       </div>
+
+      {auditResult && (
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Audit integralności portfela</h2>
+              <p className="text-sm text-slate-500">
+                Stan odtworzony wyłącznie z transakcji vs aktualne holdings i cash.
+              </p>
+            </div>
+            <span
+              className={cn(
+                'inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide',
+                auditResult.is_consistent
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-amber-100 text-amber-800'
+              )}
+            >
+              {auditResult.is_consistent ? 'Consistent' : 'Mismatch detected'}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-md bg-slate-50 p-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Rebuilt cash</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900">
+                {auditResult.rebuilt_state?.cash?.toFixed(2) ?? '0.00'} PLN
+              </div>
+            </div>
+            <div className="rounded-md bg-slate-50 p-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Realized profit</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900">
+                {auditResult.rebuilt_state?.realized_profit_total?.toFixed(2) ?? '0.00'} PLN
+              </div>
+            </div>
+            <div className="rounded-md bg-slate-50 p-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Rebuilt holdings</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900">
+                {Object.keys(auditResult.rebuilt_state?.holdings || {}).length}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            {auditResult.differences.length === 0 ? (
+              <p className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                Brak rozbieżności między stanem zapisanym a stanem odtworzonym z transakcji.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium text-slate-500">Typ</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-500">Ticker</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-500">Expected</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-500">Actual</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {auditResult.differences.map((diff, index) => (
+                      <tr key={`${diff.type}-${diff.ticker || 'cash'}-${index}`}>
+                        <td className="px-4 py-2 text-slate-700">{diff.type}</td>
+                        <td className="px-4 py-2 text-slate-700">{diff.ticker || 'CASH'}</td>
+                        <td className="px-4 py-2 text-slate-700">{diff.expected.toFixed(2)}</td>
+                        <td className="px-4 py-2 text-slate-700">{diff.actual.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Navigation & Actions */}
       <div className="bg-white shadow rounded-lg overflow-hidden">

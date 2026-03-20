@@ -7,6 +7,8 @@ from math_utils import xirr
 from modules.ppk.ppk_service import PPKService
 from dataclasses import dataclass
 from typing import Optional, Any
+from decimal import Decimal, ROUND_HALF_UP
+import logging
 import pandas as pd
 import re
 from difflib import get_close_matches
@@ -22,6 +24,22 @@ class SymbolMapping:
 
 class PortfolioService:
     FX_FEE_RATE = 0.005
+    ACCOUNTING_PRECISION = Decimal('0.00000001')
+    ACCOUNTING_OUTPUT_PRECISION = Decimal('0.01')
+
+    @staticmethod
+    def _to_decimal(value: Any) -> Decimal:
+        if value is None:
+            return Decimal('0')
+        return Decimal(str(value))
+
+    @staticmethod
+    def _quantize_accounting(value: Decimal) -> Decimal:
+        return value.quantize(PortfolioService.ACCOUNTING_PRECISION, rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def _serialize_decimal(value: Decimal, places: str = '0.01') -> float:
+        return float(value.quantize(Decimal(places), rounding=ROUND_HALF_UP))
 
     @staticmethod
     def _normalize_symbol_input(symbol_input: str) -> str:
@@ -864,6 +882,275 @@ class PortfolioService:
             (portfolio_id,)
         ).fetchall()
         return [{key: t[key] for key in t.keys()} for t in transactions]
+
+    @staticmethod
+    def rebuild_holdings_from_transactions(portfolio_id: int, subportfolio_id: Optional[int] = None) -> dict[str, Any]:
+        logging.info("Rebuild started for portfolio %s", portfolio_id)
+        db = get_db()
+        portfolio = db.execute('SELECT id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+
+        # Reserved for future subportfolio filtering support once transaction schema is extended.
+        if subportfolio_id is not None:
+            raise ValueError('subportfolio_id filtering is not supported yet')
+
+        transactions = db.execute(
+            '''SELECT id, ticker, type, quantity, total_value, date
+               FROM transactions
+               WHERE portfolio_id = ?
+               ORDER BY date ASC, id ASC''',
+            (portfolio_id,)
+        ).fetchall()
+
+        holdings: dict[str, dict[str, Decimal]] = {}
+        cash = Decimal('0')
+        realized_profit_total = Decimal('0')
+
+        for tx in transactions:
+            tx_type = tx['type']
+            ticker = tx['ticker']
+            quantity = PortfolioService._to_decimal(tx['quantity'])
+            total_value = PortfolioService._to_decimal(tx['total_value'])
+
+            if tx_type == 'DEPOSIT':
+                cash += total_value
+            elif tx_type == 'WITHDRAW':
+                cash -= total_value
+            elif tx_type == 'DIVIDEND' or tx_type == 'INTEREST':
+                cash += total_value
+            elif tx_type == 'BUY':
+                cash -= total_value
+                position = holdings.setdefault(
+                    ticker,
+                    {'quantity': Decimal('0'), 'total_cost': Decimal('0')}
+                )
+                position['quantity'] = PortfolioService._quantize_accounting(position['quantity'] + quantity)
+                position['total_cost'] = PortfolioService._quantize_accounting(position['total_cost'] + total_value)
+            elif tx_type == 'SELL':
+                position = holdings.get(ticker)
+                if not position or position['quantity'] < quantity:
+                    raise ValueError(
+                        f"Insufficient quantity for deterministic rebuild of {ticker} in transaction {tx['id']}"
+                    )
+
+                avg_price = position['total_cost'] / position['quantity']
+                cost_basis = PortfolioService._quantize_accounting(avg_price * quantity)
+                remaining_quantity = PortfolioService._quantize_accounting(position['quantity'] - quantity)
+                remaining_total_cost = PortfolioService._quantize_accounting(position['total_cost'] - cost_basis)
+
+                if remaining_quantity == 0:
+                    remaining_total_cost = Decimal('0')
+                elif remaining_total_cost < 0:
+                    raise ValueError(
+                        f"Negative cost basis detected during rebuild for {ticker} in transaction {tx['id']}"
+                    )
+
+                position['quantity'] = remaining_quantity
+                position['total_cost'] = remaining_total_cost
+                cash += total_value
+                realized_profit_total += total_value - cost_basis
+            else:
+                raise ValueError(f"Unsupported transaction type for rebuild: {tx_type}")
+
+        rebuilt_holdings: dict[str, dict[str, float]] = {}
+        for ticker, position in holdings.items():
+            quantity = PortfolioService._quantize_accounting(position['quantity'])
+            total_cost = PortfolioService._quantize_accounting(position['total_cost'])
+            if quantity <= 0:
+                continue
+
+            avg_price = PortfolioService._quantize_accounting(total_cost / quantity) if quantity else Decimal('0')
+            rebuilt_holdings[ticker] = {
+                'quantity': PortfolioService._serialize_decimal(quantity, '0.00000001'),
+                'total_cost': PortfolioService._serialize_decimal(total_cost),
+                'avg_price': PortfolioService._serialize_decimal(avg_price)
+            }
+
+        result = {
+            'holdings': rebuilt_holdings,
+            'cash': PortfolioService._serialize_decimal(PortfolioService._quantize_accounting(cash)),
+            'realized_profit_total': PortfolioService._serialize_decimal(
+                PortfolioService._quantize_accounting(realized_profit_total)
+            )
+        }
+        logging.info(
+            "Rebuild completed: %s holdings, cash=%s",
+            len(rebuilt_holdings),
+            result['cash']
+        )
+        return result
+
+    @staticmethod
+    def audit_portfolio_integrity(portfolio_id: int, subportfolio_id: Optional[int] = None) -> dict[str, Any]:
+        db = get_db()
+        rebuilt = PortfolioService.rebuild_holdings_from_transactions(portfolio_id, subportfolio_id=subportfolio_id)
+
+        holdings_rows = db.execute(
+            'SELECT ticker, quantity, total_cost FROM holdings WHERE portfolio_id = ? ORDER BY ticker ASC',
+            (portfolio_id,)
+        ).fetchall()
+        stored_holdings = {
+            row['ticker']: {
+                'quantity': PortfolioService._to_decimal(row['quantity']),
+                'total_cost': PortfolioService._to_decimal(row['total_cost'])
+            }
+            for row in holdings_rows
+        }
+
+        differences: list[dict[str, Any]] = []
+        rebuilt_holdings = rebuilt['holdings']
+        all_tickers = sorted(set(stored_holdings.keys()) | set(rebuilt_holdings.keys()))
+        for ticker in all_tickers:
+            rebuilt_holding = rebuilt_holdings.get(ticker)
+            stored_holding = stored_holdings.get(ticker)
+
+            rebuilt_quantity = PortfolioService._to_decimal(rebuilt_holding['quantity'] if rebuilt_holding else 0)
+            stored_quantity = PortfolioService._to_decimal(stored_holding['quantity'] if stored_holding else 0)
+            if PortfolioService._quantize_accounting(rebuilt_quantity) != PortfolioService._quantize_accounting(stored_quantity):
+                differences.append({
+                    'type': 'quantity_mismatch',
+                    'ticker': ticker,
+                    'expected': PortfolioService._serialize_decimal(rebuilt_quantity, '0.00000001'),
+                    'actual': PortfolioService._serialize_decimal(stored_quantity, '0.00000001')
+                })
+
+            rebuilt_total_cost = PortfolioService._to_decimal(rebuilt_holding['total_cost'] if rebuilt_holding else 0)
+            stored_total_cost = PortfolioService._to_decimal(stored_holding['total_cost'] if stored_holding else 0)
+            if PortfolioService._quantize_accounting(rebuilt_total_cost) != PortfolioService._quantize_accounting(stored_total_cost):
+                differences.append({
+                    'type': 'total_cost_mismatch',
+                    'ticker': ticker,
+                    'expected': PortfolioService._serialize_decimal(rebuilt_total_cost),
+                    'actual': PortfolioService._serialize_decimal(stored_total_cost)
+                })
+
+        portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+
+        stored_cash = PortfolioService._to_decimal(portfolio['current_cash'])
+        rebuilt_cash = PortfolioService._to_decimal(rebuilt['cash'])
+        if PortfolioService._quantize_accounting(stored_cash) != PortfolioService._quantize_accounting(rebuilt_cash):
+            differences.append({
+                'type': 'cash_mismatch',
+                'expected': PortfolioService._serialize_decimal(rebuilt_cash),
+                'actual': PortfolioService._serialize_decimal(stored_cash)
+            })
+
+        if differences:
+            logging.warning("Integrity mismatch detected for portfolio %s: %s differences", portfolio_id, len(differences))
+
+        return {
+            'is_consistent': len(differences) == 0,
+            'differences': differences,
+            'rebuilt_state': rebuilt
+        }
+
+    @staticmethod
+    def repair_portfolio_state(portfolio_id: int, subportfolio_id: Optional[int] = None) -> dict[str, Any]:
+        db = get_db()
+        audit_result = PortfolioService.audit_portfolio_integrity(portfolio_id, subportfolio_id=subportfolio_id)
+        rebuilt = audit_result['rebuilt_state']
+
+        holdings_rows = db.execute(
+            'SELECT id, ticker, quantity, total_cost, average_buy_price, currency, auto_fx_fees, company_name, sector, industry '
+            'FROM holdings WHERE portfolio_id = ?',
+            (portfolio_id,)
+        ).fetchall()
+        holdings_by_ticker = {row['ticker']: row for row in holdings_rows}
+
+        changes: list[dict[str, Any]] = []
+
+        try:
+            for ticker, existing in holdings_by_ticker.items():
+                if ticker not in rebuilt['holdings']:
+                    db.execute('DELETE FROM holdings WHERE id = ?', (existing['id'],))
+                    changes.append({
+                        'action': 'deleted_holding',
+                        'ticker': ticker,
+                        'previous': {
+                            'quantity': float(existing['quantity']),
+                            'total_cost': float(existing['total_cost'])
+                        }
+                    })
+
+            for ticker, rebuilt_holding in rebuilt['holdings'].items():
+                quantity = rebuilt_holding['quantity']
+                total_cost = rebuilt_holding['total_cost']
+                avg_price = rebuilt_holding['avg_price']
+                existing = holdings_by_ticker.get(ticker)
+
+                if existing:
+                    previous = {
+                        'quantity': float(existing['quantity']),
+                        'total_cost': float(existing['total_cost']),
+                        'average_buy_price': float(existing['average_buy_price'])
+                    }
+                    db.execute(
+                        '''UPDATE holdings
+                           SET quantity = ?, total_cost = ?, average_buy_price = ?
+                           WHERE id = ?''',
+                        (quantity, total_cost, avg_price, existing['id'])
+                    )
+                    changes.append({
+                        'action': 'updated_holding',
+                        'ticker': ticker,
+                        'previous': previous,
+                        'current': rebuilt_holding
+                    })
+                else:
+                    metadata = db.execute(
+                        'SELECT company_name, sector, industry, currency FROM asset_metadata WHERE ticker = ?',
+                        (ticker,)
+                    ).fetchone()
+                    db.execute(
+                        '''INSERT INTO holdings
+                           (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, company_name, sector, industry)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (
+                            portfolio_id,
+                            ticker,
+                            quantity,
+                            avg_price,
+                            total_cost,
+                            1 if metadata and (metadata['currency'] or 'PLN').upper() != 'PLN' else 0,
+                            (metadata['currency'] if metadata and metadata['currency'] else 'PLN'),
+                            metadata['company_name'] if metadata else None,
+                            metadata['sector'] if metadata else None,
+                            metadata['industry'] if metadata else None
+                        )
+                    )
+                    changes.append({
+                        'action': 'created_holding',
+                        'ticker': ticker,
+                        'current': rebuilt_holding
+                    })
+
+            previous_cash_row = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+            previous_cash = float(previous_cash_row['current_cash']) if previous_cash_row else 0.0
+            db.execute(
+                'UPDATE portfolios SET current_cash = ? WHERE id = ?',
+                (rebuilt['cash'], portfolio_id)
+            )
+            changes.append({
+                'action': 'updated_cash',
+                'previous': previous_cash,
+                'current': rebuilt['cash']
+            })
+
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+        logging.info("Portfolio repaired for portfolio %s with %s changes", portfolio_id, len(changes))
+        return {
+            'portfolio_id': portfolio_id,
+            'changes': changes,
+            'rebuilt_state': rebuilt,
+            'repaired': True
+        }
 
     @staticmethod
     def get_all_transactions():
