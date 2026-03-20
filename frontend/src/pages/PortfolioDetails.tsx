@@ -813,9 +813,10 @@ const PortfolioDetails: React.FC = () => {
 
       {/* Navigation & Actions */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="border-b border-gray-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+        <div className="flex flex-col justify-between space-y-4 border-b border-gray-200 px-6 py-4 md:flex-row md:items-center md:space-y-0">
           {/* Left: View Tabs */}
-          <nav className="flex w-full min-w-max items-center gap-2 overflow-x-auto pb-1 md:w-auto md:pb-0">
+          <div className="w-full overflow-x-auto pb-1 md:w-auto md:pb-0">
+            <nav className="inline-flex min-w-max items-center gap-2">
             {(portfolio.account_type === 'SAVINGS' 
                 ? ['savings', 'history'] 
                 : portfolio.account_type === 'BONDS'
@@ -837,7 +838,8 @@ const PortfolioDetails: React.FC = () => {
                 {tabLabels[tab] || tab}
               </button>
             ))}
-          </nav>
+            </nav>
+          </div>
 
           {/* Right: Action Buttons */}
           {portfolio.account_type !== 'PPK' && (
