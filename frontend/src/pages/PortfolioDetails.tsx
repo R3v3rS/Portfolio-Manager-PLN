@@ -815,7 +815,7 @@ const PortfolioDetails: React.FC = () => {
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="border-b border-gray-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
           {/* Left: View Tabs */}
-          <nav className="flex space-x-4 overflow-x-auto">
+          <nav className="flex w-full min-w-max items-center gap-2 overflow-x-auto pb-1 md:w-auto md:pb-0">
             {(portfolio.account_type === 'SAVINGS' 
                 ? ['savings', 'history'] 
                 : portfolio.account_type === 'BONDS'
@@ -841,7 +841,7 @@ const PortfolioDetails: React.FC = () => {
 
           {/* Right: Action Buttons */}
           {portfolio.account_type !== 'PPK' && (
-            <div className="flex space-x-3">
+            <div className="flex w-full flex-wrap justify-end gap-3 md:w-auto">
                <button
                   onClick={() => setIsTransferModalOpen(true)}
                   className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -902,19 +902,19 @@ const PortfolioDetails: React.FC = () => {
                   </button>
                 </div>
               )}
-              <div className="overflow-x-auto lg:overflow-x-visible">
-                <table className="w-full table-fixed divide-y divide-gray-200">
+              <div className="overflow-x-auto">
+                <table className="min-w-[980px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="w-[30%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
-                      <th className="w-20 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
-                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Śr. Cena</th>
-                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Obecna Cena</th>
-                      <th className="w-32 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktualizacja Ceny</th>
-                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
-                      <th className="w-24 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zysk/Strata</th>
-                      <th className="w-16 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Waga</th>
-                      <th className="w-28 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Akcje</th>
+                      <th className="min-w-[220px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Symbol</th>
+                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Ilość</th>
+                      <th className="min-w-[110px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Śr. Cena</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Obecna Cena</th>
+                      <th className="min-w-[140px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Aktualizacja Ceny</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Wartość</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk/Strata</th>
+                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Waga</th>
+                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Akcje</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -925,9 +925,9 @@ const PortfolioDetails: React.FC = () => {
                         onClick={() => fetchHistory(h.ticker)}
                       >
                         <td className="px-4 py-4 align-top text-sm font-medium text-gray-900">
-                          <div className="min-w-0">
+                          <div className="min-w-[220px]">
                             <div className="font-bold leading-snug break-words whitespace-normal">{h.company_name || h.ticker}</div>
-                            <div className="text-xs text-gray-500 break-all">{h.ticker}</div>
+                            <div className="text-xs text-gray-500 break-all sm:break-normal">{h.ticker}</div>
                             <div className="mt-1 flex flex-wrap gap-1">
                               {h.sector && h.sector !== 'Unknown' && (
                                 <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 whitespace-normal break-words">
