@@ -14,16 +14,22 @@ const COLORS = [
   '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#8dd1e1', '#a4de6c', '#d0ed57', '#ff6b6b'
 ];
 
-const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
-  const RADIAN = Math.PI / 180;
-  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, x, y }: any) => {
+  if (percent < 0.02) return null;
 
-  if (percent < 0.05) return null;
+  // Add a small offset to move text away from the line
+  const offset = x > cx ? 5 : -5;
 
   return (
-    <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={12} fontWeight="bold">
+    <text 
+      x={x + offset} 
+      y={y} 
+      fill="#374151" 
+      textAnchor={x > cx ? 'start' : 'end'} 
+      dominantBaseline="central" 
+      fontSize={10} 
+      fontWeight="600"
+    >
       {`${(percent * 100).toFixed(0)}%`}
     </text>
   );
@@ -80,29 +86,39 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
   const formatTooltip = (value: number) => `${value.toFixed(2)} PLN`;
 
   const ChartSection = ({ title, data }: { title: string, data: any[] }) => (
-    <div className="bg-white p-6 rounded-lg shadow border border-gray-200 flex flex-col items-center">
+    <div className="bg-white p-6 rounded-lg shadow border border-gray-200 flex flex-col items-center min-h-[400px]">
       <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">{title}</h3>
-      <div className="w-full h-64">
+      <div className="w-full h-80">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               data={data}
               cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={80}
+              cy="45%"
+              innerRadius={55}
+              outerRadius={75}
               fill="#8884d8"
-              paddingAngle={2}
+              paddingAngle={1}
               dataKey="value"
               label={renderCustomLabel}
-              labelLine={false}
+              labelLine={{ stroke: '#9ca3af', strokeWidth: 1 }}
             >
               {data.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
               ))}
             </Pie>
             <Tooltip formatter={formatTooltip} />
-            <Legend verticalAlign="bottom" height={36}/>
+            <Legend 
+              verticalAlign="bottom" 
+              align="center"
+              iconType="square"
+              wrapperStyle={{ 
+                paddingTop: '20px',
+                fontSize: '12px',
+                width: '100%',
+                lineHeight: '20px'
+              }}
+            />
           </PieChart>
         </ResponsiveContainer>
       </div>
@@ -110,7 +126,7 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <ChartSection title="Struktura Aktywów" data={assetData} />
         <ChartSection title="Ekspozycja na Sektory" data={sectorData} />
