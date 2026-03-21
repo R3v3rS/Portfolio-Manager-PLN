@@ -671,6 +671,9 @@ const PortfolioDetails: React.FC = () => {
     ppk_history: 'Historia wpłat'
   };
 
+  if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
+  if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
+
   const visibleTabs: ActiveTab[] =
     portfolio.account_type === 'SAVINGS'
       ? ['savings', 'history']
@@ -679,9 +682,6 @@ const PortfolioDetails: React.FC = () => {
         : portfolio.account_type === 'PPK'
           ? ['ppk', 'ppk_history']
           : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed', 'closed_cycles'];
-
-  if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
-  if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
 
   return (
     <div className="space-y-6">
