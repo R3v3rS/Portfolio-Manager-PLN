@@ -129,7 +129,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
 
         response = self.client.get('/api/dashboard/global-summary')
         self.assertEqual(response.status_code, 200, response.get_json())
-        dashboard = response.get_json()
+        dashboard = response.get_json()['payload']
         self.assertIn('net_worth', dashboard)
         self.assertIn('assets_breakdown', dashboard)
         self.assertIn('quick_stats', dashboard)

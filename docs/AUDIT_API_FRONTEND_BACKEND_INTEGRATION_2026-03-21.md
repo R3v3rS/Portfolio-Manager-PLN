@@ -83,7 +83,7 @@ Uwaga:
 - backend nadal zwraca realny kontrakt oparty o pola `net_worth`, `total_assets`, `total_liabilities`, `liabilities_breakdown`, `assets_breakdown`, `quick_stats`,
 - nie ma dowodu, że docelowy kontrakt typu `total_value` / `portfolio_value` / `budget_summary` został wdrożony globalnie.
 
-Wniosek: dashboard jest już zabezpieczony integracyjnie, ale formalny docelowy kontrakt backendowy nadal wymaga decyzji i ujednolicenia.
+Wniosek: dashboard jest już zabezpieczony integracyjnie, a endpoint `global-summary` został przepięty na envelope `{ payload: ... }` bez zmiany wewnętrznego shape danych. Formalny docelowy kontrakt backendowy nadal wymaga jednak dalszego ujednolicania poza tym endpointem.
 
 ---
 
