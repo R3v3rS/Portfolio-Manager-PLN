@@ -132,3 +132,22 @@ Jeśli zaczynasz pracę w projekcie, najlepsza kolejność to:
 ## Porządek dokumentacji
 
 W repo zostały usunięte stare lub mylące dokumenty pomocnicze, które dublowały informacje albo opisywały nieaktualny stan projektu. Od teraz punktem wejścia są wyłącznie ten `README.md` oraz `docs/PROJECT_GUIDE.md`.
+
+
+## Quality gate
+
+Minimalny quality gate dla formalnego domknięcia Etapu 1 uruchomisz jednym poleceniem:
+
+```bash
+./scripts/run_quality_gate.sh
+```
+
+Skrypt wykonuje kolejno:
+
+- `npm --prefix frontend run check`,
+- `npm --prefix frontend run build`,
+- `python -m compileall backend`,
+- `python -m unittest backend.test_smoke_endpoints`.
+
+Smoke test backendu obejmuje krytyczne endpointy: dashboard globalny, listę i wycenę portfeli, create/buy/sell, transfery budżet ↔ inwestycje, harmonogram kredytu, radar i symbol map.
+
