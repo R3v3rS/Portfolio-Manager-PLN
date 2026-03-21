@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../api';
+import { portfolioApi } from '../api';
 import { Transaction, Portfolio } from '../types';
 import { cn } from '../lib/utils.ts';
 
@@ -19,8 +19,8 @@ const Transactions: React.FC = () => {
     const fetchData = async () => {
       try {
         const [tRes, pRes] = await Promise.all([
-          api.get<{ transactions: Transaction[] }>('/transactions/all'),
-          api.get<{ portfolios: Portfolio[] }>('/list')
+          portfolioApi.listTransactions(),
+          portfolioApi.list()
         ]);
         setTransactions(tRes.transactions);
         setPortfolios(pRes.portfolios);

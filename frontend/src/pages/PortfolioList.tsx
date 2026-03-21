@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, ChevronRight, Trash2 } from 'lucide-react';
-import api from '../api';
+import { portfolioApi } from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils.ts';
 
@@ -16,7 +16,7 @@ const PortfolioList: React.FC = () => {
 
   const fetchPortfolios = async () => {
     try {
-      const response = await api.get<{ portfolios: Portfolio[] }>('/list');
+      const response = await portfolioApi.list();
       setPortfolios(response.portfolios);
     } catch (err) {
       console.error('Failed to fetch portfolios', err);
@@ -34,7 +34,7 @@ const PortfolioList: React.FC = () => {
     if (!newPortfolioName.trim()) return;
 
     try {
-      await api.post('/create', {
+      await portfolioApi.create({
         name: newPortfolioName,
         initial_cash: parseFloat(initialCash) || 0,
         account_type: accountType,
@@ -56,12 +56,12 @@ const PortfolioList: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!window.confirm(`Czy na pewno chcesz usunąć puste portfolio \"${portfolio.name}\"?`)) {
+    if (!window.confirm(`Czy na pewno chcesz usunąć puste portfolio "${portfolio.name}"?`)) {
       return;
     }
 
     try {
-      await api.delete(`/${portfolio.id}`);
+      await portfolioApi.remove(portfolio.id);
       await fetchPortfolios();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Nie udało się usunąć portfolio. Usuń najpierw wszystkie operacje.';

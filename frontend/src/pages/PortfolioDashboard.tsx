@@ -1,21 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowUpRight, ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart, Plus } from 'lucide-react';
-import api from '../api';
+import { ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart, Plus } from 'lucide-react';
+import { portfolioApi, type TaxLimitsResponse } from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils.ts';
-
-interface TaxLimitData {
-  deposited: number;
-  limit: number;
-  percentage: number;
-}
-
-interface TaxLimitsResponse {
-  year: number;
-  IKE: TaxLimitData;
-  IKZE: TaxLimitData;
-}
 
 const PortfolioDashboard: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -31,8 +19,8 @@ const PortfolioDashboard: React.FC = () => {
   const fetchData = async () => {
     try {
       const [listRes, limitsRes] = await Promise.all([
-        api.get<{ portfolios: Portfolio[] }>('/list'),
-        api.get<{ limits: TaxLimitsResponse }>('/limits')
+        portfolioApi.list(),
+        portfolioApi.limits()
       ]);
       setPortfolios(listRes.portfolios);
       setTaxLimits(limitsRes.limits);
@@ -53,7 +41,7 @@ const PortfolioDashboard: React.FC = () => {
     if (!newPortfolioName.trim()) return;
 
     try {
-      await api.post('/create', {
+      await portfolioApi.create({
         name: newPortfolioName,
         initial_cash: parseFloat(initialCash) || 0,
         account_type: accountType,

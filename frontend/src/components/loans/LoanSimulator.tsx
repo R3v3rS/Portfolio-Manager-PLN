@@ -13,58 +13,12 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ArrowLeft, TrendingUp, DollarSign, Calendar, Calculator, List, Wallet } from 'lucide-react';
-import { getSchedule, addOverpayment, addRate } from '../../api_loans';
+import { getSchedule, addOverpayment, addRate, type LoanScheduleResponse } from '../../api_loans';
 import { budgetApi, Envelope, BudgetAccount } from '../../api_budget';
 
 
 
 type OverpaymentType = 'REDUCE_TERM' | 'REDUCE_INSTALLMENT';
-
-interface ScheduleEntry {
-  month: number;
-  date: string;
-  interest_rate: number;
-  installment: number;
-  principal_part: number;
-  interest_part: number;
-  overpayment: number;
-  remaining_balance: number;
-  overpayment_type: OverpaymentType | null;
-}
-
-interface OverpaymentEntry {
-  amount: number;
-  date: string;
-  type?: OverpaymentType;
-}
-
-interface LoanScheduleResponse {
-  loan: {
-    id: number;
-    name: string;
-    category?: string;
-    initial_rate: number;
-  };
-  baseline: {
-    schedule: ScheduleEntry[];
-    total_interest: number;
-  };
-  simulation: {
-    schedule: ScheduleEntry[];
-    total_interest: number;
-  };
-  actual_metrics: {
-    interest_saved: number;
-    months_saved: number;
-    interest_saved_to_date: number;
-  };
-  simulated_metrics: {
-    interest_saved: number;
-    months_saved: number;
-    total_interest: number;
-  };
-  overpayments_list: OverpaymentEntry[];
-}
 
 interface ScheduleQueryParams {
   monthly_overpayment?: number;
@@ -145,7 +99,7 @@ const LoanSimulator: React.FC = () => {
         params.simulated_action = simulatedAction;
       }
       const response = await getSchedule(loanId, params);
-      setData(response as LoanScheduleResponse);
+      setData(response);
     } catch (error) {
       console.error('Error fetching loan schedule:', error);
     } finally {
