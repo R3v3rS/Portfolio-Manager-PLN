@@ -759,11 +759,36 @@ const PortfolioDetails: React.FC = () => {
             </dd>
           </div>
         )}
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-amber-500">
-            <dt className="text-sm font-medium text-gray-500 truncate">Alokacja</dt>
-            <div className="h-24">
-                 <PortfolioChart holdings={holdings} cash={valueData.cash_value} />
-            </div>
+        <div className="bg-white overflow-hidden shadow rounded-lg p-4 border-t-4 border-amber-500 flex flex-col justify-center gap-2">
+            {portfolio.account_type !== 'PPK' && (
+                <>
+                    <button
+                        onClick={() => setIsTransferModalOpen(true)}
+                        className="w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                        <RefreshCw className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
+                        Transfer
+                    </button>
+                    <button
+                        onClick={() => setIsTransactionModalOpen(true)}
+                        className="w-full inline-flex items-center justify-center px-3 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                        <Plus className="-ml-1 mr-2 h-4 w-4" />
+                        Nowa Operacja
+                    </button>
+                    
+                    {(portfolio.account_type === 'STANDARD' || portfolio.account_type === 'IKE') && (
+                        <button
+                            onClick={refreshStockPrices}
+                            disabled={refreshingPrices}
+                            className="w-full inline-flex items-center justify-center px-3 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
+                            {refreshingPrices ? 'Odświeżanie...' : 'Odśwież ceny z giełdy'}
+                        </button>
+                    )}
+                </>
+            )}
         </div>
       </div>
 
@@ -864,26 +889,6 @@ const PortfolioDetails: React.FC = () => {
             ))}
             </nav>
           </div>
-
-          {/* Right: Action Buttons */}
-          {portfolio.account_type !== 'PPK' && (
-            <div className="flex w-full flex-wrap justify-end gap-3 md:w-auto">
-               <button
-                  onClick={() => setIsTransferModalOpen(true)}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-               >
-                  <RefreshCw className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
-                  Transfer
-               </button>
-               <button
-                  onClick={() => setIsTransactionModalOpen(true)}
-                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-               >
-                  <Plus className="-ml-1 mr-2 h-4 w-4" />
-                  Nowa Operacja
-               </button>
-            </div>
-          )}
         </div>
 
         <div className="p-6">
@@ -916,18 +921,6 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'holdings' && (
             <div className="space-y-6">
-              {(portfolio.account_type === 'STANDARD' || portfolio.account_type === 'IKE') && (
-                <div className="flex justify-end">
-                  <button
-                    onClick={refreshStockPrices}
-                    disabled={refreshingPrices}
-                    className="inline-flex items-center px-4 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
-                    {refreshingPrices ? 'Odświeżanie cen...' : 'Odśwież ceny z giełdy'}
-                  </button>
-                </div>
-              )}
               <div className="overflow-x-auto">
                 <table className="min-w-[980px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
