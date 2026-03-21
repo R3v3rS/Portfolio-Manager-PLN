@@ -35,7 +35,7 @@ const LoansDashboard: React.FC = () => {
   const fetchLoans = async () => {
     try {
       const response = await getLoans();
-      setLoans(response.data);
+      setLoans(response as Loan[]);
     } catch (error) {
       console.error('Error fetching loans:', error);
     }
@@ -111,8 +111,8 @@ const LoansDashboard: React.FC = () => {
       
       try {
         const responses = await Promise.all(detailsPromises);
-        const details = responses.map(res => {
-            const schedule = res.data.baseline.schedule;
+        const details = responses.map((res: any) => {
+            const schedule = res.baseline.schedule;
             // Find current status based on today's date?
             // Or just take the last entry if loan is finished?
             // Or find the entry corresponding to current month.
@@ -121,7 +121,7 @@ const LoansDashboard: React.FC = () => {
             const today = new Date();
             const currentEntry = schedule.find((entry: any) => new Date(entry.date) > today) || schedule[schedule.length - 1];
             return {
-                ...res.data.loan,
+                ...res.loan,
                 current_balance: currentEntry ? currentEntry.remaining_balance : 0,
                 current_installment: currentEntry ? currentEntry.installment : 0
             };

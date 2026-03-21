@@ -19,11 +19,11 @@ const Transactions: React.FC = () => {
     const fetchData = async () => {
       try {
         const [tRes, pRes] = await Promise.all([
-          api.get('/transactions/all'),
-          api.get('/list')
+          api.get<{ transactions: Transaction[] }>('/transactions/all'),
+          api.get<{ portfolios: Portfolio[] }>('/list')
         ]);
-        setTransactions(tRes.data.transactions);
-        setPortfolios(pRes.data.portfolios);
+        setTransactions(tRes.transactions);
+        setPortfolios(pRes.portfolios);
       } catch (err) {
         console.error('Failed to fetch data', err);
       } finally {

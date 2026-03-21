@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { budgetApi, BudgetSummary, Envelope, EnvelopeLoan } from '../../api_budget';
+import { budgetApi, BudgetSummary, Envelope } from '../../api_budget';
+import { createHttpClient } from '../../http';
 import { Banknote, Plus, FolderPlus, Wallet, Send, MinusCircle, ArrowRightLeft, TrendingUp, PieChart, AlertTriangle, ChevronDown, Percent, ChevronLeft, ChevronRight, Copy, XCircle, Pencil } from 'lucide-react';
 import TransactionHistory from './TransactionHistory';
 import BudgetAnalytics from './BudgetAnalytics';
+
+const portfolioApi = createHttpClient('/api/portfolio');
 
 export default function BudgetDashboard() {
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
@@ -80,8 +83,7 @@ export default function BudgetDashboard() {
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/budget/categories');
-      const data = await res.json();
+      const data = await budgetApi.getCategories();
       setCategories(data);
     } catch (err) {
       console.error(err);
@@ -90,8 +92,7 @@ export default function BudgetDashboard() {
 
   const fetchPortfolios = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/portfolio/list');
-      const data = await res.json();
+      const data = await portfolioApi.get<{ portfolios: any[] }>('/list');
       setPortfolios(data.portfolios || []);
     } catch (err) {
       console.error(err);
@@ -312,7 +313,7 @@ export default function BudgetDashboard() {
   const handleReset = async () => {
     if (confirm("WARNING: This will DELETE ALL budget data (Transactions, Envelopes, Loans). Are you sure?")) {
       try {
-        await fetch('http://localhost:5000/api/budget/reset', { method: 'POST' });
+        await budgetApi.reset();
         alert("Budget data reset successfully.");
         window.location.reload(); // Reload to clear all states
       } catch (err: any) {

@@ -31,7 +31,7 @@ export default function BudgetAnalytics({ selectedAccountId }: Props) {
   const fetchAnalytics = async () => {
     try {
       setLoading(true);
-      const res = await budgetApi.getAnalytics(selectedAccountId, year, month);
+      const res = await budgetApi.getAnalytics<AnalyticsData>(selectedAccountId, year, month);
       setData(res);
     } catch (error) {
       console.error("Failed to fetch analytics", error);

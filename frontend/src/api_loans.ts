@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { createHttpClient } from './http';
 
 export interface LoanPayload {
   name: string;
@@ -28,18 +28,13 @@ export interface ScheduleQuery {
   simulated_action?: 'REDUCE_TERM' | 'REDUCE_INSTALLMENT';
 }
 
-const api = axios.create({
-  baseURL: '/api/loans',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const api = createHttpClient('/api/loans');
 
-export const getLoans = () => api.get('/');
+export const getLoans = () => api.get<unknown[]>('/');
 export const createLoan = (data: LoanPayload) => api.post('/', data);
 export const addRate = (id: number, data: LoanRatePayload) => api.post(`/${id}/rates`, data);
 export const addOverpayment = (id: number, data: LoanOverpaymentPayload) => api.post(`/${id}/overpayments`, data);
 export const deleteLoan = (id: number) => api.delete(`/${id}`);
-export const getSchedule = (id: number, params?: ScheduleQuery) => api.get(`/${id}/schedule`, { params });
+export const getSchedule = (id: number, params?: ScheduleQuery) => api.get(`/${id}/schedule`, { params: params as Record<string, string | number | boolean | null | undefined> | undefined });
 
 export default api;

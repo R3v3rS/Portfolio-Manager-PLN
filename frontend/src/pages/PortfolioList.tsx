@@ -16,8 +16,8 @@ const PortfolioList: React.FC = () => {
 
   const fetchPortfolios = async () => {
     try {
-      const response = await api.get('/list');
-      setPortfolios(response.data.portfolios);
+      const response = await api.get<{ portfolios: Portfolio[] }>('/list');
+      setPortfolios(response.portfolios);
     } catch (err) {
       console.error('Failed to fetch portfolios', err);
     } finally {
@@ -63,8 +63,8 @@ const PortfolioList: React.FC = () => {
     try {
       await api.delete(`/${portfolio.id}`);
       await fetchPortfolios();
-    } catch (err: any) {
-      const message = err?.response?.data?.error || 'Nie udało się usunąć portfolio. Usuń najpierw wszystkie operacje.';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nie udało się usunąć portfolio. Usuń najpierw wszystkie operacje.';
       alert(message);
     }
   };

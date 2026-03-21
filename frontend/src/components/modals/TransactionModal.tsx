@@ -102,9 +102,9 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
       await api.post(endpoint, payload);
       onSuccess();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Transaction failed');
+      alert(err instanceof Error ? err.message : 'Transaction failed');
     } finally {
       setLoading(false);
     }
