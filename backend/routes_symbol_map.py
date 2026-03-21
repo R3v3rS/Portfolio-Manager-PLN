@@ -4,7 +4,7 @@ from database import get_db
 symbol_map_bp = Blueprint('symbol_map', __name__)
 
 
-@symbol_map_bp.route('', methods=['GET'])
+@symbol_map_bp.route('', methods=['GET'], strict_slashes=False)
 def list_symbol_mappings():
     db = get_db()
     rows = db.execute(
@@ -24,7 +24,7 @@ def list_symbol_mappings():
     ]), 200
 
 
-@symbol_map_bp.route('', methods=['POST'])
+@symbol_map_bp.route('', methods=['POST'], strict_slashes=False)
 def create_symbol_mapping():
     payload = request.get_json(silent=True) or {}
     symbol_input_raw = payload.get('symbol_input', '')
@@ -72,7 +72,7 @@ def create_symbol_mapping():
     }), 201
 
 
-@symbol_map_bp.route('/<int:mapping_id>', methods=['PUT'])
+@symbol_map_bp.route('/<int:mapping_id>', methods=['PUT'], strict_slashes=False)
 def update_symbol_mapping(mapping_id: int):
     payload = request.get_json(silent=True) or {}
     ticker_raw = payload.get('ticker')
@@ -126,7 +126,7 @@ def update_symbol_mapping(mapping_id: int):
     }), 200
 
 
-@symbol_map_bp.route('/<int:mapping_id>', methods=['DELETE'])
+@symbol_map_bp.route('/<int:mapping_id>', methods=['DELETE'], strict_slashes=False)
 def delete_symbol_mapping(mapping_id: int):
     db = get_db()
     existing = db.execute('SELECT id FROM symbol_mappings WHERE id = ?', (mapping_id,)).fetchone()

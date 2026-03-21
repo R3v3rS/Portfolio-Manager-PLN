@@ -203,6 +203,10 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertEqual(response.get_json(), [])
 
+        response = self.client.get('/api/symbol-map/')
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json(), [])
+
 
 if __name__ == '__main__':
     unittest.main()
