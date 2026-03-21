@@ -78,15 +78,14 @@ def error_response(
 ):
     """Return the canonical error envelope.
 
-    `details` stays optional so callers can introduce richer structured metadata
-    without forcing every legacy caller to provide it immediately.
+    `details` stays optional for callers, but the serialized API contract always
+    includes a `details` object so clients can rely on a stable schema.
     """
     error: ApiErrorBody = {
         'code': code,
         'message': message,
+        'details': details or {},
     }
-    if details is not None:
-        error['details'] = details
 
     envelope: ApiErrorEnvelope = {'error': error}
     return jsonify(envelope), status
