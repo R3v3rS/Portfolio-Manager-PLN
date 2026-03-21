@@ -44,6 +44,7 @@ export interface PortfolioHistoryPoint {
   value: number;
   net_contributions?: number;
   benchmark_value?: number;
+  benchmark_inflation?: number;
   cash_value?: number;
   holdings_value?: number;
 }

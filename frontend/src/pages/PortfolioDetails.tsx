@@ -1103,6 +1103,7 @@ const PortfolioDetails: React.FC = () => {
                     className="block w-48 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
                   >
                     <option value="">Brak</option>
+                    <option value="__INFLATION__">Inflacja (PL)</option>
                     <option value="^GSPC">S&P 500 (^GSPC)</option>
                     <option value="ETFBW20TR.WA">WIG20 TR (BETA ETF)</option>
                     <option value="ETFBM40TR.WA">mWIG40 TR (BETA ETF)</option>
@@ -1116,7 +1117,20 @@ const PortfolioDetails: React.FC = () => {
               {portfolioHistory.length > 0 ? (
                 <div className="space-y-8">
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                      <PortfolioHistoryChart data={portfolioHistory} />
+                      <PortfolioHistoryChart 
+                        data={portfolioHistory} 
+                        benchmarkName={
+                          selectedBenchmark === '__INFLATION__' ? 'Inflacja (PL)' :
+                          selectedBenchmark === '^GSPC' ? 'S&P 500' :
+                          selectedBenchmark === 'ETFBW20TR.WA' ? 'WIG20 TR' :
+                          selectedBenchmark === 'ETFBM40TR.WA' ? 'mWIG40 TR' :
+                          selectedBenchmark === 'SPOL.L' ? 'MSCI Poland' :
+                          selectedBenchmark === 'VT' ? 'Cały Świat' :
+                          selectedBenchmark === 'EEM' ? 'Rynki Wschodzące' :
+                          selectedBenchmark === '^STOXX' ? 'Europa STOXX 600' :
+                          'Benchmark'
+                        }
+                      />
                     </div>
                     
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Historia Zysku/Straty</h3>
