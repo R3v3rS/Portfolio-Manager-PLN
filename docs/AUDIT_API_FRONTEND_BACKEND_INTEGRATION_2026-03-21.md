@@ -2,13 +2,14 @@
 
 Data audytu: 2026-03-21  
 Data aktualizacji po ponownej weryfikacji repo: 2026-03-21  
-Zakres: kontrakt API, warstwa HTTP frontendu, compatibility unwrap/error parsing, krytyczne ekrany UI, quality gate i smoke testy backendu.
+Zakres: kontrakt API, warstwa HTTP frontendu, compatibility unwrap/error parsing, krytyczne ekrany UI, quality gate, lint i smoke testy backendu.
 
 ## Status końcowy
 
 - **Stan jest wyraźnie lepszy niż w pierwotnej wersji audytu.**
 - **Najważniejsze elementy warstwy integracyjnej po stronie frontendu zostały już wdrożone.**
 - **Projekt nie ma dziś czerwonego, oczywistego blokera builda ani podstawowych smoke testów**, ale nadal ma **otwarte ryzyka kontraktowe po stronie backendu**, bo odpowiedzi success/error nie są jeszcze w pełni ujednolicone endpoint-by-endpoint.
+- **Pełny quality gate nadal nie jest zielony**, ponieważ osobno uruchomiony lint frontendu kończy się błędami `@typescript-eslint/no-explicit-any` i `@typescript-eslint/no-unused-vars` oraz ostrzeżeniami `react-hooks/exhaustive-deps`.
 
 Najważniejsza zmiana względem wcześniejszej wersji audytu:
 - frontend ma już wspólny klient HTTP,
@@ -281,9 +282,16 @@ Nadal do poprawy:
 
 ### 7.2 unused vars / martwy kod
 
-**Wynik: CZĘŚCIOWO ZWERYFIKOWANE**
+**Wynik: FAIL dla aktualnego lint frontendu**
 
-Nie uruchamiano osobno `eslint`, więc nie potwierdzam pełnej listy unused vars.
+Osobno uruchomiony `npm --prefix frontend run lint` nie przechodzi. Aktualnie potwierdzone problemy to m.in.:
+- `@typescript-eslint/no-explicit-any` w kilku komponentach portfela, kredytów i modali,
+- `@typescript-eslint/no-unused-vars` w części komponentów wykresów i stron,
+- ostrzeżenia `react-hooks/exhaustive-deps` w dashboardzie budżetu i historii transakcji.
+
+Wniosek praktyczny:
+- minimalny quality gate (`check`, `build`, `compileall`, `smoke`) jest zielony,
+- pełniejszy gate jakościowy z lintem nadal wymaga domknięcia.
 
 Po stronie architektury pozytywna zmiana jest jednak istotna:
 - wcześniejszy chaos wielu konkurencyjnych mini-warstw HTTP został w dużej mierze zastąpiony jednym klientem i wspólnymi modułami API.
@@ -302,11 +310,14 @@ To oznacza, że wcześniejszy status „niezweryfikowane automatem” jest już 
 
 ### 8.2 UI
 
-**Wynik: PASS dla check/build, E2E manual nadal niepełne**
+**Wynik: MIXED — PASS dla check/build, FAIL dla lint, E2E manual nadal niepełne**
 
 Potwierdzone:
 - aplikacja przechodzi TypeScript check,
 - aplikacja buduje się poprawnie.
+
+Nie przechodzi:
+- lint frontendu (`npm --prefix frontend run lint`).
 
 Nadal niepotwierdzone w tej aktualizacji:
 - pełny manualny smoke test wszystkich ekranów w przeglądarce.
@@ -321,6 +332,7 @@ Nadal niepotwierdzone w tej aktualizacji:
 - **backend nie ma jeszcze pełnej standaryzacji `error.details`**,
 - **część odpowiedzi nadal jest legacy i endpoint-specific**,
 - **część UI nadal ma dług typowania (`any`, lokalne założenia DTO)**,
+- **lint frontendu jest obecnie czerwony i potwierdza zaległości w `any`, unused vars i hook dependencies**,
 - **brak pełnego manualnego E2E UI po całej aplikacji**,
 - **build ostrzega o dużych chunkach frontendu**.
 

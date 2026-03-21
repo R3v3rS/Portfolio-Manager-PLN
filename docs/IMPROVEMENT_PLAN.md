@@ -17,7 +17,7 @@ Dokument został zaktualizowany po przeglądzie repo oraz wnioskach z:
 ### Co jest już potwierdzone jako wykonane
 
 #### Etap 1 — Stabilizacja podstaw
-Stan: **w dużej mierze wykonany**.
+Stan: **w dużej mierze wykonany, ale nie w pełni zielony jakościowo**.
 
 Potwierdzone w repo i komendami:
 - frontend przechodzi `npm --prefix frontend run check`,
@@ -26,7 +26,11 @@ Potwierdzone w repo i komendami:
 - istnieje smoke test krytycznych endpointów `python backend/test_smoke_endpoints.py`,
 - najważniejsze flowy backendowe mają przynajmniej podstawową automatyczną weryfikację integracyjną.
 
-Wniosek: Etap 1 nie jest już „tylko częściowo zaczęty” — jego fundament został realnie domknięty. Nadal warto go poszerzać o więcej testów biznesowych, ale podstawowy quality gate już istnieje i działa.
+Dodatkowa weryfikacja wykazała też, że:
+- skrypt `npm --prefix frontend run lint` istnieje, ale obecnie **nie przechodzi**,
+- główne problemy lintu to `no-explicit-any`, `no-unused-vars` i ostrzeżenia hook dependencies.
+
+Wniosek: Etap 1 nie jest już „tylko częściowo zaczęty” — jego fundament został realnie domknięty. Nadal jednak nie można go uznać za całkowicie zamknięty, dopóki lint frontendu pozostaje czerwony i testy biznesowe są wciąż ograniczone.
 
 #### Etap 2 — Ujednolicenie komunikacji frontend ↔ backend
 Stan: **w dużej mierze wykonany, ale nie domknięty po stronie backendowego standardu odpowiedzi**.
@@ -75,7 +79,8 @@ Na podstawie aktualnego stanu repo najwyższy wpływ na jakość mają dziś nas
 3. **Nadal obecny dług typowania i lokalnych założeń DTO w części UI**.
 4. **Brak rozszerzonych testów regresji dla logiki biznesowej wysokiego ryzyka**.
 5. **Brak pełnego manualnego E2E smoke testu frontendu po głównych ekranach**.
-6. **Ostrzeżenia o dużych chunkach frontendu przy buildzie**.
+6. **Lint frontendu jest czerwony i ujawnia zaległości typowania oraz porządku kodu**.
+7. **Ostrzeżenia o dużych chunkach frontendu przy buildzie**.
 
 ---
 
@@ -129,11 +134,11 @@ Najwyższy priorytet mają:
 - harmonogramy kredytów,
 - dashboard globalny.
 
-#### 1.3 Rozszerzyć quality gate o lint i/lub kolejne testy
-Obecne minimum już działa, ale warto dodać:
-- `npm --prefix frontend run lint`,
-- bardziej granularne testy backendowe,
-- ewentualne testy UI dla kluczowych flowów.
+#### 1.3 Domknąć quality gate o zielony lint i kolejne testy
+Obecne minimum już działa, ale nadal wymaga domknięcia:
+- naprawić bieżące błędy `npm --prefix frontend run lint`,
+- dodać bardziej granularne testy backendowe,
+- rozważyć testy UI dla kluczowych flowów.
 
 ### Efekt końcowy etapu
 - zmiany będą bezpieczniejsze,
@@ -381,8 +386,9 @@ Najwyższy zwrot teraz dadzą:
 3. dodać testy błędnych payloadów buy / sell / transfer,
 4. ograniczyć najbardziej ryzykowne `any` w warstwie integracyjnej UI,
 5. uruchomić manualny smoke test ekranów: dashboard, radar, budżet, portfolio details,
-6. dodać `npm --prefix frontend run lint` do minimalnego quality gate,
-7. rozważyć podział największych chunków frontendu.
+6. naprawić aktualne błędy `npm --prefix frontend run lint`,
+7. utrzymać lint jako obowiązkowy element minimalnego quality gate,
+8. rozważyć podział największych chunków frontendu.
 
 ---
 
@@ -473,7 +479,7 @@ Plan będzie można uznać za skutecznie wdrażany, jeśli projekt osiągnie nas
 ## 8. Rekomendacja końcowa
 
 Najważniejsza zmiana względem wcześniejszej wersji planu jest taka:
-- **Etap 1 nie jest już tylko planem — jego minimalny quality gate działa**,
+- **Etap 1 nie jest już tylko planem — jego minimalny quality gate działa, choć pełny gate z lintem nadal wymaga domknięcia**,
 - **Etap 2 nie jest już główną dziurą architektoniczną po stronie frontendu — wspólna warstwa HTTP została wdrożona**,
 - **główny ciężar prac przesunął się teraz na backendowy standard kontraktu, walidację i dalsze testy regresji**.
 
