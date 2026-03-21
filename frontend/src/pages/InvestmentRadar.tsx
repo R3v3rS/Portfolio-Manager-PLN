@@ -3,6 +3,7 @@ import { Radar, Plus, Trash2, TrendingUp, TrendingDown, Calendar, AlertCircle, R
 import { RadarItem } from '../types';
 import StockProfilerModal from '../components/StockProfilerModal';
 import { radarApi } from '../api_radar';
+import { extractErrorMessageFromUnknown } from '../http/response';
 
 const InvestmentRadar: React.FC = () => {
   const [radarItems, setRadarItems] = useState<RadarItem[]>([]);
@@ -21,7 +22,8 @@ const InvestmentRadar: React.FC = () => {
       setError(null);
     } catch (err) {
       console.error('Error fetching radar data:', err);
-      setError(err instanceof Error ? err.message : 'Nie udało się pobrać danych radaru.');
+      setRadarItems([]);
+      setError(extractErrorMessageFromUnknown(err));
     } finally {
       setIsLoading(false);
     }
@@ -38,7 +40,7 @@ const InvestmentRadar: React.FC = () => {
       await fetchRadarData(false);
     } catch (err) {
       console.error('Error refreshing radar:', err);
-      setError(err instanceof Error ? err.message : 'Nie udało się odświeżyć danych.');
+      setError(extractErrorMessageFromUnknown(err));
     }
   };
 
@@ -62,10 +64,10 @@ const InvestmentRadar: React.FC = () => {
       await radarApi.addToWatchlist(newTicker.toUpperCase());
 
       setNewTicker('');
-      fetchRadarData(false);
+      await fetchRadarData(false);
     } catch (err) {
       console.error('Error adding ticker:', err);
-      setError(err instanceof Error ? err.message : 'Nie udało się dodać tickera.');
+      setError(extractErrorMessageFromUnknown(err));
     }
   };
 
@@ -75,10 +77,10 @@ const InvestmentRadar: React.FC = () => {
     try {
       await radarApi.removeFromWatchlist(ticker);
 
-      fetchRadarData(false);
+      await fetchRadarData(false);
     } catch (err) {
       console.error('Error removing ticker:', err);
-      setError(err instanceof Error ? err.message : 'Nie udało się usunąć tickera.');
+      setError(extractErrorMessageFromUnknown(err));
     }
   };
 

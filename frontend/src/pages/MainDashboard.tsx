@@ -1,48 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { createHttpClient } from '../http';
+import { dashboardApi, EMPTY_GLOBAL_SUMMARY, type GlobalSummary } from '../api_dashboard';
+import { extractErrorMessageFromUnknown } from '../http/response';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
-import { Wallet, TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
+import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
 import { cn } from '../lib/utils.ts';
 
-interface GlobalSummary {
-  net_worth: number;
-  total_assets: number;
-  total_liabilities: number;
-  liabilities_breakdown: {
-    short_term: number;
-    long_term: number;
-  };
-  assets_breakdown: {
-    budget_cash: number;
-    invest_cash: number;
-    savings: number;
-    bonds: number;
-    stocks: number;
-    ppk: number;
-  };
-  quick_stats: {
-    free_pool: number;
-    next_loan_installment: number;
-    next_loan_date: string | null;
-  };
-}
-
-const dashboardApi = createHttpClient('/api/dashboard');
-
 const MainDashboard: React.FC = () => {
-  const [data, setData] = useState<GlobalSummary | null>(null);
+  const [data, setData] = useState<GlobalSummary>(EMPTY_GLOBAL_SUMMARY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await dashboardApi.get<GlobalSummary>('/global-summary');
-        setData(res);
+        const summary = await dashboardApi.getGlobalSummary();
+        setData(summary);
+        setError(null);
       } catch (err) {
         console.error(err);
-        setError('Nie udało się pobrać danych kokpitu.');
+        setError(extractErrorMessageFromUnknown(err));
+        setData(EMPTY_GLOBAL_SUMMARY);
       } finally {
         setLoading(false);
       }
@@ -52,7 +30,6 @@ const MainDashboard: React.FC = () => {
 
   if (loading) return <div className="p-12 text-center text-gray-500">Ładowanie kokpitu...</div>;
   if (error) return <div className="p-12 text-center text-red-600">{error}</div>;
-  if (!data) return null;
 
   const chartData = [
     { name: 'Gotówka (Budżet)', value: data.assets_breakdown.budget_cash, color: '#10B981' }, // emerald-500

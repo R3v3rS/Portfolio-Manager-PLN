@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, TrendingUp, TrendingDown, AlertCircle, Activity, DollarSign, Users } from 'lucide-react';
 import { radarApi } from '../api_radar';
+import { extractErrorMessageFromUnknown } from '../http/response';
 import { StockAnalysisData } from '../types';
 
 interface StockProfilerModalProps {
@@ -24,7 +25,8 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
         setData(result);
       } catch (err) {
         console.error(err);
-        setError(err instanceof Error ? err.message : 'Nie udało się pobrać danych analitycznych.');
+        setData(null);
+        setError(extractErrorMessageFromUnknown(err));
       } finally {
         setLoading(false);
       }

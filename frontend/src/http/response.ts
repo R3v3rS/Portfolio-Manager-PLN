@@ -191,6 +191,24 @@ export function extractErrorMessage(errorBody: unknown): string {
   return FALLBACK_ERROR_MESSAGE;
 }
 
+export function extractErrorMessageFromUnknown(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'body' in error) {
+    const bodyMessage = extractErrorMessage((error as { body?: unknown }).body);
+    if (bodyMessage !== FALLBACK_ERROR_MESSAGE) {
+      return bodyMessage;
+    }
+  }
+
+  if (error instanceof Error) {
+    const message = normalizeText(error.message);
+    if (message) {
+      return message;
+    }
+  }
+
+  return extractErrorMessage(error);
+}
+
 export async function parseJsonApiResponse<T = unknown>(response: Response): Promise<T> {
   const body = await parseBody(response);
 
