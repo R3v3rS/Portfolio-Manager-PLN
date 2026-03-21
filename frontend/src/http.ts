@@ -1,3 +1,5 @@
+import { parseJsonApiResponse } from './http/response';
+
 export type QueryParamValue =
   | string
   | number
@@ -29,29 +31,6 @@ export class HttpError<T = unknown> extends Error {
     this.data = data;
   }
 }
-
-const JSON_CONTENT_TYPES = ['application/json', '+json'];
-
-const isJsonContentType = (contentType: string | null) => {
-  if (!contentType) return false;
-  const normalized = contentType.toLowerCase();
-  return JSON_CONTENT_TYPES.some((marker) => normalized.includes(marker));
-};
-
-const maybeParseJsonText = (text: string) => {
-  const trimmed = text.trim();
-  if (!trimmed) return undefined;
-
-  if (!['{', '[', '"'].includes(trimmed[0]) && trimmed !== 'null' && trimmed !== 'true' && trimmed !== 'false' && !/^\d/.test(trimmed)) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return undefined;
-  }
-};
 
 const isBodyInit = (value: unknown): value is BodyInit => {
   return (
@@ -132,56 +111,6 @@ const prepareBody = (body: unknown, headers: Headers) => {
   return JSON.stringify(body);
 };
 
-const extractMessage = (status: number, data: unknown, fallbackText?: string) => {
-  if (typeof data === 'string' && data.trim()) return data;
-
-  if (data && typeof data === 'object') {
-    const candidate = data as Record<string, unknown>;
-    const value = candidate.error ?? candidate.message ?? candidate.detail;
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-
-  if (fallbackText?.trim()) return fallbackText.trim();
-  return `Request failed (${status})`;
-};
-
-const parseResponse = async <T>(response: Response): Promise<T> => {
-  if (response.status === 204 || response.status === 205) {
-    return undefined as T;
-  }
-
-  const text = await response.text();
-  if (!text.trim()) {
-    if (!response.ok) {
-      throw new HttpError(extractMessage(response.status, undefined), response.status);
-    }
-    return undefined as T;
-  }
-
-  const contentType = response.headers.get('content-type');
-  const shouldParseAsJson = isJsonContentType(contentType);
-
-  let parsed: unknown;
-  if (shouldParseAsJson) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      if (!response.ok) {
-        throw new HttpError(extractMessage(response.status, undefined, text), response.status);
-      }
-      throw new HttpError('Nie udało się odczytać odpowiedzi JSON z serwera.', response.status);
-    }
-  } else {
-    parsed = maybeParseJsonText(text) ?? text;
-  }
-
-  if (!response.ok) {
-    throw new HttpError(extractMessage(response.status, parsed, text), response.status, parsed as T);
-  }
-
-  return parsed as T;
-};
-
 async function request<T>(
   method: string,
   path: string,
@@ -196,7 +125,13 @@ async function request<T>(
     signal: options.signal,
   });
 
-  return parseResponse<T>(response);
+  try {
+    return await parseJsonApiResponse<T>(response);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Request failed';
+    const data = typeof error === 'object' && error !== null && 'body' in error ? (error as { body?: T }).body : undefined;
+    throw new HttpError<T>(message, response.status, data);
+  }
 }
 
 export const http = {
