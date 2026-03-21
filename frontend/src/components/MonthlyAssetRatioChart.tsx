@@ -48,21 +48,21 @@ const MonthlyAssetRatioChart: React.FC<MonthlyAssetRatioChartProps> = ({ data })
       </div>
 
       {chartData.length > 0 ? (
-        <div className="h-80 w-full">
+        <div className="h-96 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
-              margin={{ top: 10, right: 24, left: 8, bottom: 48 }}
+              margin={{ top: 30, right: 24, left: 8, bottom: 50 }}
               barCategoryGap="18%"
             >
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
               <XAxis
                 dataKey="label"
-                angle={-35}
+                angle={-45}
                 textAnchor="end"
-                height={70}
+                height={75}
                 interval={0}
-                tick={{ fontSize: 12, fill: '#6b7280' }}
+                tick={{ fontSize: 11, fill: '#6b7280', dy: 15 }}
                 axisLine={{ stroke: '#e5e7eb' }}
                 tickLine={false}
               />
@@ -71,6 +71,8 @@ const MonthlyAssetRatioChart: React.FC<MonthlyAssetRatioChartProps> = ({ data })
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(value) => `${value}`}
+                domain={[0, 'auto']}
+                padding={{ top: 20 }}
               />
               <Tooltip
                 cursor={{ fill: 'rgba(229, 231, 235, 0.35)' }}
@@ -96,13 +98,13 @@ const MonthlyAssetRatioChart: React.FC<MonthlyAssetRatioChartProps> = ({ data })
                 }}
                 labelStyle={{ color: '#374151', fontWeight: 'bold', marginBottom: '4px' }}
               />
-              <Legend wrapperStyle={{ paddingTop: '20px' }} />
-              <Bar dataKey="akcje" name="Akcje" radius={[4, 4, 0, 0]}>
+              <Legend wrapperStyle={{ paddingTop: '30px' }} />
+              <Bar dataKey="akcje" name="Akcje" fill={STOCK_COLOR} radius={[4, 4, 0, 0]}>
                 {chartData.map((entry) => (
                   <Cell key={`stocks-${entry.label}`} fill={STOCK_COLOR} />
                 ))}
               </Bar>
-              <Bar dataKey="gotowka" name="Gotówka" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="gotowka" name="Gotówka" fill={CASH_COLOR} radius={[4, 4, 0, 0]}>
                 {chartData.map((entry) => (
                   <Cell key={`cash-${entry.label}`} fill={CASH_COLOR} />
                 ))}
