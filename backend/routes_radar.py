@@ -4,9 +4,19 @@ from api.exceptions import NotFoundError, ValidationError
 from api.response import success_response
 from database import get_db
 from price_service import PriceService
+from routes_portfolio_base import require_json_body, require_non_empty_string
 from watchlist_service import WatchlistService
 
 radar_bp = Blueprint('radar', __name__)
+
+
+def optional_json_body() -> dict:
+    data = request.get_json(silent=True)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValidationError('Invalid JSON body')
+    return data
 
 
 @radar_bp.route('/', methods=['GET'])
@@ -17,10 +27,11 @@ def get_radar():
         return success_response([])
 
     should_refresh = request.args.get('refresh') == '1'
-    if should_refresh:
-        radar_data_map = PriceService.refresh_radar_data(tickers)
-    else:
-        radar_data_map = PriceService.get_cached_radar_data(tickers)
+    radar_data_map = (
+        PriceService.refresh_radar_data(tickers)
+        if should_refresh
+        else PriceService.get_cached_radar_data(tickers)
+    )
 
     db = get_db()
     holdings_rows = db.execute('SELECT ticker, SUM(quantity) as total_qty FROM holdings GROUP BY ticker').fetchall()
@@ -56,7 +67,7 @@ def get_radar():
 
 @radar_bp.route('/refresh', methods=['POST'])
 def refresh_radar_tickers():
-    data = request.get_json(silent=True) or {}
+    data = optional_json_body()
     requested_tickers = data.get('tickers') or []
 
     if requested_tickers:
@@ -76,14 +87,8 @@ def refresh_radar_tickers():
 
 @radar_bp.route('/watchlist', methods=['POST'])
 def add_watchlist():
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        raise ValidationError('Invalid JSON body')
-
-    ticker = str(data.get('ticker') or '').strip()
-    if not ticker:
-        raise ValidationError('Ticker is required', details={'field': 'ticker'})
-
+    data = require_json_body()
+    ticker = require_non_empty_string(data, 'ticker').upper()
     WatchlistService.add_to_watchlist(ticker)
     return success_response({'message': 'Added to watchlist'}, status=201)
 

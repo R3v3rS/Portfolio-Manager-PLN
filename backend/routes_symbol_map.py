@@ -1,7 +1,7 @@
 from flask import Blueprint
 
-from api.exceptions import NotFoundError, ValidationError
-from api.response import SymbolMappingDTO, error_response, success_response
+from api.exceptions import ApiError, NotFoundError, ValidationError
+from api.response import SymbolMappingDTO, success_response
 from database import get_db
 from routes_portfolio_base import require_json_body
 
@@ -53,7 +53,7 @@ def create_symbol_mapping():
         (symbol_input,)
     ).fetchone()
     if existing:
-        return error_response(
+        raise ApiError(
             'symbol_mapping_conflict',
             f'Mapping for {symbol_input} already exists',
             details={'field': 'symbol_input', 'symbol_input': symbol_input},

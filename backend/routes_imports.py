@@ -1,8 +1,8 @@
 import pandas as pd
 from flask import request
 
-from api.exceptions import ValidationError
-from api.response import error_response, success_response
+from api.exceptions import ApiError, ValidationError
+from api.response import success_response
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
 
@@ -18,17 +18,17 @@ def import_xtb_csv(portfolio_id):
 
     try:
         df = pd.read_csv(file)
-    except Exception as error:
-        return error_response(
+    except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as error:
+        raise ApiError(
             'xtb_import_invalid_csv',
             str(error),
-            details={},
             status=400,
-        )
+            details={},
+        ) from error
 
     result = PortfolioService.import_xtb_csv(portfolio_id, df)
     if not result['success']:
-        return error_response(
+        raise ApiError(
             'IMPORT_VALIDATION_ERROR',
             'Missing symbol mappings',
             details={'missing_symbols': result.get('missing_symbols', [])},

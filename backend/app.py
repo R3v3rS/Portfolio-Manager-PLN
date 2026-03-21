@@ -3,8 +3,8 @@ import logging
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 from database import init_db
-from api.exceptions import NotFoundError, ValidationError
-from api.response import error_response
+from api.exceptions import ApiError, NotFoundError, ValidationError
+from api.response import error_response, success_response
 from routes import portfolio_bp
 from routes_loans import loans_bp
 from routes_budget import budget_bp
@@ -54,6 +54,15 @@ def create_app():
     # Migration strategy: route-level legacy return shapes remain untouched for now;
     # only framework-level exception handling is standardized in this change.
 
+    @app.errorhandler(ApiError)
+    def handle_api_error(error):
+        return error_response(
+            getattr(error, 'code', 'api_error'),
+            getattr(error, 'message', 'Request failed.'),
+            details=getattr(error, 'details', None),
+            status=getattr(error, 'status', 400),
+        )
+
     @app.errorhandler(ValidationError)
     def handle_validation_error(error):
         return error_response(
@@ -100,7 +109,7 @@ def create_app():
 
     @app.route('/')
     def health_check():
-        return {'status': 'healthy', 'message': 'Portfolio Manager API is running'}
+        return success_response({'status': 'healthy', 'message': 'Portfolio Manager API is running'})
 
     return app
 

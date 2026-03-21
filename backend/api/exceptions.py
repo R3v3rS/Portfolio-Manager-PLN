@@ -3,6 +3,24 @@ from __future__ import annotations
 from typing import Any
 
 
+class ApiError(Exception):
+    """Raised for application-defined API errors with explicit status/code."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status: int,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status = status
+        self.details = details
+
+
 class ValidationError(Exception):
     """Raised when client input fails validation."""
 
