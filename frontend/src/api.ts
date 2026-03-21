@@ -1,5 +1,6 @@
-import { createHttpClient } from './http';
-import type { Portfolio, Transaction } from './types';
+import { createHttpClient, type QueryParams } from './http';
+import type { Bond, ClosedPosition, ClosedPositionCycle, Holding, Portfolio, PortfolioValue, Transaction } from './types';
+import type { PPKSummary, PPKTransaction } from './services/ppkCalculator';
 
 const portfolioHttp = createHttpClient('/api/portfolio');
 
@@ -30,9 +31,338 @@ export interface TransactionsListResponse {
   transactions: Transaction[];
 }
 
+export interface MonthlyDividendPoint {
+  label: string;
+  amount: number;
+}
+
+export interface PortfolioHistoryPoint {
+  date: string;
+  label: string;
+  value: number;
+  benchmark_value?: number;
+}
+
+export interface PriceHistoryPoint {
+  date: string;
+  close_price: number;
+}
+
+export interface PriceHistoryResponse {
+  history: PriceHistoryPoint[];
+  last_updated: string | null;
+}
+
+export interface PortfolioAuditDifference {
+  type: 'quantity_mismatch' | 'total_cost_mismatch' | 'cash_mismatch';
+  ticker?: string;
+  expected: number;
+  actual: number;
+}
+
+export interface PortfolioAuditResult {
+  is_consistent: boolean;
+  differences: PortfolioAuditDifference[];
+  rebuilt_state: {
+    cash: number;
+    realized_profit_total: number;
+    holdings: Record<string, { quantity: number; total_cost: number; avg_price: number }>;
+  } | null;
+}
+
+export interface PPKTransactionsResponse {
+  transactions: PPKTransaction[];
+  summary: PPKSummary | null;
+  currentPrice: { price: number; date: string } | null;
+}
+
+export interface XtbImportResult {
+  ok: boolean;
+  message: string | null;
+  missingSymbols: string[];
+}
+
 export interface PortfolioLimitsResponse {
   limits: TaxLimitsResponse;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const toNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+};
+
+const toString = (value: unknown, fallback = ''): string => {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return fallback;
+  return String(value);
+};
+
+const toOptionalString = (value: unknown): string | null => {
+  if (typeof value === 'string') return value;
+  return null;
+};
+
+const toStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.map((entry) => toString(entry)).filter(Boolean) : [];
+
+const normalizePortfolio = (value: unknown): Portfolio => {
+  const source = isRecord(value) ? value : {};
+  const accountType = source.account_type;
+
+  return {
+    id: toNumber(source.id),
+    name: toString(source.name),
+    account_type:
+      accountType === 'IKE' || accountType === 'BONDS' || accountType === 'SAVINGS' || accountType === 'PPK'
+        ? accountType
+        : 'STANDARD',
+    current_cash: toNumber(source.current_cash),
+    total_deposits: toNumber(source.total_deposits),
+    savings_rate: toNumber(source.savings_rate),
+    last_interest_date: typeof source.last_interest_date === 'string' ? source.last_interest_date : undefined,
+    created_at: typeof source.created_at === 'string' ? source.created_at : undefined,
+    portfolio_value: source.portfolio_value == null ? undefined : toNumber(source.portfolio_value),
+    cash_value: source.cash_value == null ? undefined : toNumber(source.cash_value),
+    holdings_value: source.holdings_value == null ? undefined : toNumber(source.holdings_value),
+    total_dividends: source.total_dividends == null ? undefined : toNumber(source.total_dividends),
+    open_positions_result: source.open_positions_result == null ? undefined : toNumber(source.open_positions_result),
+    total_result: source.total_result == null ? undefined : toNumber(source.total_result),
+    total_result_percent: source.total_result_percent == null ? undefined : toNumber(source.total_result_percent),
+    is_empty: typeof source.is_empty === 'boolean' ? source.is_empty : undefined,
+  };
+};
+
+const normalizeHolding = (value: unknown): Holding => {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    id: toNumber(source.id),
+    portfolio_id: toNumber(source.portfolio_id),
+    ticker: toString(source.ticker),
+    quantity: toNumber(source.quantity),
+    average_buy_price: toNumber(source.average_buy_price),
+    total_cost: toNumber(source.total_cost),
+    current_price: source.current_price == null ? undefined : toNumber(source.current_price),
+    current_value: source.current_value == null ? undefined : toNumber(source.current_value),
+    profit_loss: source.profit_loss == null ? undefined : toNumber(source.profit_loss),
+    profit_loss_percent: source.profit_loss_percent == null ? undefined : toNumber(source.profit_loss_percent),
+    weight_percent: source.weight_percent == null ? undefined : toNumber(source.weight_percent),
+    company_name: typeof source.company_name === 'string' ? source.company_name : undefined,
+    sector: typeof source.sector === 'string' ? source.sector : undefined,
+    industry: typeof source.industry === 'string' ? source.industry : undefined,
+    auto_fx_fees: typeof source.auto_fx_fees === 'boolean' ? source.auto_fx_fees : undefined,
+    fx_rate_used: source.fx_rate_used == null ? undefined : toNumber(source.fx_rate_used),
+    currency: typeof source.currency === 'string' ? source.currency : undefined,
+    price_last_updated_at: source.price_last_updated_at == null ? null : toString(source.price_last_updated_at),
+  };
+};
+
+const normalizeTransaction = (value: unknown): Transaction => {
+  const source = isRecord(value) ? value : {};
+  const type = source.type;
+
+  return {
+    id: toNumber(source.id),
+    portfolio_id: toNumber(source.portfolio_id),
+    ticker: toString(source.ticker, 'CASH'),
+    date: toString(source.date),
+    type:
+      type === 'BUY' || type === 'SELL' || type === 'DEPOSIT' || type === 'WITHDRAW' || type === 'DIVIDEND' || type === 'INTEREST'
+        ? type
+        : 'BUY',
+    quantity: toNumber(source.quantity),
+    price: toNumber(source.price),
+    total_value: toNumber(source.total_value),
+    realized_profit: source.realized_profit == null ? undefined : toNumber(source.realized_profit),
+    commission: source.commission == null ? undefined : toNumber(source.commission),
+  };
+};
+
+const normalizePortfolioValue = (value: unknown): PortfolioValue & { live_interest?: number } => {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    portfolio_value: toNumber(source.portfolio_value),
+    cash_value: toNumber(source.cash_value),
+    holdings_value: toNumber(source.holdings_value),
+    total_dividends: toNumber(source.total_dividends),
+    total_interest: source.total_interest == null ? undefined : toNumber(source.total_interest),
+    open_positions_result: toNumber(source.open_positions_result),
+    total_result: toNumber(source.total_result),
+    total_result_percent: toNumber(source.total_result_percent),
+    xirr_percent: source.xirr_percent == null ? undefined : toNumber(source.xirr_percent),
+    live_interest: source.live_interest == null ? undefined : toNumber(source.live_interest),
+  };
+};
+
+const normalizeBond = (value: unknown): Bond => {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    id: toNumber(source.id),
+    portfolio_id: toNumber(source.portfolio_id),
+    name: toString(source.name),
+    principal: toNumber(source.principal),
+    interest_rate: toNumber(source.interest_rate),
+    purchase_date: toString(source.purchase_date),
+    accrued_interest: toNumber(source.accrued_interest),
+    total_value: toNumber(source.total_value),
+  };
+};
+
+const normalizeMonthlyDividendPoint = (value: unknown): MonthlyDividendPoint => {
+  const source = isRecord(value) ? value : {};
+  return { label: toString(source.label), amount: toNumber(source.amount) };
+};
+
+const normalizePortfolioHistoryPoint = (value: unknown): PortfolioHistoryPoint => {
+  const source = isRecord(value) ? value : {};
+  return {
+    date: toString(source.date),
+    label: toString(source.label),
+    value: toNumber(source.value),
+    benchmark_value: source.benchmark_value == null ? undefined : toNumber(source.benchmark_value),
+  };
+};
+
+const normalizePriceHistoryPoint = (value: unknown): PriceHistoryPoint => {
+  const source = isRecord(value) ? value : {};
+  return { date: toString(source.date), close_price: toNumber(source.close_price) };
+};
+
+const normalizeClosedPosition = (value: unknown): ClosedPosition => {
+  const source = isRecord(value) ? value : {};
+  return {
+    ticker: toString(source.ticker),
+    company_name: source.company_name == null ? null : toString(source.company_name),
+    realized_profit: toNumber(source.realized_profit),
+    invested_capital: toNumber(source.invested_capital),
+    profit_percent_on_capital: source.profit_percent_on_capital == null ? null : toNumber(source.profit_percent_on_capital),
+    last_sell_date: source.last_sell_date == null ? null : toString(source.last_sell_date),
+  };
+};
+
+const normalizeClosedPositionCycle = (value: unknown): ClosedPositionCycle => {
+  const source = isRecord(value) ? value : {};
+  const status = source.status;
+  return {
+    ticker: toString(source.ticker),
+    company_name: source.company_name == null ? null : toString(source.company_name),
+    cycle_id: toNumber(source.cycle_id),
+    opened_at: source.opened_at == null ? null : toString(source.opened_at),
+    closed_at: source.closed_at == null ? null : toString(source.closed_at),
+    realized_profit: toNumber(source.realized_profit),
+    invested_capital: toNumber(source.invested_capital),
+    average_invested_capital: source.average_invested_capital == null ? null : toNumber(source.average_invested_capital),
+    holding_period_days: source.holding_period_days == null ? null : toNumber(source.holding_period_days),
+    profit_percent_on_capital: source.profit_percent_on_capital == null ? null : toNumber(source.profit_percent_on_capital),
+    annualized_return_percent: source.annualized_return_percent == null ? null : toNumber(source.annualized_return_percent),
+    buy_count: source.buy_count == null ? undefined : toNumber(source.buy_count),
+    sell_count: source.sell_count == null ? undefined : toNumber(source.sell_count),
+    status: status === 'CLOSED' || status === 'PARTIALLY_CLOSED' ? status : undefined,
+    is_partially_closed: typeof source.is_partially_closed === 'boolean' ? source.is_partially_closed : undefined,
+    remaining_quantity: source.remaining_quantity == null ? undefined : toNumber(source.remaining_quantity),
+  };
+};
+
+const normalizeAuditResult = (value: unknown): PortfolioAuditResult => {
+  const source = isRecord(value) ? value : {};
+  const rebuiltState = isRecord(source.rebuilt_state) ? source.rebuilt_state : null;
+  return {
+    is_consistent: Boolean(source.is_consistent),
+    differences: Array.isArray(source.differences)
+      ? source.differences.map((entry) => {
+          const diff = isRecord(entry) ? entry : {};
+          const type = diff.type;
+          return {
+            type: type === 'total_cost_mismatch' || type === 'cash_mismatch' ? type : 'quantity_mismatch',
+            ticker: typeof diff.ticker === 'string' ? diff.ticker : undefined,
+            expected: toNumber(diff.expected),
+            actual: toNumber(diff.actual),
+          };
+        })
+      : [],
+    rebuilt_state: rebuiltState
+      ? {
+          cash: toNumber(rebuiltState.cash),
+          realized_profit_total: toNumber(rebuiltState.realized_profit_total),
+          holdings: isRecord(rebuiltState.holdings)
+            ? Object.fromEntries(
+                Object.entries(rebuiltState.holdings).map(([ticker, holding]) => {
+                  const rawHolding = isRecord(holding) ? holding : {};
+                  return [
+                    ticker,
+                    {
+                      quantity: toNumber(rawHolding.quantity),
+                      total_cost: toNumber(rawHolding.total_cost),
+                      avg_price: toNumber(rawHolding.avg_price),
+                    },
+                  ];
+                })
+              )
+            : {},
+        }
+      : null,
+  };
+};
+
+const normalizePpkTransaction = (value: unknown): PPKTransaction => {
+  const source = isRecord(value) ? value : {};
+  return {
+    id: toNumber(source.id),
+    portfolio_id: toNumber(source.portfolio_id),
+    date: toString(source.date),
+    employee_units: toNumber(source.employee_units),
+    employer_units: toNumber(source.employer_units),
+    price_per_unit: toNumber(source.price_per_unit),
+  };
+};
+
+const normalizePpkSummary = (value: unknown): PPKSummary | null => {
+  if (!isRecord(value)) return null;
+  return {
+    totalUnits: toNumber(value.totalUnits),
+    averagePrice: toNumber(value.averagePrice),
+    totalContribution: toNumber(value.totalContribution),
+    currentValue: toNumber(value.currentValue),
+    profit: toNumber(value.profit),
+    tax: toNumber(value.tax),
+    netProfit: toNumber(value.netProfit),
+    totalPurchaseValue: toNumber(value.totalPurchaseValue),
+    totalCurrentValue: toNumber(value.totalCurrentValue),
+    totalNetValue: toNumber(value.totalNetValue),
+    totalTax: toNumber(value.totalTax),
+    totalProfit: toNumber(value.totalProfit),
+  };
+};
+
+const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
+  const source = isRecord(value) ? value : {};
+  const nestedError = isRecord(source.error) ? source.error : null;
+  const details = nestedError && isRecord(nestedError.details) ? nestedError.details : null;
+  const missingSymbols = toStringArray(source.missing_symbols).length > 0
+    ? toStringArray(source.missing_symbols)
+    : toStringArray(details?.missing_symbols);
+
+  return {
+    ok: source.success === false || nestedError ? false : true,
+    message: nestedError
+      ? toOptionalString(nestedError.message)
+      : typeof source.error === 'string'
+        ? source.error
+        : source.success === false
+          ? 'Import failed.'
+          : null,
+    missingSymbols,
+  };
+};
 
 export const portfolioApi = {
   list: () => portfolioHttp.get<PortfolioListResponse>('/list'),
@@ -40,6 +370,116 @@ export const portfolioApi = {
   create: (payload: CreatePortfolioPayload) => portfolioHttp.post('/create', payload),
   remove: (portfolioId: number) => portfolioHttp.delete(`/${portfolioId}`),
   listTransactions: () => portfolioHttp.get<TransactionsListResponse>('/transactions/all'),
+  listNormalized: async (): Promise<Portfolio[]> => {
+    const response = await portfolioHttp.get<unknown>('/list');
+    const portfolios = isRecord(response) ? response.portfolios : undefined;
+    return Array.isArray(portfolios) ? portfolios.map(normalizePortfolio) : [];
+  },
+  getHoldings: async (portfolioId: number, params?: QueryParams): Promise<Holding[]> => {
+    const response = await portfolioHttp.get<unknown>(`/holdings/${portfolioId}`, { params });
+    const holdings = isRecord(response) ? response.holdings : undefined;
+    return Array.isArray(holdings) ? holdings.map(normalizeHolding) : [];
+  },
+  getValue: async (portfolioId: number): Promise<PortfolioValue & { live_interest?: number }> => {
+    const response = await portfolioHttp.get<unknown>(`/value/${portfolioId}`);
+    return normalizePortfolioValue(response);
+  },
+  getTransactions: async (portfolioId: number): Promise<Transaction[]> => {
+    const response = await portfolioHttp.get<unknown>(`/transactions/${portfolioId}`);
+    const transactions = isRecord(response) ? response.transactions : undefined;
+    return Array.isArray(transactions) ? transactions.map(normalizeTransaction) : [];
+  },
+  getMonthlyDividends: async (portfolioId: number): Promise<MonthlyDividendPoint[]> => {
+    const response = await portfolioHttp.get<unknown>(`/dividends/monthly/${portfolioId}`);
+    const monthlyDividends = isRecord(response) ? response.monthly_dividends : undefined;
+    return Array.isArray(monthlyDividends) ? monthlyDividends.map(normalizeMonthlyDividendPoint) : [];
+  },
+  getMonthlyHistory: async (portfolioId: number, benchmark?: string): Promise<PortfolioHistoryPoint[]> => {
+    const response = await portfolioHttp.get<unknown>(`/history/monthly/${portfolioId}`, {
+      params: benchmark ? { benchmark } : undefined,
+    });
+    const history = isRecord(response) ? response.history : undefined;
+    return Array.isArray(history) ? history.map(normalizePortfolioHistoryPoint) : [];
+  },
+  getProfitHistory: async (portfolioId: number, days?: number): Promise<PortfolioHistoryPoint[]> => {
+    const response = await portfolioHttp.get<unknown>(`/history/profit/${portfolioId}`, {
+      params: days ? { days } : undefined,
+    });
+    const history = isRecord(response) ? response.history : undefined;
+    return Array.isArray(history) ? history.map(normalizePortfolioHistoryPoint) : [];
+  },
+  getValueHistory: async (portfolioId: number, days?: number): Promise<PortfolioHistoryPoint[]> => {
+    const response = await portfolioHttp.get<unknown>(`/history/value/${portfolioId}`, {
+      params: days ? { days } : undefined,
+    });
+    const history = isRecord(response) ? response.history : undefined;
+    return Array.isArray(history) ? history.map(normalizePortfolioHistoryPoint) : [];
+  },
+  getPriceHistory: async (ticker: string): Promise<PriceHistoryResponse> => {
+    const response = await portfolioHttp.get<unknown>(`/history/${ticker}`);
+    const source = isRecord(response) ? response : {};
+    return {
+      history: Array.isArray(source.history) ? source.history.map(normalizePriceHistoryPoint) : [],
+      last_updated: toOptionalString(source.last_updated),
+    };
+  },
+  getBonds: async (portfolioId: number): Promise<Bond[]> => {
+    const response = await portfolioHttp.get<unknown>(`/bonds/${portfolioId}`);
+    const bonds = isRecord(response) ? response.bonds : undefined;
+    return Array.isArray(bonds) ? bonds.map(normalizeBond) : [];
+  },
+  getClosedPositions: async (portfolioId: number): Promise<{ positions: ClosedPosition[]; total_historical_profit: number }> => {
+    const response = await portfolioHttp.get<unknown>(`/${portfolioId}/closed-positions`);
+    const source = isRecord(response) ? response : {};
+    return {
+      positions: Array.isArray(source.positions) ? source.positions.map(normalizeClosedPosition) : [],
+      total_historical_profit: toNumber(source.total_historical_profit),
+    };
+  },
+  getClosedPositionCycles: async (portfolioId: number): Promise<{ positions: ClosedPositionCycle[]; total_historical_profit: number }> => {
+    const response = await portfolioHttp.get<unknown>(`/${portfolioId}/closed-position-cycles`);
+    const source = isRecord(response) ? response : {};
+    return {
+      positions: Array.isArray(source.positions) ? source.positions.map(normalizeClosedPositionCycle) : [],
+      total_historical_profit: toNumber(source.total_historical_profit),
+    };
+  },
+  runAudit: async (portfolioId: number): Promise<PortfolioAuditResult> => {
+    const response = await portfolioHttp.get<unknown>(`/${portfolioId}/audit`);
+    return normalizeAuditResult(response);
+  },
+  rebuild: async (portfolioId: number): Promise<{ message: string | null }> => {
+    const response = await portfolioHttp.post<unknown>(`/${portfolioId}/rebuild`);
+    const source = isRecord(response) ? response : {};
+    return { message: toOptionalString(source.message) };
+  },
+  clear: async (portfolioId: number): Promise<{ message: string | null }> => {
+    const response = await portfolioHttp.post<unknown>(`/${portfolioId}/clear`);
+    const source = isRecord(response) ? response : {};
+    return { message: toOptionalString(source.message) };
+  },
+  importXtbCsv: async (portfolioId: number, file: File): Promise<XtbImportResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await portfolioHttp.post<unknown>(`/${portfolioId}/import/xtb`, formData);
+    return normalizeXtbImportResult(response);
+  },
+  getPpkTransactions: async (portfolioId: number): Promise<PPKTransactionsResponse> => {
+    const response = await portfolioHttp.get<unknown>(`/ppk/transactions/${portfolioId}`);
+    const source = isRecord(response) ? response : {};
+    const currentPrice = isRecord(source.currentPrice)
+      ? {
+          price: toNumber(source.currentPrice.price),
+          date: toString(source.currentPrice.date),
+        }
+      : null;
+
+    return {
+      transactions: Array.isArray(source.transactions) ? source.transactions.map(normalizePpkTransaction) : [],
+      summary: normalizePpkSummary(source.summary),
+      currentPrice,
+    };
+  },
 };
 
 export default portfolioHttp;
