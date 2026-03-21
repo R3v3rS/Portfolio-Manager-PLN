@@ -10,7 +10,10 @@ from routes_dashboard import dashboard_bp
 from routes_radar import radar_bp
 from routes_symbol_map import symbol_map_bp
 from price_service import PriceService
+from validators.errors import ValidationError
+from validators.responses import error_response, validation_error_response
 import os
+
 
 def create_app():
     app = Flask(__name__)
@@ -44,16 +47,23 @@ def create_app():
     app.register_blueprint(radar_bp, url_prefix='/api/radar')
     app.register_blueprint(symbol_map_bp, url_prefix='/api/symbol-map')
 
-    # Global error handler to return consistent JSON responses
+    @app.errorhandler(ValidationError)
+    def handle_validation_error(error):
+        return validation_error_response(error.message, error.errors, status_code=400)
 
+    @app.errorhandler(ValueError)
+    def handle_value_error(error):
+        return error_response(str(error), status_code=400, code='business_rule_error')
+
+    # Global error handler to return consistent JSON responses
     @app.errorhandler(Exception)
     def handle_exception(e):
         logging.exception("Unhandled exception")
         if app.debug:
             traceback.print_exc()
-            return jsonify({'error': str(e), 'status': 500}), 500
+            return error_response(str(e), status_code=500, code='internal_server_error')
         # don't expose internals in production responses
-        return jsonify({'error': 'Internal server error', 'status': 500}), 500
+        return error_response('Internal server error', status_code=500, code='internal_server_error')
 
     @app.route('/')
     def health_check():

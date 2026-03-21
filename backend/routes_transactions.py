@@ -2,6 +2,7 @@ from flask import jsonify, request
 
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
+from validators.request_models import validate_portfolio_trade
 
 
 @portfolio_bp.route('/deposit', methods=['POST'])
@@ -26,36 +27,30 @@ def withdraw():
 
 @portfolio_bp.route('/buy', methods=['POST'])
 def buy():
-    data = request.json
-    try:
-        PortfolioService.buy_stock(
-            data['portfolio_id'],
-            data['ticker'],
-            data['quantity'],
-            data['price'],
-            data.get('date'),
-            data.get('commission', 0.0),
-            data.get('auto_fx_fees', False)
-        )
-        return jsonify({'message': 'Buy successful'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = validate_portfolio_trade(request.get_json(silent=True))
+    PortfolioService.buy_stock(
+        data['portfolio_id'],
+        data['ticker'],
+        data['quantity'],
+        data['price'],
+        data.get('date'),
+        data['commission'],
+        data['auto_fx_fees']
+    )
+    return jsonify({'message': 'Buy successful'}), 200
 
 
 @portfolio_bp.route('/sell', methods=['POST'])
 def sell():
-    data = request.json
-    try:
-        PortfolioService.sell_stock(
-            data['portfolio_id'],
-            data['ticker'],
-            data['quantity'],
-            data['price'],
-            data.get('date')
-        )
-        return jsonify({'message': 'Sell successful'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = validate_portfolio_trade(request.get_json(silent=True))
+    PortfolioService.sell_stock(
+        data['portfolio_id'],
+        data['ticker'],
+        data['quantity'],
+        data['price'],
+        data.get('date')
+    )
+    return jsonify({'message': 'Sell successful'}), 200
 
 
 @portfolio_bp.route('/transactions/<int:portfolio_id>', methods=['GET'])

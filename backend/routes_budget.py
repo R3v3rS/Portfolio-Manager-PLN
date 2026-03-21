@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from budget_service import BudgetService
 from database import reset_budget_data
+from validators.request_models import validate_account_transfer, validate_budget_portfolio_transfer
 
 budget_bp = Blueprint('budget', __name__)
 
@@ -17,10 +18,10 @@ def get_transactions():
     account_id = request.args.get('account_id', type=int)
     if not account_id:
         return jsonify({'error': 'account_id is required'}), 400
-        
+
     envelope_id = request.args.get('envelope_id', type=int)
     category_id = request.args.get('category_id', type=int)
-    
+
     try:
         transactions = BudgetService.get_transactions(account_id, envelope_id, category_id)
         return jsonify(transactions)
@@ -57,8 +58,8 @@ def add_income():
     data = request.json
     try:
         open_loans = BudgetService.add_income(
-            data['account_id'], 
-            float(data['amount']), 
+            data['account_id'],
+            float(data['amount']),
             data.get('description', 'Income'),
             data.get('date')
         )
@@ -71,7 +72,7 @@ def allocate():
     data = request.json
     try:
         BudgetService.allocate_money(
-            data['envelope_id'], 
+            data['envelope_id'],
             float(data['amount']),
             data.get('date')
         )
@@ -85,7 +86,7 @@ def expense():
     try:
         BudgetService.spend(
             account_id=data.get('account_id'),
-            amount=float(data['amount']), 
+            amount=float(data['amount']),
             description=data.get('description', 'Expense'),
             envelope_id=data.get('envelope_id'),
             date=data.get('date')
@@ -96,60 +97,51 @@ def expense():
 
 @budget_bp.route('/account-transfer', methods=['POST'])
 def account_transfer():
-    data = request.json
-    try:
-        BudgetService.transfer_between_accounts(
-            from_account_id=data['from_account_id'],
-            to_account_id=data['to_account_id'],
-            amount=float(data['amount']),
-            description=data.get('description', 'Transfer'),
-            date=data.get('date'),
-            target_envelope_id=data.get('target_envelope_id'),
-            source_envelope_id=data.get('source_envelope_id')
-        )
-        return jsonify({'message': 'Transfer successful'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = validate_account_transfer(request.get_json(silent=True))
+    BudgetService.transfer_between_accounts(
+        from_account_id=data['from_account_id'],
+        to_account_id=data['to_account_id'],
+        amount=data['amount'],
+        description=data['description'],
+        date=data.get('date'),
+        target_envelope_id=data.get('target_envelope_id'),
+        source_envelope_id=data.get('source_envelope_id')
+    )
+    return jsonify({'message': 'Transfer successful'})
 
 @budget_bp.route('/transfer-to-portfolio', methods=['POST'])
 def transfer_to_portfolio():
-    data = request.json
-    try:
-        BudgetService.transfer_to_investment(
-            budget_account_id=data['budget_account_id'],
-            portfolio_id=data['portfolio_id'],
-            amount=float(data['amount']),
-            envelope_id=data.get('envelope_id'),
-            description=data.get('description', 'Transfer to Investments'),
-            date=data.get('date')
-        )
-        return jsonify({'message': 'Transfer to Investment Portfolio successful'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = validate_budget_portfolio_transfer(request.get_json(silent=True), direction='to_portfolio')
+    BudgetService.transfer_to_investment(
+        budget_account_id=data['budget_account_id'],
+        portfolio_id=data['portfolio_id'],
+        amount=data['amount'],
+        envelope_id=data.get('envelope_id'),
+        description=data['description'],
+        date=data.get('date')
+    )
+    return jsonify({'message': 'Transfer to Investment Portfolio successful'})
 
 @budget_bp.route('/withdraw-from-portfolio', methods=['POST'])
 def withdraw_from_portfolio():
-    data = request.json
-    try:
-        BudgetService.withdraw_from_investment(
-            portfolio_id=data['portfolio_id'],
-            budget_account_id=data['budget_account_id'],
-            amount=float(data['amount']),
-            description=data.get('description', 'Wypłata z portfela inwestycyjnego'),
-            date=data.get('date')
-        )
-        return jsonify({'message': 'Withdrawal from Investment Portfolio successful'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = validate_budget_portfolio_transfer(request.get_json(silent=True), direction='from_portfolio')
+    BudgetService.withdraw_from_investment(
+        portfolio_id=data['portfolio_id'],
+        budget_account_id=data['budget_account_id'],
+        amount=data['amount'],
+        description=data['description'],
+        date=data.get('date')
+    )
+    return jsonify({'message': 'Withdrawal from Investment Portfolio successful'})
 
 @budget_bp.route('/borrow', methods=['POST'])
 def borrow():
     data = request.json
     try:
         BudgetService.borrow_from_envelope(
-            data['source_envelope_id'], 
-            float(data['amount']), 
-            data['reason'], 
+            data['source_envelope_id'],
+            float(data['amount']),
+            data['reason'],
             data.get('due_date')
         )
         return jsonify({'message': 'Borrowed from envelope'})
@@ -191,18 +183,18 @@ def manage_envelopes():
         data = request.json
         if 'account_id' not in data:
             return jsonify({'error': 'account_id is required'}), 400
-            
+
         env_type = data.get('type', 'MONTHLY')
         target_month = data.get('target_month')
-        
+
         # If type is MONTHLY, target_month is required (or default to current?)
         if env_type == 'MONTHLY' and not target_month:
              from datetime import date
              today = date.today()
              target_month = f"{today.year}-{today.month:02d}"
-             
+
         db.execute("""
-            INSERT INTO envelopes (category_id, account_id, name, icon, target_amount, type, target_month, status) 
+            INSERT INTO envelopes (category_id, account_id, name, icon, target_amount, type, target_month, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
         """, (data['category_id'], data['account_id'], data['name'], data.get('icon', '✉️'), data.get('target_amount'), env_type, target_month))
         db.commit()
@@ -258,7 +250,7 @@ def manage_accounts():
         return jsonify([dict(a) for a in accounts])
     else:
         data = request.json
-        db.execute("INSERT INTO budget_accounts (name, balance, currency) VALUES (?, ?, ?)", 
+        db.execute("INSERT INTO budget_accounts (name, balance, currency) VALUES (?, ?, ?)",
                    (data['name'], data.get('balance', 0.0), data.get('currency', 'PLN')))
         db.commit()
         return jsonify({'message': 'Account created'})

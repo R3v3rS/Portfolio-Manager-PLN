@@ -3,6 +3,7 @@ from flask import jsonify, request
 from bond_service import BondService
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
+from validators.request_models import validate_portfolio_create
 
 
 @portfolio_bp.route('/limits', methods=['GET'])
@@ -16,17 +17,14 @@ def get_tax_limits():
 
 @portfolio_bp.route('/create', methods=['POST'])
 def create_portfolio():
-    data = request.json
-    try:
-        portfolio_id = PortfolioService.create_portfolio(
-            data['name'],
-            data.get('initial_cash', 0.0),
-            data.get('account_type', 'STANDARD'),
-            data.get('created_at')
-        )
-        return jsonify({'id': portfolio_id, 'message': 'Portfolio created successfully'}), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = validate_portfolio_create(request.get_json(silent=True))
+    portfolio_id = PortfolioService.create_portfolio(
+        data['name'],
+        data['initial_cash'],
+        data['account_type'],
+        data.get('created_at')
+    )
+    return jsonify({'id': portfolio_id, 'message': 'Portfolio created successfully'}), 201
 
 
 @portfolio_bp.route('/list', methods=['GET'])
