@@ -140,11 +140,11 @@ Wniosek: flow importu jest lepiej zabezpieczony niż wcześniej, ale pełna stan
 
 Backend ma już centralny helper docelowego kontraktu sukcesu `success_response(payload, status=...)`, ale nie ma jeszcze dowodu, że wszystkie endpointy backendu używają go konsekwentnie.
 
-Backend nadal zwraca mieszankę odpowiedzi, np.:
+Backend nadal zwraca mieszankę odpowiedzi, ale zakres legacy został zawężony. Portfolio i dashboard mają już wdrożony canonical envelope dla odpowiedzi sukcesu, natomiast inne moduły nadal zawierają miks shape'ów, np.:
 - surowe listy,
 - surowe obiekty,
 - obiekty z `message`,
-- obiekty domenowe typu `portfolios`, `baseline`, `simulation`, `tickers`.
+- obiekty domenowe typu `baseline`, `simulation`, `tickers`.
 
 To oznacza, że **frontend jest dziś przygotowany kompatybilnościowo**, ale **backend nie jest jeszcze formalnie ujednolicony kontraktowo**.
 
