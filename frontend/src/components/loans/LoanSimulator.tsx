@@ -145,7 +145,7 @@ const LoanSimulator: React.FC = () => {
         params.simulated_action = simulatedAction;
       }
       const response = await getSchedule(loanId, params);
-      setData(response.data as LoanScheduleResponse);
+      setData(response as LoanScheduleResponse);
     } catch (error) {
       console.error('Error fetching loan schedule:', error);
     } finally {

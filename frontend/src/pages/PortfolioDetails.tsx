@@ -2,6 +2,7 @@ import React, { lazy, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench } from 'lucide-react';
 import api from '../api';
+import { HttpError } from '../http';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
 import TransferModal from '../components/modals/TransferModal';
@@ -34,12 +35,10 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
     formData.append('file', file);
 
     try {
-      const response = await api.post(`/${portfolioId}/import/xtb`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const response = await api.post<{ success?: boolean; missing_symbols?: string[] }>(`/${portfolioId}/import/xtb`, formData);
 
-      if (response.data?.success === false && Array.isArray(response.data?.missing_symbols)) {
-        const symbols = response.data.missing_symbols as string[];
+      if (response?.success === false && Array.isArray(response?.missing_symbols)) {
+        const symbols = response.missing_symbols as string[];
         setMissingSymbols(symbols);
         setPendingFile(file);
         setMappingDrafts(
@@ -54,9 +53,9 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
       alert('Import successful!');
       onSuccess();
     } catch (err: unknown) {
-      const maybeResponse = (err as { response?: { data?: { success?: boolean; missing_symbols?: string[]; error?: string } } }).response;
-      if (maybeResponse?.data?.success === false && Array.isArray(maybeResponse.data.missing_symbols)) {
-        const symbols = maybeResponse.data.missing_symbols;
+      const errorData = err instanceof HttpError ? err.data as { success?: boolean; missing_symbols?: string[]; error?: string } | undefined : undefined;
+      if (errorData?.success === false && Array.isArray(errorData.missing_symbols)) {
+        const symbols = errorData.missing_symbols;
         setMissingSymbols(symbols);
         setPendingFile(file);
         setMappingDrafts(
@@ -68,7 +67,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
         return;
       }
 
-      const errorMessage = maybeResponse?.data?.error || (err instanceof Error ? err.message : 'Unknown error');
+      const errorMessage = errorData?.error || (err instanceof Error ? err.message : 'Unknown error');
       alert('Import failed: ' + errorMessage);
     }
   };
@@ -226,8 +225,8 @@ function ClearPortfolioButton({ portfolioId, portfolioName, onSuccess }: { portf
       await api.post(`/${portfolioId}/clear`);
       alert('Portfolio zostało wyczyszczone. Możesz zaimportować dane od nowa.');
       onSuccess();
-    } catch (err: any) {
-      const message = err?.response?.data?.error || 'Nie udało się wyczyścić portfela';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nie udało się wyczyścić portfela';
       alert(message);
     } finally {
       setClearing(false);
@@ -389,8 +388,9 @@ const PortfolioDetails: React.FC = () => {
         price: holding.current_price,
       });
       await fetchData();
-    } catch (err: any) {
-      alert('Nie udało się zamknąć pozycji: ' + (err.response?.data?.error || err.message));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nieznany błąd';
+      alert('Nie udało się zamknąć pozycji: ' + message);
     }
   };
 
@@ -399,42 +399,42 @@ const PortfolioDetails: React.FC = () => {
     setLoading(true);
     try {
       const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes] = await Promise.all([
-        api.get(`/list`), 
-        api.get(`/holdings/${id}`),
-        api.get(`/value/${id}`),
-        api.get(`/dividends/monthly/${id}`),
-        api.get(`/transactions/${id}`),
-        api.get(`/${id}/closed-positions`),
-        api.get(`/${id}/closed-position-cycles`),
-        budgetApi.getSummary() // Fetch budget accounts
+        api.get<{ portfolios: Portfolio[] }>(`/list`), 
+        api.get<{ holdings: Holding[] }>(`/holdings/${id}`),
+        api.get<PortfolioValue & { live_interest?: number }>(`/value/${id}`),
+        api.get<{ monthly_dividends: { label: string; amount: number }[] }>(`/dividends/monthly/${id}`),
+        api.get<{ transactions: Transaction[] }>(`/transactions/${id}`),
+        api.get<{ positions: ClosedPosition[]; total_historical_profit: number }>(`/${id}/closed-positions`),
+        api.get<{ positions: ClosedPositionCycle[]; total_historical_profit: number }>(`/${id}/closed-position-cycles`),
+        budgetApi.getSummary()
       ]);
       
-      const found = pRes.data.portfolios.find((p: Portfolio) => p.id === parseInt(id));
+      const found = pRes.portfolios.find((p: Portfolio) => p.id === parseInt(id));
       setPortfolio(found || null);
-      setHoldings(hRes.data.holdings);
-      setValueData(vRes.data);
-      setMonthlyDividends(mRes.data.monthly_dividends);
-      setPortfolioTransactions(tRes.data.transactions);
-      setClosedPositions(cRes.data.positions);
-      setTotalClosedProfit(cRes.data.total_historical_profit);
-      setClosedPositionCycles(ccRes.data.positions || []);
-      setTotalClosedCyclesProfit(ccRes.data.total_historical_profit || 0);
+      setHoldings(hRes.holdings);
+      setValueData(vRes);
+      setMonthlyDividends(mRes.monthly_dividends);
+      setPortfolioTransactions(tRes.transactions);
+      setClosedPositions(cRes.positions);
+      setTotalClosedProfit(cRes.total_historical_profit);
+      setClosedPositionCycles(ccRes.positions || []);
+      setTotalClosedCyclesProfit(ccRes.total_historical_profit || 0);
       setBudgetAccounts(bAccRes.accounts || []);
 
       if (found?.account_type === 'BONDS') {
-        const bRes = await api.get(`/bonds/${id}`);
-        setBonds(bRes.data.bonds);
+        const bRes = await api.get<{ bonds: Bond[] }>(`/bonds/${id}`);
+        setBonds(bRes.bonds);
       }
       
       if (found?.account_type === 'SAVINGS') {
-        const histRes = await api.get(`/history/monthly/${id}`);
-        setPortfolioHistory(histRes.data.history);
+        const histRes = await api.get<{ history: { date: string; label: string; value: number; benchmark_value?: number }[] }>(`/history/monthly/${id}`);
+        setPortfolioHistory(histRes.history);
       }
       if (found?.account_type === 'PPK') {
-        const ppkRes = await api.get(`/ppk/transactions/${id}`);
-        setPpkTransactions(ppkRes.data.transactions || []);
-        setPpkSummary(ppkRes.data.summary || null);
-        setPpkCurrentPrice(ppkRes.data.currentPrice || null);
+        const ppkRes = await api.get<{ transactions?: PPKTx[]; summary?: PPKSummary | null; currentPrice?: { price: number; date: string } | null }>(`/ppk/transactions/${id}`);
+        setPpkTransactions(ppkRes.transactions || []);
+        setPpkSummary(ppkRes.summary || null);
+        setPpkCurrentPrice(ppkRes.currentPrice || null);
       }
       
       // Only set active tab if it's the first load (to preserve tab on refresh)
@@ -447,17 +447,17 @@ const PortfolioDetails: React.FC = () => {
 
       // Fetch histories for standard portfolios
       if (found?.account_type !== 'BONDS' && found?.account_type !== 'SAVINGS') {
-        const histRes = await api.get(`/history/monthly/${id}`);
-        setPortfolioHistory(histRes.data.history);
+        const histRes = await api.get<{ history: { date: string; label: string; value: number; benchmark_value?: number }[] }>(`/history/monthly/${id}`);
+        setPortfolioHistory(histRes.history);
         
-        const profitRes = await api.get(`/history/profit/${id}`);
-        setPortfolioProfitHistory(profitRes.data.history);
+        const profitRes = await api.get<{ history: { date: string; label: string; value: number }[] }>(`/history/profit/${id}`);
+        setPortfolioProfitHistory(profitRes.history);
 
-        const profit30dRes = await api.get(`/history/profit/${id}?days=30`);
-        setPortfolioProfit30dHistory(profit30dRes.data.history || []);
+        const profit30dRes = await api.get<{ history?: { date: string; label: string; value: number }[] }>(`/history/profit/${id}`, { params: { days: 30 } });
+        setPortfolioProfit30dHistory(profit30dRes.history || []);
 
-        const value30dRes = await api.get(`/history/value/${id}?days=30`);
-        setPortfolioValue30dHistory(value30dRes.data.history || []);
+        const value30dRes = await api.get<{ history?: { date: string; label: string; value: number }[] }>(`/history/value/${id}`, { params: { days: 30 } });
+        setPortfolioValue30dHistory(value30dRes.history || []);
       }
 
     } catch (err) {
@@ -473,12 +473,12 @@ const PortfolioDetails: React.FC = () => {
     setRefreshingPrices(true);
     try {
       const [holdingsResponse, valueResponse] = await Promise.all([
-        api.get(`/holdings/${id}?refresh=1`),
-        api.get(`/value/${id}`),
+        api.get<{ holdings?: Holding[] }>(`/holdings/${id}`, { params: { refresh: 1 } }),
+        api.get<PortfolioValue & { live_interest?: number }>(`/value/${id}`),
       ]);
 
-      setHoldings(holdingsResponse.data.holdings || []);
-      setValueData(valueResponse.data);
+      setHoldings(holdingsResponse.holdings || []);
+      setValueData(valueResponse);
     } catch (err) {
       console.error('Failed to refresh stock prices', err);
       alert('Nie udało się odświeżyć cen akcji. Spróbuj ponownie.');
@@ -492,10 +492,10 @@ const PortfolioDetails: React.FC = () => {
 
     setAuditLoading(true);
     try {
-      const response = await api.get(`/${id}/audit`);
-      setAuditResult(response.data);
-    } catch (err: any) {
-      const message = err?.response?.data?.error || 'Nie udało się uruchomić audytu portfela.';
+      const response = await api.get<PortfolioAuditResult>(`/${id}/audit`);
+      setAuditResult(response);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nie udało się uruchomić audytu portfela.';
       alert(message);
     } finally {
       setAuditLoading(false);
@@ -515,8 +515,8 @@ const PortfolioDetails: React.FC = () => {
       await api.post(`/${id}/rebuild`);
       await Promise.all([runAudit(), fetchData()]);
       alert('Portfolio zostało przebudowane na podstawie transakcji.');
-    } catch (err: any) {
-      const message = err?.response?.data?.error || 'Nie udało się przebudować portfela.';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nie udało się przebudować portfela.';
       alert(message);
     } finally {
       setRebuildLoading(false);
@@ -527,9 +527,9 @@ const PortfolioDetails: React.FC = () => {
     setHistoryLoading(true);
     setSelectedTicker(ticker);
     try {
-      const response = await api.get(`/history/${ticker}`);
-      setHistoryData(response.data.history);
-      setLastUpdated(response.data.last_updated);
+      const response = await api.get<{ history: { date: string; close_price: number }[]; last_updated: string | null }>(`/history/${ticker}`);
+      setHistoryData(response.history);
+      setLastUpdated(response.last_updated);
     } catch (err) {
       console.error('Failed to fetch history', err);
     } finally {
@@ -544,11 +544,11 @@ const PortfolioDetails: React.FC = () => {
         ? `/history/monthly/${id}?benchmark=${selectedBenchmark}`
         : `/history/monthly/${id}`;
 
-      api.get(url).then(res => {
-        setPortfolioHistory(res.data.history);
+      api.get<{ history: { date: string; label: string; value: number; benchmark_value?: number }[] }>(url).then(res => {
+        setPortfolioHistory(res.history);
       });
-      api.get(`/history/profit/${id}`).then(res => {
-        setPortfolioProfitHistory(res.data.history);
+      api.get<{ history: { date: string; label: string; value: number }[] }>(`/history/profit/${id}`).then(res => {
+        setPortfolioProfitHistory(res.history);
       });
     }
   }, [activeTab, id, selectedBenchmark]);

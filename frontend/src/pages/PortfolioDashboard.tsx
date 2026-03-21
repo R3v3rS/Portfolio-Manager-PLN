@@ -31,11 +31,11 @@ const PortfolioDashboard: React.FC = () => {
   const fetchData = async () => {
     try {
       const [listRes, limitsRes] = await Promise.all([
-        api.get('/list'),
-        api.get('/limits')
+        api.get<{ portfolios: Portfolio[] }>('/list'),
+        api.get<{ limits: TaxLimitsResponse }>('/limits')
       ]);
-      setPortfolios(listRes.data.portfolios);
-      setTaxLimits(limitsRes.data.limits);
+      setPortfolios(listRes.portfolios);
+      setTaxLimits(limitsRes.limits);
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error(err);

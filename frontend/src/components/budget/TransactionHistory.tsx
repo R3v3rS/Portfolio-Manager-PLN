@@ -36,7 +36,7 @@ export default function TransactionHistory({ selectedAccountId, categories, enve
     if (!selectedAccountId) return;
     setLoading(true);
     try {
-      const data = await budgetApi.getTransactions(selectedAccountId, selectedEnvelopeId, selectedCategoryId);
+      const data = await budgetApi.getTransactions<Transaction[]>(selectedAccountId, selectedEnvelopeId, selectedCategoryId);
       setTransactions(data);
     } catch (err) {
       console.error(err);

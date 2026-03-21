@@ -23,8 +23,8 @@ const PerformanceHeatmap: React.FC<PerformanceHeatmapProps> = ({ portfolioId }) 
     const fetchPerformance = async () => {
       setLoading(true);
       try {
-        const response = await api.get(`/${portfolioId}/performance`);
-        setMatrix(response.data.matrix);
+        const response = await api.get<{ matrix: PerformanceMatrix }>(`/${portfolioId}/performance`);
+        setMatrix(response.matrix);
         setError(null);
       } catch (err: any) {
         console.error('Failed to fetch performance matrix:', err);

@@ -1,10 +1,5 @@
-import axios from 'axios';
+import { createHttpClient } from './http';
 
-const api = axios.create({
-  baseURL: '/api/portfolio',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const api = createHttpClient('/api/portfolio');
 
 export default api;
