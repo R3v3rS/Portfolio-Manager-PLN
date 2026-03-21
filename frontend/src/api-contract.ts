@@ -2,13 +2,13 @@ export interface ApiSuccessEnvelope<TPayload> {
   payload: TPayload;
 }
 
-export interface ApiErrorBody<TDetails extends Record<string, unknown> = Record<string, unknown>> {
+export interface ApiErrorBody<TDetails = unknown> {
+  code: string;
   message: string;
-  code?: string;
   details?: TDetails;
 }
 
-export interface ApiErrorEnvelope<TDetails extends Record<string, unknown> = Record<string, unknown>> {
+export interface ApiErrorEnvelope<TDetails = unknown> {
   error: ApiErrorBody<TDetails>;
 }
 
