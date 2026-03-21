@@ -1,8 +1,9 @@
-from flask import jsonify, request
+from flask import request
 
 from bond_service import BondService
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
+from validators.responses import error_response, success_response
 from validators.request_models import validate_portfolio_create
 
 
@@ -10,9 +11,9 @@ from validators.request_models import validate_portfolio_create
 def get_tax_limits():
     try:
         limits = PortfolioService.get_tax_limits()
-        return jsonify({'limits': limits}), 200
+        return success_response({'limits': limits})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/create', methods=['POST'])
@@ -24,7 +25,7 @@ def create_portfolio():
         data['account_type'],
         data.get('created_at')
     )
-    return jsonify({'id': portfolio_id, 'message': 'Portfolio created successfully'}), 201
+    return success_response({'id': portfolio_id}, message='Portfolio created successfully', status_code=201)
 
 
 @portfolio_bp.route('/list', methods=['GET'])
@@ -36,9 +37,9 @@ def list_portfolios():
             value_data = PortfolioService.get_portfolio_value(portfolio['id'])
             portfolio.update(value_data)
             result.append(portfolio)
-        return jsonify({'portfolios': result}), 200
+        return success_response({'portfolios': result})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/value/<int:portfolio_id>', methods=['GET'])
@@ -46,10 +47,10 @@ def get_value(portfolio_id):
     try:
         value_data = PortfolioService.get_portfolio_value(portfolio_id)
         if value_data:
-            return jsonify(value_data), 200
-        return jsonify({'error': 'Portfolio not found'}), 404
+            return success_response(value_data)
+        return error_response('Portfolio not found', status_code=404, code='not_found')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/holdings/<int:portfolio_id>', methods=['GET'])
@@ -57,46 +58,46 @@ def get_holdings(portfolio_id):
     try:
         force_refresh = request.args.get('refresh') == '1'
         holdings = PortfolioService.get_holdings(portfolio_id, force_price_refresh=force_refresh)
-        return jsonify({'holdings': holdings}), 200
+        return success_response({'holdings': holdings})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/<int:portfolio_id>/clear', methods=['POST'])
 def clear_portfolio(portfolio_id):
     try:
         result = PortfolioService.clear_portfolio_data(portfolio_id)
-        return jsonify({'message': 'Portfolio data cleared successfully', **result}), 200
+        return success_response(result, message='Portfolio data cleared successfully')
     except ValueError as e:
         message = str(e)
         if message == 'Portfolio not found':
-            return jsonify({'error': message}), 404
-        return jsonify({'error': message}), 400
+            return error_response(message, status_code=404, code='not_found')
+        return error_response(message, status_code=400, code='business_rule_error')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/<int:portfolio_id>', methods=['DELETE'])
 def delete_portfolio(portfolio_id):
     try:
         PortfolioService.delete_portfolio(portfolio_id)
-        return jsonify({'message': 'Portfolio deleted successfully'}), 200
+        return success_response(None, message='Portfolio deleted successfully')
     except ValueError as e:
         message = str(e)
         if message == 'Portfolio not found':
-            return jsonify({'error': message}), 404
-        return jsonify({'error': message}), 400
+            return error_response(message, status_code=404, code='not_found')
+        return error_response(message, status_code=400, code='business_rule_error')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/bonds/<int:portfolio_id>', methods=['GET'])
 def get_bonds(portfolio_id):
     try:
         bonds = BondService.get_bonds(portfolio_id)
-        return jsonify({'bonds': bonds}), 200
+        return success_response({'bonds': bonds})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/bonds', methods=['POST'])
@@ -110,9 +111,9 @@ def add_bond():
             data['interest_rate'],
             data['purchase_date']
         )
-        return jsonify({'message': 'Bond added successfully'}), 201
+        return success_response(None, message='Bond added successfully', status_code=201)
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 
 @portfolio_bp.route('/savings/rate', methods=['POST'])
@@ -120,9 +121,9 @@ def update_savings_rate():
     data = request.json
     try:
         PortfolioService.update_savings_rate(data['portfolio_id'], data['rate'])
-        return jsonify({'message': 'Rate updated successfully'}), 200
+        return success_response(None, message='Rate updated successfully')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 
 @portfolio_bp.route('/savings/interest/manual', methods=['POST'])
@@ -130,6 +131,6 @@ def add_manual_interest():
     data = request.json
     try:
         PortfolioService.add_manual_interest(data['portfolio_id'], data['amount'], data['date'])
-        return jsonify({'message': 'Interest added successfully'}), 200
+        return success_response(None, message='Interest added successfully')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')

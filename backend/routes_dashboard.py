@@ -1,9 +1,12 @@
-from flask import Blueprint, jsonify
-from database import get_db
-from budget_service import BudgetService
-from portfolio_service import PortfolioService
-from loan_service import LoanService
 from datetime import date, datetime
+
+from flask import Blueprint
+
+from budget_service import BudgetService
+from database import get_db
+from loan_service import LoanService
+from portfolio_service import PortfolioService
+from validators.responses import success_response
 
 dashboard_bp = Blueprint('dashboard_bp', __name__)
 
@@ -121,7 +124,7 @@ def global_summary():
     total_assets = total_cash + total_investments
     net_worth = total_assets - total_liabilities
     
-    return jsonify({
+    return success_response({
         "net_worth": round(net_worth, 2),
         "total_assets": round(total_assets, 2),
         "total_liabilities": round(total_liabilities, 2),

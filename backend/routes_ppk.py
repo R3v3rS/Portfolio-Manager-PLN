@@ -1,7 +1,8 @@
-from flask import jsonify, request
+from flask import request
 
 from modules.ppk.ppk_service import PPKService
 from routes_portfolio_base import portfolio_bp
+from validators.responses import error_response, success_response
 
 
 @portfolio_bp.route('/ppk/transactions/<int:portfolio_id>', methods=['GET'])
@@ -22,9 +23,13 @@ def get_ppk_transactions(portfolio_id):
 
         transactions = PPKService.get_transactions(portfolio_id)
         summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
-        return jsonify({'transactions': transactions, 'summary': summary, 'currentPrice': current_price_data}), 200
+        return success_response({
+            'transactions': transactions,
+            'summary': summary,
+            'currentPrice': current_price_data,
+        })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 
 @portfolio_bp.route('/ppk/transactions', methods=['POST'])
@@ -38,6 +43,6 @@ def add_ppk_transaction():
             data['employerUnits'],
             data['pricePerUnit']
         )
-        return jsonify({'message': 'PPK transaction added successfully'}), 201
+        return success_response(None, message='PPK transaction added successfully', status_code=201)
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')

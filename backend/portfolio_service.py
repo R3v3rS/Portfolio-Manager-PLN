@@ -1,5 +1,5 @@
 from database import get_db
-from portfolio_core_service import SymbolMapping, PortfolioCoreService
+from portfolio_core_service import PortfolioCoreService
 from portfolio_import_service import PortfolioImportService
 from portfolio_trade_service import PortfolioTradeService
 from portfolio_valuation_service import PortfolioValuationService

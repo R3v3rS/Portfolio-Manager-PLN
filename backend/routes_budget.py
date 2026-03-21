@@ -1,7 +1,9 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request
+
 from budget_service import BudgetService
 from database import reset_budget_data
 from validators.request_models import validate_account_transfer, validate_budget_portfolio_transfer
+from validators.responses import error_response, success_response
 
 budget_bp = Blueprint('budget', __name__)
 
@@ -9,24 +11,24 @@ budget_bp = Blueprint('budget', __name__)
 def reset_budget():
     try:
         reset_budget_data()
-        return jsonify({'message': 'Budget data reset successfully'})
+        return success_response(None, message='Budget data reset successfully')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @budget_bp.route('/transactions', methods=['GET'])
 def get_transactions():
     account_id = request.args.get('account_id', type=int)
     if not account_id:
-        return jsonify({'error': 'account_id is required'}), 400
+        return error_response('account_id is required', status_code=400, code='validation_error')
 
     envelope_id = request.args.get('envelope_id', type=int)
     category_id = request.args.get('category_id', type=int)
 
     try:
         transactions = BudgetService.get_transactions(account_id, envelope_id, category_id)
-        return jsonify(transactions)
+        return success_response(transactions)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @budget_bp.route('/summary', methods=['GET'])
 def get_summary():
@@ -34,9 +36,9 @@ def get_summary():
         account_id = request.args.get('account_id', type=int)
         target_month = request.args.get('month') # Optional YYYY-MM
         summary = BudgetService.get_summary(account_id, target_month)
-        return jsonify(summary)
+        return success_response(summary)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @budget_bp.route('/analytics', methods=['GET'])
 def get_analytics():
@@ -45,13 +47,13 @@ def get_analytics():
     month = request.args.get('month', type=int)
 
     if not all([account_id, year, month]):
-        return jsonify({'error': 'account_id, year, and month are required'}), 400
+        return error_response('account_id, year, and month are required', status_code=400, code='validation_error')
 
     try:
         analytics = BudgetService.get_analytics(account_id, year, month)
-        return jsonify(analytics)
+        return success_response(analytics)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @budget_bp.route('/income', methods=['POST'])
 def add_income():
@@ -63,9 +65,9 @@ def add_income():
             data.get('description', 'Income'),
             data.get('date')
         )
-        return jsonify({'message': 'Income added', 'open_loans': open_loans})
+        return success_response({'open_loans': open_loans}, message='Income added')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/allocate', methods=['POST'])
 def allocate():
@@ -76,9 +78,9 @@ def allocate():
             float(data['amount']),
             data.get('date')
         )
-        return jsonify({'message': 'Money allocated'})
+        return success_response(None, message='Money allocated')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/expense', methods=['POST'])
 def expense():
@@ -91,9 +93,9 @@ def expense():
             envelope_id=data.get('envelope_id'),
             date=data.get('date')
         )
-        return jsonify({'message': 'Expense recorded'})
+        return success_response(None, message='Expense recorded')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/account-transfer', methods=['POST'])
 def account_transfer():
@@ -107,7 +109,7 @@ def account_transfer():
         target_envelope_id=data.get('target_envelope_id'),
         source_envelope_id=data.get('source_envelope_id')
     )
-    return jsonify({'message': 'Transfer successful'})
+    return success_response(None, message='Transfer successful')
 
 @budget_bp.route('/transfer-to-portfolio', methods=['POST'])
 def transfer_to_portfolio():
@@ -120,7 +122,7 @@ def transfer_to_portfolio():
         description=data['description'],
         date=data.get('date')
     )
-    return jsonify({'message': 'Transfer to Investment Portfolio successful'})
+    return success_response(None, message='Transfer to Investment Portfolio successful')
 
 @budget_bp.route('/withdraw-from-portfolio', methods=['POST'])
 def withdraw_from_portfolio():
@@ -132,7 +134,7 @@ def withdraw_from_portfolio():
         description=data['description'],
         date=data.get('date')
     )
-    return jsonify({'message': 'Withdrawal from Investment Portfolio successful'})
+    return success_response(None, message='Withdrawal from Investment Portfolio successful')
 
 @budget_bp.route('/borrow', methods=['POST'])
 def borrow():
@@ -144,30 +146,30 @@ def borrow():
             data['reason'],
             data.get('due_date')
         )
-        return jsonify({'message': 'Borrowed from envelope'})
+        return success_response(None, message='Borrowed from envelope')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/repay', methods=['POST'])
 def repay():
     data = request.json
     try:
         BudgetService.repay_envelope_loan(data['loan_id'], float(data['amount']))
-        return jsonify({'message': 'Loan repaid'})
+        return success_response(None, message='Loan repaid')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/categories', methods=['GET', 'POST'])
 def manage_categories():
     db = BudgetService.get_db()
     if request.method == 'GET':
         cats = db.execute("SELECT * FROM envelope_categories").fetchall()
-        return jsonify([dict(c) for c in cats])
+        return success_response([dict(c) for c in cats])
     else:
         data = request.json
         db.execute("INSERT INTO envelope_categories (name, icon) VALUES (?, ?)", (data['name'], data.get('icon', '📁')))
         db.commit()
-        return jsonify({'message': 'Category created'})
+        return success_response(None, message='Category created', status_code=201)
 
 @budget_bp.route('/envelopes', methods=['GET', 'POST'])
 def manage_envelopes():
@@ -178,11 +180,11 @@ def manage_envelopes():
             envelopes = db.execute("SELECT * FROM envelopes WHERE account_id = ?", (account_id,)).fetchall()
         else:
             envelopes = db.execute("SELECT * FROM envelopes").fetchall()
-        return jsonify([dict(e) for e in envelopes])
+        return success_response([dict(e) for e in envelopes])
     else:
         data = request.json
         if 'account_id' not in data:
-            return jsonify({'error': 'account_id is required'}), 400
+            return error_response('account_id is required', status_code=400, code='validation_error')
 
         env_type = data.get('type', 'MONTHLY')
         target_month = data.get('target_month')
@@ -198,7 +200,7 @@ def manage_envelopes():
             VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
         """, (data['category_id'], data['account_id'], data['name'], data.get('icon', '✉️'), data.get('target_amount'), env_type, target_month))
         db.commit()
-        return jsonify({'message': 'Envelope created'})
+        return success_response(None, message='Envelope created', status_code=201)
 
 @budget_bp.route('/envelopes/<int:envelope_id>', methods=['PATCH'])
 def update_envelope(envelope_id):
@@ -208,7 +210,7 @@ def update_envelope(envelope_id):
         has_name = 'name' in data
 
         if not has_target and not has_name:
-            return jsonify({'error': 'Nothing to update. Provide target_amount and/or name.'}), 400
+            return error_response('Nothing to update. Provide target_amount and/or name.', status_code=400, code='validation_error')
 
         BudgetService.update_envelope_target(
             envelope_id,
@@ -216,18 +218,18 @@ def update_envelope(envelope_id):
             data['name'] if has_name else None
         )
 
-        return jsonify({'message': 'Envelope updated'})
+        return success_response(None, message='Envelope updated')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/envelopes/close', methods=['POST'])
 def close_envelope():
     data = request.json
     try:
         BudgetService.close_envelope(data['envelope_id'])
-        return jsonify({'message': 'Envelope closed'})
+        return success_response(None, message='Envelope closed')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/budget/clone', methods=['POST'])
 def clone_budget():
@@ -238,19 +240,19 @@ def clone_budget():
             data['from_month'],
             data['to_month']
         )
-        return jsonify({'message': 'Budget cloned successfully'})
+        return success_response(None, message='Budget cloned successfully')
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return error_response(str(e), status_code=400, code='validation_error')
 
 @budget_bp.route('/accounts', methods=['GET', 'POST'])
 def manage_accounts():
     db = BudgetService.get_db()
     if request.method == 'GET':
         accounts = db.execute("SELECT * FROM budget_accounts").fetchall()
-        return jsonify([dict(a) for a in accounts])
+        return success_response([dict(a) for a in accounts])
     else:
         data = request.json
         db.execute("INSERT INTO budget_accounts (name, balance, currency) VALUES (?, ?, ?)",
                    (data['name'], data.get('balance', 0.0), data.get('currency', 'PLN')))
         db.commit()
-        return jsonify({'message': 'Account created'})
+        return success_response(None, message='Account created', status_code=201)

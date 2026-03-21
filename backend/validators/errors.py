@@ -11,3 +11,13 @@ class BusinessRuleError(Exception):
         self.message = message
         self.code = code
         self.status_code = status_code
+
+
+class NotFoundError(BusinessRuleError):
+    def __init__(self, message='Resource not found', code='not_found'):
+        super().__init__(message=message, code=code, status_code=404)
+
+
+class ForbiddenError(BusinessRuleError):
+    def __init__(self, message='Forbidden', code='forbidden'):
+        super().__init__(message=message, code=code, status_code=403)

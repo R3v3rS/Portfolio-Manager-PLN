@@ -3,7 +3,6 @@ import tempfile
 import yfinance as yf
 import pandas as pd
 from database import get_db
-import sqlite3
 from datetime import datetime, timedelta, date
 import time
 import random

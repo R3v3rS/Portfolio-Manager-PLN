@@ -1,5 +1,3 @@
-from datetime import date
-
 def xirr(transactions, guess=0.1):
     """
     Calculates the Extended Internal Rate of Return (XIRR).

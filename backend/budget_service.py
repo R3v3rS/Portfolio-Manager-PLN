@@ -1,5 +1,3 @@
-import sqlite3
-from flask import g
 from datetime import date as date_cls
 from database import get_db
 

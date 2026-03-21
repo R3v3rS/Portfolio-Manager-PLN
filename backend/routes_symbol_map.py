@@ -1,5 +1,7 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request
+
 from database import get_db
+from validators.responses import error_response, success_response
 
 symbol_map_bp = Blueprint('symbol_map', __name__)
 
@@ -12,7 +14,7 @@ def list_symbol_mappings():
            FROM symbol_mappings
            ORDER BY symbol_input ASC'''
     ).fetchall()
-    return jsonify([
+    return success_response([
         {
             'id': row['id'],
             'symbol_input': row['symbol_input'],
@@ -21,7 +23,7 @@ def list_symbol_mappings():
             'created_at': str(row['created_at']) if row['created_at'] else None,
         }
         for row in rows
-    ]), 200
+    ])
 
 
 @symbol_map_bp.route('', methods=['POST'])
@@ -36,9 +38,9 @@ def create_symbol_mapping():
     currency = str(currency_raw).strip().upper() if currency_raw is not None else None
 
     if not symbol_input:
-        return jsonify({'error': 'symbol_input is required'}), 400
+        return error_response('symbol_input is required', status_code=400, code='validation_error')
     if not ticker:
-        return jsonify({'error': 'ticker is required'}), 400
+        return error_response('ticker is required', status_code=400, code='validation_error')
 
     db = get_db()
 
@@ -47,7 +49,11 @@ def create_symbol_mapping():
         (symbol_input,)
     ).fetchone()
     if existing:
-        return jsonify({'error': f'Mapping for {symbol_input} already exists'}), 409
+        return error_response(
+            f'Mapping for {symbol_input} already exists',
+            status_code=400,
+            code='validation_error',
+        )
 
     cursor = db.execute(
         '''INSERT INTO symbol_mappings (symbol_input, ticker, currency)
@@ -63,13 +69,13 @@ def create_symbol_mapping():
         (cursor.lastrowid,)
     ).fetchone()
 
-    return jsonify({
+    return success_response({
         'id': row['id'],
         'symbol_input': row['symbol_input'],
         'ticker': row['ticker'],
         'currency': row['currency'],
         'created_at': str(row['created_at']) if row['created_at'] else None,
-    }), 201
+    }, status_code=201, message='Symbol mapping created successfully')
 
 
 @symbol_map_bp.route('/<int:mapping_id>', methods=['PUT'])
@@ -82,15 +88,15 @@ def update_symbol_mapping(mapping_id: int):
     currency = str(currency_raw).strip().upper() if currency_raw is not None else None
 
     if ticker is None and currency is None:
-        return jsonify({'error': 'No fields to update'}), 400
+        return error_response('No fields to update', status_code=400, code='validation_error')
 
     db = get_db()
     existing = db.execute('SELECT id FROM symbol_mappings WHERE id = ?', (mapping_id,)).fetchone()
     if not existing:
-        return jsonify({'error': 'Mapping not found'}), 404
+        return error_response('Mapping not found', status_code=404, code='not_found')
 
     if ticker is not None and not ticker:
-        return jsonify({'error': 'ticker cannot be empty'}), 400
+        return error_response('ticker cannot be empty', status_code=400, code='validation_error')
 
     if ticker is not None and currency is not None:
         db.execute(
@@ -117,13 +123,13 @@ def update_symbol_mapping(mapping_id: int):
         (mapping_id,)
     ).fetchone()
 
-    return jsonify({
+    return success_response({
         'id': row['id'],
         'symbol_input': row['symbol_input'],
         'ticker': row['ticker'],
         'currency': row['currency'],
         'created_at': str(row['created_at']) if row['created_at'] else None,
-    }), 200
+    }, message='Symbol mapping updated successfully')
 
 
 @symbol_map_bp.route('/<int:mapping_id>', methods=['DELETE'])
@@ -131,8 +137,8 @@ def delete_symbol_mapping(mapping_id: int):
     db = get_db()
     existing = db.execute('SELECT id FROM symbol_mappings WHERE id = ?', (mapping_id,)).fetchone()
     if not existing:
-        return jsonify({'error': 'Mapping not found'}), 404
+        return error_response('Mapping not found', status_code=404, code='not_found')
 
     db.execute('DELETE FROM symbol_mappings WHERE id = ?', (mapping_id,))
     db.commit()
-    return jsonify({'success': True}), 200
+    return success_response({'deleted': True}, message='Symbol mapping deleted successfully')

@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask
 import logging
 import traceback
 from flask_cors import CORS
@@ -10,8 +10,8 @@ from routes_dashboard import dashboard_bp
 from routes_radar import radar_bp
 from routes_symbol_map import symbol_map_bp
 from price_service import PriceService
-from validators.errors import ValidationError
-from validators.responses import error_response, validation_error_response
+from validators.errors import BusinessRuleError, ValidationError
+from validators.responses import error_response, success_response, validation_error_response
 import os
 
 
@@ -55,6 +55,14 @@ def create_app():
     def handle_value_error(error):
         return error_response(str(error), status_code=400, code='business_rule_error')
 
+    @app.errorhandler(BusinessRuleError)
+    def handle_business_rule_error(error):
+        return error_response(
+            error.message,
+            status_code=error.status_code,
+            code=error.code,
+        )
+
     # Global error handler to return consistent JSON responses
     @app.errorhandler(Exception)
     def handle_exception(e):
@@ -67,7 +75,10 @@ def create_app():
 
     @app.route('/')
     def health_check():
-        return {'status': 'healthy', 'message': 'Portfolio Manager API is running'}
+        return success_response(
+            payload={'service': 'Portfolio Manager API'},
+            message='Service is healthy',
+        )
 
     return app
 

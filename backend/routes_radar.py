@@ -1,7 +1,9 @@
-from flask import Blueprint, jsonify, request
-from watchlist_service import WatchlistService
-from price_service import PriceService
 from database import get_db
+from flask import Blueprint, request
+
+from price_service import PriceService
+from validators.responses import error_response, success_response
+from watchlist_service import WatchlistService
 
 radar_bp = Blueprint('radar', __name__)
 
@@ -12,7 +14,7 @@ def get_radar():
         tickers = WatchlistService.get_radar_tickers()
         
         if not tickers:
-            return jsonify([])
+            return success_response([])
 
         should_refresh = request.args.get('refresh') == '1'
         if should_refresh:
@@ -52,10 +54,10 @@ def get_radar():
                 'watched_since': watchlist_map.get(ticker)
             })
             
-        return jsonify(result)
+        return success_response(result)
     except Exception as e:
         print(f"Radar error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @radar_bp.route('/refresh', methods=['POST'])
 def refresh_radar_tickers():
@@ -69,45 +71,42 @@ def refresh_radar_tickers():
             tickers = WatchlistService.get_radar_tickers()
 
         if not tickers:
-            return jsonify({'message': 'No tickers to refresh', 'tickers': []}), 200
+            return success_response({'tickers': []}, message='No tickers to refresh')
 
         refreshed = PriceService.refresh_radar_data(tickers)
-        return jsonify({
-            'message': 'Radar data refreshed',
-            'tickers': list(refreshed.keys())
-        }), 200
+        return success_response({'tickers': list(refreshed.keys())}, message='Radar data refreshed')
     except Exception as e:
         print(f"Radar refresh error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @radar_bp.route('/watchlist', methods=['POST'])
 def add_watchlist():
     data = request.get_json()
     ticker = data.get('ticker')
     if not ticker:
-        return jsonify({'error': 'Ticker is required'}), 400
+        return error_response('Ticker is required', status_code=400, code='validation_error')
     
     try:
         WatchlistService.add_to_watchlist(ticker)
-        return jsonify({'message': 'Added to watchlist'}), 201
+        return success_response(None, message='Added to watchlist', status_code=201)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @radar_bp.route('/watchlist/<ticker>', methods=['DELETE'])
 def remove_watchlist(ticker):
     try:
         WatchlistService.remove_from_watchlist(ticker)
-        return jsonify({'message': 'Removed from watchlist'}), 200
+        return success_response(None, message='Removed from watchlist')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
 
 @radar_bp.route('/analysis/<ticker>', methods=['GET'])
 def get_stock_analysis(ticker):
     try:
         analysis = PriceService.get_stock_analysis(ticker)
         if not analysis:
-            return jsonify({'error': 'Analysis failed or no data found'}), 404
-        return jsonify(analysis)
+            return error_response('Analysis failed or no data found', status_code=404, code='not_found')
+        return success_response(analysis)
     except Exception as e:
         print(f"Analysis error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return error_response(str(e), status_code=500, code='internal_server_error')
