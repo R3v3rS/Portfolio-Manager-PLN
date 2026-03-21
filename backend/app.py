@@ -1,9 +1,10 @@
-from flask import Flask, jsonify
+from flask import Flask
 import logging
 import traceback
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 from database import init_db
+from api_response import error_response
 from routes import portfolio_bp
 from routes_loans import loans_bp
 from routes_budget import budget_bp
@@ -45,19 +46,20 @@ def create_app():
     app.register_blueprint(radar_bp, url_prefix='/api/radar')
     app.register_blueprint(symbol_map_bp, url_prefix='/api/symbol-map')
 
+
     # Global error handler to return consistent JSON responses
 
     @app.errorhandler(Exception)
     def handle_exception(e):
         if isinstance(e, HTTPException):
-            return jsonify({'error': e.description, 'status': e.code}), e.code
+            return error_response(e.description, status_code=e.code)
 
         logging.exception("Unhandled exception")
         if app.debug:
             traceback.print_exc()
-            return jsonify({'error': str(e), 'status': 500}), 500
+            return error_response(str(e), status_code=500, code='internal_error')
         # don't expose internals in production responses
-        return jsonify({'error': 'Internal server error', 'status': 500}), 500
+        return error_response('Internal server error', status_code=500, code='internal_error')
 
     @app.route('/')
     def health_check():

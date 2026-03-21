@@ -1,3 +1,4 @@
+import type { LoanMutationDto } from './api-contract';
 import { type QueryParams } from './http';
 import { createApiClient } from './apiConfig';
 
@@ -217,10 +218,10 @@ export const getLoans = async (): Promise<LoanSummary[]> => {
   return Array.isArray(response) ? response.map(normalizeLoanSummary) : [];
 };
 
-export const createLoan = (data: LoanPayload) => loansHttp.post<{ message: string; id: number }>(loanPath.list, data);
-export const addRate = (id: number, data: LoanRatePayload) => loansHttp.post<{ message: string }>(loanPath.rates(id), data);
-export const addOverpayment = (id: number, data: LoanOverpaymentPayload) => loansHttp.post<{ message: string }>(loanPath.overpayments(id), data);
-export const deleteLoan = (id: number) => loansHttp.delete<{ message: string }>(loanPath.byId(id));
+export const createLoan = (data: LoanPayload) => loansHttp.post<LoanMutationDto>(loanPath.list, data);
+export const addRate = (id: number, data: LoanRatePayload) => loansHttp.post<LoanMutationDto>(loanPath.rates(id), data);
+export const addOverpayment = (id: number, data: LoanOverpaymentPayload) => loansHttp.post<LoanMutationDto>(loanPath.overpayments(id), data);
+export const deleteLoan = (id: number) => loansHttp.delete<LoanMutationDto>(loanPath.byId(id));
 export const getSchedule = async (id: number, params?: ScheduleQuery): Promise<LoanScheduleResponse> => {
   const response = await loansHttp.get<unknown>(loanPath.schedule(id), { params: loanQuery(params) });
   return normalizeLoanSchedule(response);

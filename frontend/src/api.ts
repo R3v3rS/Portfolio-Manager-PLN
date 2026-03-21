@@ -1,4 +1,5 @@
-import { type QueryParams } from './http';
+import { HttpError, type QueryParams } from './http';
+import type { XtbImportErrorDetailsDto, XtbImportSuccessDto } from './api-contract';
 import { createApiClient } from './apiConfig';
 import type { Bond, ClosedPosition, ClosedPositionCycle, Holding, Portfolio, PortfolioValue, Transaction } from './types';
 import type { PPKSummary, PPKTransaction } from './services/ppkCalculator';
@@ -114,7 +115,7 @@ const toStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.map((entry) => toString(entry)).filter(Boolean) : [];
 
 const normalizePortfolio = (value: unknown): Portfolio => {
-  const source = isRecord(value) ? value : {};
+  const source = isRecord(value) ? (value as Partial<XtbImportSuccessDto> & Record<string, unknown>) : {};
   const accountType = source.account_type;
 
   return {
@@ -352,25 +353,44 @@ const normalizePpkSummary = (value: unknown): PPKSummary | null => {
   };
 };
 
-const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
-  const source = isRecord(value) ? value : {};
+export const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
+  const source = isRecord(value) ? (value as Partial<XtbImportSuccessDto> & Record<string, unknown>) : {};
   const nestedError = isRecord(source.error) ? source.error : null;
-  const details = nestedError && isRecord(nestedError.details) ? nestedError.details : null;
+  const details = nestedError && isRecord(nestedError.details) ? (nestedError.details as XtbImportErrorDetailsDto) : null;
   const missingSymbols = toStringArray(source.missing_symbols).length > 0
     ? toStringArray(source.missing_symbols)
     : toStringArray(details?.missing_symbols);
 
+  const message = nestedError
+    ? toOptionalString(nestedError.message)
+    : typeof source.error === 'string'
+      ? source.error
+      : source.success === false
+        ? 'Import failed.'
+        : toOptionalString(source.message);
+
   return {
     ok: source.success === false || nestedError ? false : true,
-    message: nestedError
-      ? toOptionalString(nestedError.message)
-      : typeof source.error === 'string'
-        ? source.error
-        : source.success === false
-          ? 'Import failed.'
-          : null,
+    message,
     missingSymbols,
   };
+};
+
+export const normalizeXtbImportError = (error: unknown): XtbImportResult => {
+  if (error instanceof HttpError) {
+    const normalized = normalizeXtbImportResult(error.data);
+    return {
+      ok: false,
+      message: normalized.message ?? error.message ?? 'Import failed.',
+      missingSymbols: normalized.missingSymbols,
+    };
+  }
+
+  if (error instanceof Error) {
+    return { ok: false, message: error.message, missingSymbols: [] };
+  }
+
+  return { ok: false, message: 'Unknown error', missingSymbols: [] };
 };
 
 export const portfolioApi = {

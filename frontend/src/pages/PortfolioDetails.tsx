@@ -1,8 +1,13 @@
 import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench } from 'lucide-react';
-import api, { portfolioApi, type PortfolioAuditResult, type XtbImportResult } from '../api';
-import { HttpError } from '../http';
+import api, {
+  portfolioApi,
+  normalizeXtbImportError,
+  normalizeXtbImportResult,
+  type PortfolioAuditResult,
+  type XtbImportResult,
+} from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
 import TransferModal from '../components/modals/TransferModal';
@@ -28,76 +33,6 @@ const createMissingSymbolDrafts = (symbols: string[]) =>
     return acc;
   }, {});
 
-const extractMissingSymbols = (value: unknown): string[] => {
-  if (!value || typeof value !== 'object') return [];
-
-  const source = value as {
-    missing_symbols?: unknown;
-    error?: { details?: { missing_symbols?: unknown } } | string;
-  };
-
-  if (Array.isArray(source.missing_symbols)) {
-    return source.missing_symbols.filter((entry): entry is string => typeof entry === 'string');
-  }
-
-  const nestedMissingSymbols =
-    typeof source.error === 'object' && source.error !== null
-      ? source.error.details?.missing_symbols
-      : undefined;
-
-  return Array.isArray(nestedMissingSymbols)
-    ? nestedMissingSymbols.filter((entry): entry is string => typeof entry === 'string')
-    : [];
-};
-
-const parseXtbImportResult = (value: unknown): XtbImportResult => {
-  const missingSymbols = extractMissingSymbols(value);
-
-  if (!value || typeof value !== 'object') {
-    return { ok: true, message: null, missingSymbols };
-  }
-
-  const source = value as {
-    success?: unknown;
-    error?: string | { message?: unknown };
-  };
-
-  const errorMessage =
-    typeof source.error === 'string'
-      ? source.error
-      : typeof source.error === 'object' && source.error !== null && typeof source.error.message === 'string'
-        ? source.error.message
-        : source.success === false
-          ? 'Import failed.'
-          : null;
-
-  return {
-    ok: source.success === false || !!errorMessage || missingSymbols.length > 0 ? false : true,
-    message: errorMessage,
-    missingSymbols,
-  };
-};
-
-const parseXtbImportError = (error: unknown): XtbImportResult => {
-  if (error instanceof HttpError) {
-    const normalized = parseXtbImportResult(error.data);
-    return {
-      ok: false,
-      message: normalized.message ?? error.message ?? 'Import failed.',
-      missingSymbols: normalized.missingSymbols,
-    };
-  }
-
-  if (error instanceof Error) {
-    return { ok: false, message: error.message, missingSymbols: [] };
-  }
-
-  return { ok: false, message: 'Unknown error', missingSymbols: [] };
-};
-
-const getXtbImportOutcome = (result: XtbImportResult): XtbImportResult =>
-  parseXtbImportResult(result);
-
 function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [missingSymbols, setMissingSymbols] = useState<string[]>([]);
@@ -113,7 +48,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
 
   const importFile = async (file: File) => {
     try {
-      const result = getXtbImportOutcome(await portfolioApi.importXtbCsv(portfolioId, file));
+      const result = normalizeXtbImportResult(await portfolioApi.importXtbCsv(portfolioId, file));
 
       if (result.missingSymbols.length > 0) {
         openMissingSymbolsModal(result.missingSymbols, file);
@@ -128,7 +63,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
       alert('Import successful!');
       onSuccess();
     } catch (err: unknown) {
-      const result = parseXtbImportError(err);
+      const result = normalizeXtbImportError(err);
 
       if (result.missingSymbols.length > 0) {
         openMissingSymbolsModal(result.missingSymbols, file);
@@ -178,7 +113,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
       closeMissingModal();
       await importFile(pendingFile);
     } catch (error) {
-      const parsedError = parseXtbImportError(error);
+      const parsedError = normalizeXtbImportError(error);
       alert(parsedError.message ?? 'Failed to save mappings');
       setSavingMappings(false);
     }

@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import tempfile
@@ -114,7 +115,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
             'category': 'HIPOTECZNY',
         })
         self.assertEqual(response.status_code, 201, response.get_json())
-        return response.get_json()['id']
+        return response.get_json()['payload']['id']
 
     def add_watchlist_ticker(self, ticker='AAPL'):
         response = self.client.post('/api/radar/watchlist', json={'ticker': ticker})
@@ -184,7 +185,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
 
         response = self.client.get(f'/api/loans/{loan_id}/schedule')
         self.assertEqual(response.status_code, 200, response.get_json())
-        schedule_payload = response.get_json()
+        schedule_payload = response.get_json()['payload']
         self.assertIn('baseline', schedule_payload)
         self.assertIn('simulation', schedule_payload)
 
@@ -201,11 +202,26 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
 
         response = self.client.get('/api/symbol-map')
         self.assertEqual(response.status_code, 200, response.get_json())
-        self.assertEqual(response.get_json(), [])
+        self.assertEqual(response.get_json()['payload'], [])
 
         response = self.client.get('/api/symbol-map/')
         self.assertEqual(response.status_code, 200, response.get_json())
-        self.assertEqual(response.get_json(), [])
+        self.assertEqual(response.get_json()['payload'], [])
+
+    def test_xtb_import_error_is_normalized_to_error_details(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        with patch('routes_imports.PortfolioService.import_xtb_csv', return_value={'success': False, 'missing_symbols': ['XTB.US']}):
+            response = self.client.post(
+                f'/api/portfolio/{portfolio_id}/import/xtb',
+                data={'file': (io.BytesIO(b'symbol\nXTB.US\n'), 'xtb.csv')},
+                content_type='multipart/form-data',
+            )
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['message'], 'Import failed.')
+        self.assertEqual(error['details']['missing_symbols'], ['XTB.US'])
 
 
 if __name__ == '__main__':
