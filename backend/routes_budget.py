@@ -1,264 +1,334 @@
-from flask import Blueprint, request, jsonify
+from datetime import date as date_cls
+
+from flask import Blueprint, request
+
+from api.exceptions import NotFoundError, ValidationError
+from api.response import success_response
 from budget_service import BudgetService
 from database import reset_budget_data
+from routes_portfolio_base import (
+    optional_number,
+    optional_string,
+    require_json_body,
+    require_non_empty_string,
+    require_number,
+    require_positive_int,
+)
 
 budget_bp = Blueprint('budget', __name__)
 
+
+NOT_FOUND_MESSAGES = {
+    'Budget Account not found',
+    'Envelope not found',
+    'Investment Portfolio not found',
+    'Loan not found',
+    'Source envelope not found',
+    'Target envelope not found',
+}
+
+
+TARGET_AMOUNT_ERRORS = {
+    'Target amount must be positive',
+}
+
+
+TARGET_MONTHLESS_ENVELOPE_TYPES = {'MONTHLY'}
+
+
+def raise_budget_validation_error(error: ValueError):
+    message = str(error)
+    if message in NOT_FOUND_MESSAGES:
+        raise NotFoundError(message) from error
+    if message in TARGET_AMOUNT_ERRORS:
+        raise ValidationError(message, details={'field': 'target_amount'}) from error
+    raise ValidationError(message) from error
+
+
+def require_query_positive_int(field: str) -> int:
+    value = request.args.get(field)
+    return require_positive_int({field: value}, field)
+
+
+def optional_query_positive_int(field: str) -> int | None:
+    value = request.args.get(field)
+    if value is None:
+        return None
+    return require_positive_int({field: value}, field)
+
+
+def optional_body_positive_int(data: dict, field: str) -> int | None:
+    if data.get(field) is None:
+        return None
+    return require_positive_int(data, field)
+
+
 @budget_bp.route('/reset', methods=['POST'])
 def reset_budget():
-    try:
-        reset_budget_data()
-        return jsonify({'message': 'Budget data reset successfully'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    reset_budget_data()
+    return success_response({'message': 'Budget data reset successfully'})
+
 
 @budget_bp.route('/transactions', methods=['GET'])
 def get_transactions():
-    account_id = request.args.get('account_id', type=int)
-    if not account_id:
-        return jsonify({'error': 'account_id is required'}), 400
-        
-    envelope_id = request.args.get('envelope_id', type=int)
-    category_id = request.args.get('category_id', type=int)
-    
-    try:
-        transactions = BudgetService.get_transactions(account_id, envelope_id, category_id)
-        return jsonify(transactions)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    transactions = BudgetService.get_transactions(
+        require_query_positive_int('account_id'),
+        optional_query_positive_int('envelope_id'),
+        optional_query_positive_int('category_id'),
+    )
+    return success_response(transactions)
+
 
 @budget_bp.route('/summary', methods=['GET'])
 def get_summary():
-    try:
-        account_id = request.args.get('account_id', type=int)
-        target_month = request.args.get('month') # Optional YYYY-MM
-        summary = BudgetService.get_summary(account_id, target_month)
-        return jsonify(summary)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    account_id = optional_query_positive_int('account_id')
+    target_month = request.args.get('month')
+    summary = BudgetService.get_summary(account_id, target_month)
+    return success_response(summary)
+
 
 @budget_bp.route('/analytics', methods=['GET'])
 def get_analytics():
-    account_id = request.args.get('account_id', type=int)
-    year = request.args.get('year', type=int)
-    month = request.args.get('month', type=int)
+    analytics = BudgetService.get_analytics(
+        require_query_positive_int('account_id'),
+        require_query_positive_int('year'),
+        require_query_positive_int('month'),
+    )
+    return success_response(analytics)
 
-    if not all([account_id, year, month]):
-        return jsonify({'error': 'account_id, year, and month are required'}), 400
-
-    try:
-        analytics = BudgetService.get_analytics(account_id, year, month)
-        return jsonify(analytics)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @budget_bp.route('/income', methods=['POST'])
 def add_income():
-    data = request.json
-    try:
-        open_loans = BudgetService.add_income(
-            data['account_id'], 
-            float(data['amount']), 
-            data.get('description', 'Income'),
-            data.get('date')
-        )
-        return jsonify({'message': 'Income added', 'open_loans': open_loans})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = require_json_body()
+    open_loans = BudgetService.add_income(
+        require_positive_int(data, 'account_id'),
+        require_number(data, 'amount', positive=True),
+        optional_string(data, 'description') or 'Income',
+        optional_string(data, 'date'),
+    )
+    return success_response({'message': 'Income added', 'open_loans': open_loans})
+
 
 @budget_bp.route('/allocate', methods=['POST'])
 def allocate():
-    data = request.json
+    data = require_json_body()
     try:
         BudgetService.allocate_money(
-            data['envelope_id'], 
-            float(data['amount']),
-            data.get('date')
+            require_positive_int(data, 'envelope_id'),
+            require_number(data, 'amount', positive=True),
+            optional_string(data, 'date'),
         )
-        return jsonify({'message': 'Money allocated'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Money allocated'})
+
 
 @budget_bp.route('/expense', methods=['POST'])
 def expense():
-    data = request.json
+    data = require_json_body()
     try:
         BudgetService.spend(
-            account_id=data.get('account_id'),
-            amount=float(data['amount']), 
-            description=data.get('description', 'Expense'),
-            envelope_id=data.get('envelope_id'),
-            date=data.get('date')
+            account_id=require_positive_int(data, 'account_id'),
+            amount=require_number(data, 'amount', positive=True),
+            description=optional_string(data, 'description') or 'Expense',
+            envelope_id=optional_body_positive_int(data, 'envelope_id'),
+            date=optional_string(data, 'date'),
         )
-        return jsonify({'message': 'Expense recorded'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Expense recorded'})
+
 
 @budget_bp.route('/account-transfer', methods=['POST'])
 def account_transfer():
-    data = request.json
+    data = require_json_body()
     try:
         BudgetService.transfer_between_accounts(
-            from_account_id=data['from_account_id'],
-            to_account_id=data['to_account_id'],
-            amount=float(data['amount']),
-            description=data.get('description', 'Transfer'),
-            date=data.get('date'),
-            target_envelope_id=data.get('target_envelope_id'),
-            source_envelope_id=data.get('source_envelope_id')
+            from_account_id=require_positive_int(data, 'from_account_id'),
+            to_account_id=require_positive_int(data, 'to_account_id'),
+            amount=require_number(data, 'amount', positive=True),
+            description=optional_string(data, 'description') or 'Transfer',
+            date=optional_string(data, 'date'),
+            target_envelope_id=optional_body_positive_int(data, 'target_envelope_id'),
+            source_envelope_id=optional_body_positive_int(data, 'source_envelope_id'),
         )
-        return jsonify({'message': 'Transfer successful'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Transfer successful'})
+
 
 @budget_bp.route('/transfer-to-portfolio', methods=['POST'])
 def transfer_to_portfolio():
-    data = request.json
+    data = require_json_body()
     try:
         BudgetService.transfer_to_investment(
-            budget_account_id=data['budget_account_id'],
-            portfolio_id=data['portfolio_id'],
-            amount=float(data['amount']),
-            envelope_id=data.get('envelope_id'),
-            description=data.get('description', 'Transfer to Investments'),
-            date=data.get('date')
+            budget_account_id=require_positive_int(data, 'budget_account_id'),
+            portfolio_id=require_positive_int(data, 'portfolio_id'),
+            amount=require_number(data, 'amount', positive=True),
+            envelope_id=optional_body_positive_int(data, 'envelope_id'),
+            description=optional_string(data, 'description') or 'Transfer to Investments',
+            date=optional_string(data, 'date'),
         )
-        return jsonify({'message': 'Transfer to Investment Portfolio successful'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Transfer to Investment Portfolio successful'})
+
 
 @budget_bp.route('/withdraw-from-portfolio', methods=['POST'])
 def withdraw_from_portfolio():
-    data = request.json
+    data = require_json_body()
     try:
         BudgetService.withdraw_from_investment(
-            portfolio_id=data['portfolio_id'],
-            budget_account_id=data['budget_account_id'],
-            amount=float(data['amount']),
-            description=data.get('description', 'Wypłata z portfela inwestycyjnego'),
-            date=data.get('date')
+            portfolio_id=require_positive_int(data, 'portfolio_id'),
+            budget_account_id=require_positive_int(data, 'budget_account_id'),
+            amount=require_number(data, 'amount', positive=True),
+            description=optional_string(data, 'description') or 'Wypłata z portfela inwestycyjnego',
+            date=optional_string(data, 'date'),
         )
-        return jsonify({'message': 'Withdrawal from Investment Portfolio successful'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Withdrawal from Investment Portfolio successful'})
+
 
 @budget_bp.route('/borrow', methods=['POST'])
 def borrow():
-    data = request.json
-    try:
-        BudgetService.borrow_from_envelope(
-            data['source_envelope_id'], 
-            float(data['amount']), 
-            data['reason'], 
-            data.get('due_date')
-        )
-        return jsonify({'message': 'Borrowed from envelope'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = require_json_body()
+    BudgetService.borrow_from_envelope(
+        require_positive_int(data, 'source_envelope_id'),
+        require_number(data, 'amount', positive=True),
+        require_non_empty_string(data, 'reason'),
+        optional_string(data, 'due_date'),
+    )
+    return success_response({'message': 'Borrowed from envelope'})
+
 
 @budget_bp.route('/repay', methods=['POST'])
 def repay():
-    data = request.json
+    data = require_json_body()
     try:
-        BudgetService.repay_envelope_loan(data['loan_id'], float(data['amount']))
-        return jsonify({'message': 'Loan repaid'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        BudgetService.repay_envelope_loan(
+            require_positive_int(data, 'loan_id'),
+            require_number(data, 'amount', positive=True),
+        )
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Loan repaid'})
+
 
 @budget_bp.route('/categories', methods=['GET', 'POST'])
 def manage_categories():
     db = BudgetService.get_db()
     if request.method == 'GET':
-        cats = db.execute("SELECT * FROM envelope_categories").fetchall()
-        return jsonify([dict(c) for c in cats])
-    else:
-        data = request.json
-        db.execute("INSERT INTO envelope_categories (name, icon) VALUES (?, ?)", (data['name'], data.get('icon', '📁')))
-        db.commit()
-        return jsonify({'message': 'Category created'})
+        cats = db.execute('SELECT * FROM envelope_categories').fetchall()
+        return success_response([dict(c) for c in cats])
+
+    data = require_json_body()
+    db.execute(
+        'INSERT INTO envelope_categories (name, icon) VALUES (?, ?)',
+        (require_non_empty_string(data, 'name'), optional_string(data, 'icon') or '📁'),
+    )
+    db.commit()
+    return success_response({'message': 'Category created'})
+
 
 @budget_bp.route('/envelopes', methods=['GET', 'POST'])
 def manage_envelopes():
     db = BudgetService.get_db()
     if request.method == 'GET':
-        account_id = request.args.get('account_id', type=int)
+        account_id = optional_query_positive_int('account_id')
         if account_id:
-            envelopes = db.execute("SELECT * FROM envelopes WHERE account_id = ?", (account_id,)).fetchall()
+            envelopes = db.execute('SELECT * FROM envelopes WHERE account_id = ?', (account_id,)).fetchall()
         else:
-            envelopes = db.execute("SELECT * FROM envelopes").fetchall()
-        return jsonify([dict(e) for e in envelopes])
-    else:
-        data = request.json
-        if 'account_id' not in data:
-            return jsonify({'error': 'account_id is required'}), 400
-            
-        env_type = data.get('type', 'MONTHLY')
-        target_month = data.get('target_month')
-        
-        # If type is MONTHLY, target_month is required (or default to current?)
-        if env_type == 'MONTHLY' and not target_month:
-             from datetime import date
-             today = date.today()
-             target_month = f"{today.year}-{today.month:02d}"
-             
-        db.execute("""
-            INSERT INTO envelopes (category_id, account_id, name, icon, target_amount, type, target_month, status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
-        """, (data['category_id'], data['account_id'], data['name'], data.get('icon', '✉️'), data.get('target_amount'), env_type, target_month))
-        db.commit()
-        return jsonify({'message': 'Envelope created'})
+            envelopes = db.execute('SELECT * FROM envelopes').fetchall()
+        return success_response([dict(e) for e in envelopes])
+
+    data = require_json_body()
+    env_type = (optional_string(data, 'type') or 'MONTHLY').upper()
+    target_month = optional_string(data, 'target_month')
+
+    if env_type in TARGET_MONTHLESS_ENVELOPE_TYPES and not target_month:
+        today = date_cls.today()
+        target_month = f'{today.year}-{today.month:02d}'
+
+    db.execute(
+        '''
+        INSERT INTO envelopes (category_id, account_id, name, icon, target_amount, type, target_month, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+        ''',
+        (
+            require_positive_int(data, 'category_id'),
+            require_positive_int(data, 'account_id'),
+            require_non_empty_string(data, 'name'),
+            optional_string(data, 'icon') or '✉️',
+            optional_number(data, 'target_amount', default=None, non_negative=True),
+            env_type,
+            target_month,
+        ),
+    )
+    db.commit()
+    return success_response({'message': 'Envelope created'})
+
 
 @budget_bp.route('/envelopes/<int:envelope_id>', methods=['PATCH'])
 def update_envelope(envelope_id):
-    data = request.json
+    data = require_json_body()
+    has_target = 'target_amount' in data
+    has_name = 'name' in data
+
+    if not has_target and not has_name:
+        raise ValidationError('Nothing to update. Provide target_amount and/or name.')
+
     try:
-        has_target = 'target_amount' in data
-        has_name = 'name' in data
-
-        if not has_target and not has_name:
-            return jsonify({'error': 'Nothing to update. Provide target_amount and/or name.'}), 400
-
         BudgetService.update_envelope_target(
             envelope_id,
-            float(data['target_amount']) if has_target else None,
-            data['name'] if has_name else None
+            require_number(data, 'target_amount', non_negative=True) if has_target else None,
+            require_non_empty_string(data, 'name') if has_name else None,
         )
+    except ValueError as error:
+        raise_budget_validation_error(error)
 
-        return jsonify({'message': 'Envelope updated'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    return success_response({'message': 'Envelope updated'})
+
 
 @budget_bp.route('/envelopes/close', methods=['POST'])
 def close_envelope():
-    data = request.json
+    data = require_json_body()
     try:
-        BudgetService.close_envelope(data['envelope_id'])
-        return jsonify({'message': 'Envelope closed'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        BudgetService.close_envelope(require_positive_int(data, 'envelope_id'))
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Envelope closed'})
+
 
 @budget_bp.route('/budget/clone', methods=['POST'])
 def clone_budget():
-    data = request.json
+    data = require_json_body()
     try:
         BudgetService.clone_budget_for_month(
-            data['account_id'],
-            data['from_month'],
-            data['to_month']
+            require_positive_int(data, 'account_id'),
+            require_non_empty_string(data, 'from_month'),
+            require_non_empty_string(data, 'to_month'),
         )
-        return jsonify({'message': 'Budget cloned successfully'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_budget_validation_error(error)
+    return success_response({'message': 'Budget cloned successfully'})
+
 
 @budget_bp.route('/accounts', methods=['GET', 'POST'])
 def manage_accounts():
     db = BudgetService.get_db()
     if request.method == 'GET':
-        accounts = db.execute("SELECT * FROM budget_accounts").fetchall()
-        return jsonify([dict(a) for a in accounts])
-    else:
-        data = request.json
-        db.execute("INSERT INTO budget_accounts (name, balance, currency) VALUES (?, ?, ?)", 
-                   (data['name'], data.get('balance', 0.0), data.get('currency', 'PLN')))
-        db.commit()
-        return jsonify({'message': 'Account created'})
+        accounts = db.execute('SELECT * FROM budget_accounts').fetchall()
+        return success_response([dict(a) for a in accounts])
+
+    data = require_json_body()
+    db.execute(
+        'INSERT INTO budget_accounts (name, balance, currency) VALUES (?, ?, ?)',
+        (
+            require_non_empty_string(data, 'name'),
+            optional_number(data, 'balance', default=0.0, non_negative=True),
+            optional_string(data, 'currency') or 'PLN',
+        ),
+    )
+    db.commit()
+    return success_response({'message': 'Account created'})

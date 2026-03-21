@@ -175,6 +175,10 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
             'date': '2026-03-04',
         })
         self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(
+            response.get_json()['payload']['message'],
+            'Transfer to Investment Portfolio successful',
+        )
 
         response = self.client.post('/api/budget/withdraw-from-portfolio', json={
             'budget_account_id': account_id,
@@ -184,6 +188,10 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
             'date': '2026-03-05',
         })
         self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(
+            response.get_json()['payload']['message'],
+            'Withdrawal from Investment Portfolio successful',
+        )
 
         response = self.client.get(f'/api/loans/{loan_id}/schedule')
         self.assertEqual(response.status_code, 200, response.get_json())
@@ -238,6 +246,35 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         error = response.get_json()['error']
         self.assertEqual(error['code'], 'validation_error')
         self.assertEqual(error['details']['field'], 'quantity')
+
+    def test_invalid_budget_transfer_payload_returns_validation_error(self):
+        account_id, _category_id = self.seed_budget_account()
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        response = self.client.post('/api/budget/transfer-to-portfolio', json={
+            'budget_account_id': account_id,
+            'portfolio_id': portfolio_id,
+            'amount': -10.0,
+        })
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'amount')
+
+    def test_missing_budget_transfer_field_returns_validation_error(self):
+        _account_id, _category_id = self.seed_budget_account()
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        response = self.client.post('/api/budget/transfer-to-portfolio', json={
+            'portfolio_id': portfolio_id,
+            'amount': 25.0,
+        })
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'budget_account_id')
 
     def test_xtb_import_error_is_normalized_to_error_details(self):
         portfolio_id = self.seed_portfolio_with_cash()
