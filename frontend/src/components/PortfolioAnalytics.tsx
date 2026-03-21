@@ -1,10 +1,13 @@
 import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { PortfolioHistoryPoint } from '../api';
 import { Holding } from '../types';
+import MonthlyAssetRatioChart from './MonthlyAssetRatioChart';
 
 interface PortfolioAnalyticsProps {
   holdings: Holding[];
   cashBalance: number;
+  historyData: PortfolioHistoryPoint[];
 }
 
 const COLORS = [
@@ -26,7 +29,7 @@ const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent
   );
 };
 
-const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashBalance }) => {
+const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashBalance, historyData }) => {
   
   const assetData = useMemo(() => {
     const data = holdings.map(h => ({
@@ -107,10 +110,14 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
   );
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <ChartSection title="Struktura Aktywów" data={assetData} />
-      <ChartSection title="Ekspozycja na Sektory" data={sectorData} />
-      <ChartSection title="Ekspozycja na Branże" data={industryData} />
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <ChartSection title="Struktura Aktywów" data={assetData} />
+        <ChartSection title="Ekspozycja na Sektory" data={sectorData} />
+        <ChartSection title="Ekspozycja na Branże" data={industryData} />
+      </div>
+
+      <MonthlyAssetRatioChart data={historyData} />
     </div>
   );
 };
