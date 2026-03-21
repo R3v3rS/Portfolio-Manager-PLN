@@ -746,7 +746,30 @@ const PortfolioDetails: React.FC = () => {
           <dd className={cn("mt-1 text-2xl font-semibold", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
             {(valueData.open_positions_result || 0).toFixed(2)} PLN
           </dd>
-          <dd className="mt-2 text-xs text-gray-400">Aktualny zysk/strata niezrealizowanych pozycji.</dd>
+          <dd className="mt-2 text-xs text-gray-400 mb-3">Aktualny zysk/strata niezrealizowanych pozycji.</dd>
+          
+          {(valueData.change_1d !== undefined || valueData.change_7d !== undefined) && (
+            <div className="pt-3 border-t border-gray-100 space-y-2">
+              {valueData.change_1d !== undefined && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">Zmiana 1D:</span>
+                  <div className={cn("font-medium flex items-center gap-1", valueData.change_1d >= 0 ? "text-green-600" : "text-red-600")}>
+                    <span>{valueData.change_1d >= 0 ? '+' : ''}{valueData.change_1d.toFixed(2)} PLN</span>
+                    <span className="text-[10px] opacity-80">({valueData.change_1d_percent?.toFixed(2)}%)</span>
+                  </div>
+                </div>
+              )}
+              {valueData.change_7d !== undefined && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">Zmiana 7D:</span>
+                  <div className={cn("font-medium flex items-center gap-1", valueData.change_7d >= 0 ? "text-green-600" : "text-red-600")}>
+                    <span>{valueData.change_7d >= 0 ? '+' : ''}{valueData.change_7d.toFixed(2)} PLN</span>
+                    <span className="text-[10px] opacity-80">({valueData.change_7d_percent?.toFixed(2)}%)</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' ? (
           <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">

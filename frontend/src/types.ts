@@ -80,6 +80,10 @@ export interface PortfolioValue {
   total_result: number;
   total_result_percent: number;
   xirr_percent?: number;
+  change_1d?: number;
+  change_1d_percent?: number;
+  change_7d?: number;
+  change_7d_percent?: number;
 }
 
 export interface ClosedPosition {
