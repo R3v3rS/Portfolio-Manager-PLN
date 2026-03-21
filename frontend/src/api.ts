@@ -1,5 +1,5 @@
 import { HttpError, type QueryParams } from './http';
-import type { XtbImportErrorDetailsDto, XtbImportSuccessDto } from './api-contract';
+import type { ApiErrorEnvelope, XtbImportErrorDetailsDto, XtbImportSuccessDto } from './api-contract';
 import { createApiClient } from './apiConfig';
 import type { Bond, ClosedPosition, ClosedPositionCycle, Holding, Portfolio, PortfolioValue, Transaction } from './types';
 import type { PPKSummary, PPKTransaction } from './services/ppkCalculator';
@@ -355,34 +355,24 @@ const normalizePpkSummary = (value: unknown): PPKSummary | null => {
 
 export const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
   const source = isRecord(value) ? (value as Partial<XtbImportSuccessDto> & Record<string, unknown>) : {};
-  const nestedError = isRecord(source.error) ? source.error : null;
-  const details = nestedError && isRecord(nestedError.details) ? (nestedError.details as XtbImportErrorDetailsDto) : null;
-  const missingSymbols = toStringArray(source.missing_symbols).length > 0
-    ? toStringArray(source.missing_symbols)
-    : toStringArray(details?.missing_symbols);
-
-  const message = nestedError
-    ? toOptionalString(nestedError.message)
-    : typeof source.error === 'string'
-      ? source.error
-      : source.success === false
-        ? 'Import failed.'
-        : toOptionalString(source.message);
 
   return {
-    ok: source.success === false || nestedError ? false : true,
-    message,
-    missingSymbols,
+    ok: true,
+    message: toOptionalString(source.message),
+    missingSymbols: toStringArray(source.missing_symbols),
   };
 };
 
 export const normalizeXtbImportError = (error: unknown): XtbImportResult => {
   if (error instanceof HttpError) {
-    const normalized = normalizeXtbImportResult(error.data);
+    const errorEnvelope = isRecord(error.data) && isRecord(error.data.error)
+      ? (error.data as unknown as ApiErrorEnvelope<XtbImportErrorDetailsDto>)
+      : undefined;
+
     return {
       ok: false,
-      message: normalized.message ?? error.message ?? 'Import failed.',
-      missingSymbols: normalized.missingSymbols,
+      message: errorEnvelope?.error.message ?? error.message ?? 'Import failed.',
+      missingSymbols: toStringArray(errorEnvelope?.error.details?.missing_symbols),
     };
   }
 
