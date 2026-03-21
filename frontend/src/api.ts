@@ -42,6 +42,7 @@ export interface PortfolioHistoryPoint {
   date: string;
   label: string;
   value: number;
+  net_contributions?: number;
   benchmark_value?: number;
 }
 
@@ -238,6 +239,7 @@ const normalizePortfolioHistoryPoint = (value: unknown): PortfolioHistoryPoint =
     date: toString(source.date),
     label: toString(source.label),
     value: toNumber(source.value),
+    net_contributions: source.net_contributions == null ? undefined : toNumber(source.net_contributions),
     benchmark_value: source.benchmark_value == null ? undefined : toNumber(source.benchmark_value),
   };
 };
