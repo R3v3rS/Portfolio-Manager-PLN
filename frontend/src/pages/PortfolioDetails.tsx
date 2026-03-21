@@ -54,9 +54,25 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
       alert('Import successful!');
       onSuccess();
     } catch (err: unknown) {
-      const maybeResponse = (err as { response?: { data?: { success?: boolean; missing_symbols?: string[]; error?: string } } }).response;
-      if (maybeResponse?.data?.success === false && Array.isArray(maybeResponse.data.missing_symbols)) {
-        const symbols = maybeResponse.data.missing_symbols;
+      const maybeResponse = (err as {
+        response?: {
+          data?: {
+            success?: boolean;
+            missing_symbols?: string[];
+            error?: string;
+            details?: { success?: boolean; missing_symbols?: string[] };
+          };
+        };
+      }).response;
+      const missingSymbolsFromError =
+        maybeResponse?.data?.missing_symbols ??
+        maybeResponse?.data?.details?.missing_symbols;
+
+      if (
+        (maybeResponse?.data?.success === false || maybeResponse?.data?.details?.success === false) &&
+        Array.isArray(missingSymbolsFromError)
+      ) {
+        const symbols = missingSymbolsFromError;
         setMissingSymbols(symbols);
         setPendingFile(file);
         setMappingDrafts(

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import { Wallet, TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
+import { extractPayload } from '../apiEnvelope';
 import { cn } from '../lib/utils.ts';
 
 interface GlobalSummary {
@@ -37,7 +38,7 @@ const MainDashboard: React.FC = () => {
     const fetchData = async () => {
       try {
         const res = await axios.get('/api/dashboard/global-summary');
-        setData(res.data);
+        setData(extractPayload<GlobalSummary>(res.data));
       } catch (err) {
         console.error(err);
         setError('Nie udało się pobrać danych kokpitu.');

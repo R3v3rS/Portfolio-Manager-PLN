@@ -1,3 +1,5 @@
+import { parseJsonApiResponse } from './apiEnvelope';
+
 export interface BudgetAccount {
   id: number;
   name: string;
@@ -44,6 +46,24 @@ export interface FlowAnalysis {
   savings_rate: number;
 }
 
+export interface BudgetTransaction {
+  id: number;
+  type: string;
+  amount: number;
+  description: string;
+  date: string;
+  envelope_name?: string;
+  envelope_icon?: string;
+  category_name?: string;
+  category_icon?: string;
+}
+
+export interface BudgetAnalytics {
+  total_expenses: number;
+  by_category: { name: string; value: number; fill: string }[];
+  by_envelope: { name: string; value: number }[];
+}
+
 export interface BudgetSummary {
   account_balance: number;
   free_pool: number;
@@ -75,24 +95,21 @@ const buildUrl = (path: string, params?: Record<string, string | number | undefi
 export const budgetApi = {
   getSummary: async (accountId?: number, month?: string): Promise<BudgetSummary> => {
     const res = await fetch(buildUrl('/summary', { account_id: accountId, month }));
-    if (!res.ok) throw new Error('Failed to fetch summary');
-    return res.json();
+    return parseJsonApiResponse<BudgetSummary>(res, 'Failed to fetch summary');
   },
 
-  getTransactions: async (accountId: number, envelopeId?: number | null, categoryId?: number | null) => {
+  getTransactions: async (accountId: number, envelopeId?: number | null, categoryId?: number | null): Promise<BudgetTransaction[]> => {
     const res = await fetch(buildUrl('/transactions', {
       account_id: accountId,
       envelope_id: envelopeId ?? undefined,
       category_id: categoryId ?? undefined,
     }));
-    if (!res.ok) throw new Error('Failed to fetch transactions');
-    return res.json();
+    return parseJsonApiResponse<BudgetTransaction[]>(res, 'Failed to fetch transactions');
   },
 
-  getAnalytics: async (accountId: number, year: number, month: number) => {
+  getAnalytics: async (accountId: number, year: number, month: number): Promise<BudgetAnalytics> => {
     const res = await fetch(buildUrl('/analytics', { account_id: accountId, year, month }));
-    if (!res.ok) throw new Error('Failed to fetch analytics');
-    return res.json();
+    return parseJsonApiResponse<BudgetAnalytics>(res, 'Failed to fetch analytics');
   },
 
   addIncome: async (accountId: number, amount: number, description?: string, date?: string) => {
@@ -101,8 +118,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ account_id: accountId, amount, description, date }),
     });
-    if (!res.ok) throw new Error('Failed to add income');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to add income');
   },
 
   allocate: async (envelopeId: number, amount: number, date?: string) => {
@@ -111,8 +127,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ envelope_id: envelopeId, amount, date }),
     });
-    if (!res.ok) throw new Error('Failed to allocate');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to allocate');
   },
 
   expense: async (envelopeId: number | null, accountId: number, amount: number, description?: string, date?: string) => {
@@ -121,8 +136,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ envelope_id: envelopeId, account_id: accountId, amount, description, date }),
     });
-    if (!res.ok) throw new Error('Failed to record expense');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to record expense');
   },
 
   transferBetweenAccounts: async (fromAccountId: number, toAccountId: number, amount: number, description?: string, date?: string, targetEnvelopeId?: number | null, sourceEnvelopeId?: number | null) => {
@@ -131,15 +145,13 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from_account_id: fromAccountId, to_account_id: toAccountId, amount, description, date, target_envelope_id: targetEnvelopeId, source_envelope_id: sourceEnvelopeId }),
     });
-    if (!res.ok) throw new Error('Failed to transfer between accounts');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to transfer between accounts');
   },
 
   getEnvelopes: async (accountId?: number) => {
     const url = accountId ? `${API_URL}/envelopes?account_id=${accountId}` : `${API_URL}/envelopes`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch envelopes');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to fetch envelopes');
   },
 
   transferToPortfolio: async (budgetAccountId: number, portfolioId: number, amount: number, envelopeId?: number | null, description?: string, date?: string) => {
@@ -148,8 +160,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ budget_account_id: budgetAccountId, portfolio_id: portfolioId, amount, envelope_id: envelopeId, description, date }),
     });
-    if (!res.ok) throw new Error('Failed to transfer to investment portfolio');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to transfer to investment portfolio');
   },
 
   withdrawFromPortfolio: async (portfolioId: number, budgetAccountId: number, amount: number, description?: string, date?: string) => {
@@ -158,8 +169,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ portfolio_id: portfolioId, budget_account_id: budgetAccountId, amount, description, date }),
     });
-    if (!res.ok) throw new Error('Failed to withdraw from investment portfolio');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to withdraw from investment portfolio');
   },
 
   borrow: async (sourceEnvelopeId: number, amount: number, reason: string, dueDate?: string) => {
@@ -168,8 +178,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source_envelope_id: sourceEnvelopeId, amount, reason, due_date: dueDate }),
     });
-    if (!res.ok) throw new Error('Failed to borrow');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to borrow');
   },
 
   repay: async (loanId: number, amount: number) => {
@@ -178,8 +187,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ loan_id: loanId, amount }),
     });
-    if (!res.ok) throw new Error('Failed to repay loan');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to repay loan');
   },
 
   createCategory: async (name: string, icon?: string) => {
@@ -188,8 +196,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, icon }),
     });
-    if (!res.ok) throw new Error('Failed to create category');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to create category');
   },
 
   createEnvelope: async (categoryId: number, accountId: number, name: string, icon?: string, targetAmount?: number, type: 'MONTHLY' | 'LONG_TERM' = 'MONTHLY', targetMonth?: string) => {
@@ -198,8 +205,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category_id: categoryId, account_id: accountId, name, icon, target_amount: targetAmount, type, target_month: targetMonth }),
     });
-    if (!res.ok) throw new Error('Failed to create envelope');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to create envelope');
   },
 
   updateEnvelope: async (
@@ -214,8 +220,7 @@ export const budgetApi = {
         name: payload.name,
       }),
     });
-    if (!res.ok) throw new Error('Failed to update envelope');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to update envelope');
   },
 
   closeEnvelope: async (envelopeId: number) => {
@@ -224,8 +229,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ envelope_id: envelopeId }),
     });
-    if (!res.ok) throw new Error('Failed to close envelope');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to close envelope');
   },
 
   cloneBudget: async (accountId: number, fromMonth: string, toMonth: string) => {
@@ -234,8 +238,7 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ account_id: accountId, from_month: fromMonth, to_month: toMonth }),
     });
-    if (!res.ok) throw new Error('Failed to clone budget');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to clone budget');
   },
 
   createAccount: async (name: string, balance?: number, currency?: string) => {
@@ -244,7 +247,6 @@ export const budgetApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, balance, currency }),
     });
-    if (!res.ok) throw new Error('Failed to create account');
-    return res.json();
+    return parseJsonApiResponse(res, 'Failed to create account');
   },
 };
