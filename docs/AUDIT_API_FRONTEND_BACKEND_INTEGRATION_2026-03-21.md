@@ -8,7 +8,8 @@ Zakres: kontrakt API, warstwa HTTP frontendu, compatibility unwrap/error parsing
 
 - **Stan jest wyraźnie lepszy niż w pierwotnej wersji audytu.**
 - **Najważniejsze elementy warstwy integracyjnej po stronie frontendu zostały już wdrożone.**
-- **Projekt nie ma dziś czerwonego, oczywistego blokera builda ani podstawowych smoke testów**, a backend ma już **wprowadzony globalny kontrakt odpowiedzi dla helperów i centralnego exception handlingu**; nadal pozostają **otwarte ryzyka kontraktowe endpoint-by-endpoint**, bo odpowiedzi success/error nie są jeszcze w pełni ujednolicone na każdym route.
+- **Projekt nie ma dziś czerwonego, oczywistego blokera builda ani podstawowych smoke testów**, a backend ma już **wdrożone canonical helpers `success_response` / `error_response`, globalny exception handling oraz automatyczny test kontraktu API dla krytycznych route'ów**.
+- **Najważniejsze endpointy backendu przechodzą już smoke test i test kontraktu envelope `payload/error`**, więc ryzyko integracyjne przesunęło się z awarii runtime na dalsze porządkowanie coverage i egzekwowania standardu w całym API.
 - **Pełny quality gate nadal nie jest zielony**, ponieważ osobno uruchomiony lint frontendu kończy się błędami `@typescript-eslint/no-explicit-any` i `@typescript-eslint/no-unused-vars` oraz ostrzeżeniami `react-hooks/exhaustive-deps`.
 
 Najważniejsza zmiana względem wcześniejszej wersji audytu:
@@ -16,7 +17,8 @@ Najważniejsza zmiana względem wcześniejszej wersji audytu:
 - istnieją wspólne helpery `extractPayload`, `extractErrorMessage`, `parseJsonApiResponse`,
 - najważniejsze ekrany zostały przepięte na wspólną warstwę,
 - quality gate został potwierdzony komendami,
-- backend ma smoke test krytycznych endpointów.
+- backend ma smoke test krytycznych endpointów,
+- backend ma też test kontraktu API (`payload/error`) dla najważniejszych route'ów.
 
 ---
 
@@ -119,16 +121,18 @@ To domyka brak wskazany w pierwotnym audycie.
 
 ### 2.3 XTB import
 
-**Wynik: PASS kompatybilnościowy po stronie frontendu / backend nadal legacy**
+**Wynik: PASS po stronie frontendu i backendowego route**
 
 Frontend obsługuje scenariusz `missing_symbols` zarówno dla starego, jak i nowszego kształtu danych:
 - legacy: `missing_symbols` na root obiektu,
 - nowszy wariant: `error.details.missing_symbols`.
 
-Backendowy serwis importu nadal zwraca legacy shape:
-- `{ success: False, missing_symbols: [...] }`.
+Aktualny route importu XTB normalizuje błąd do canonical error envelope:
+- kod: `IMPORT_VALIDATION_ERROR`,
+- komunikat: `Missing symbol mappings`,
+- szczegóły: `error.details.missing_symbols`.
 
-Wniosek: flow importu jest lepiej zabezpieczony niż wcześniej, ale pełna standaryzacja backendowego error envelope nadal pozostaje do wykonania.
+Wniosek: flow importu nie jest już tylko kompatybilnościowo broniony po stronie frontendu; dla tego endpointu backend zwraca już spójny kształt błędu.
 
 ---
 
@@ -136,27 +140,33 @@ Wniosek: flow importu jest lepiej zabezpieczony niż wcześniej, ale pełna stan
 
 ### 3.1 Success response
 
-**Wynik: POPRAWA / nadal MIXED jako pełny standard systemowy**
+**Wynik: PASS dla głównych route'ów / do dalszego egzekwowania coverage**
 
-Backend ma już centralny helper docelowego kontraktu sukcesu `success_response(payload, status=...)`, ale nie ma jeszcze dowodu, że wszystkie endpointy backendu używają go konsekwentnie.
+Backend ma już centralny helper docelowego kontraktu sukcesu `success_response(payload, status=...)`, a aktualny przegląd route'ów pokazuje, że krytyczne moduły korzystają z niego konsekwentnie.
 
-Backend nadal zwraca mieszankę odpowiedzi, ale zakres legacy został zawężony. Portfolio i dashboard mają już wdrożony canonical envelope dla odpowiedzi sukcesu, natomiast inne moduły nadal zawierają miks shape'ów, np.:
-- surowe listy,
-- surowe obiekty,
-- obiekty z `message`,
-- obiekty domenowe typu `baseline`, `simulation`, `tickers`.
+Najważniejsze znormalizowane moduły obejmują dziś m.in.:
+- portfolio,
+- transakcje,
+- historię,
+- budżet,
+- dashboard,
+- kredyty,
+- radar,
+- symbol map,
+- import XTB.
 
-To oznacza, że **frontend jest dziś przygotowany kompatybilnościowo**, ale **backend nie jest jeszcze formalnie ujednolicony kontraktowo**.
+Payload biznesowy nadal ma różne shape'y domenowe (`history`, `limits`, `message`, `tickers`, `simulation` itd.), ale zewnętrzny envelope sukcesu dla głównych route'ów jest już ujednolicony.
 
 ### 3.2 Spójność payload
 
-**Wynik: FAIL jako pełna standaryzacja**
+**Wynik: PASS dla krytycznych endpointów objętych testami / nadal do rozszerzenia na całe API**
 
-Wciąż istnieją endpointy zwracające różne shape’y bez jednego envelope. Dotyczy to m.in. list, obiektów summary oraz odpowiedzi akcyjnych z `message`.
+Aktualny stan backendu i testów pokazuje, że najważniejsze endpointy zwracają już jeden envelope odpowiedzi (`payload` albo `error`). Potwierdza to osobny test kontraktu API.
 
-Najważniejsza zmiana względem starego audytu brzmi jednak tak:
-- to już nie jest krytyczny problem „bo frontend się wywróci”,
-- to jest teraz przede wszystkim problem architektoniczny i utrzymaniowy backendu.
+To, co nadal pozostaje otwarte, to nie sam brak envelope na głównych route'ach, tylko:
+- rozszerzenie coverage testu kontraktu na każdy mniej krytyczny endpoint,
+- dopinanie spójności semantyki pól wewnątrz `payload`,
+- dalsze usuwanie lokalnych legacy assumptions.
 
 ### 3.3 Null payload
 
@@ -185,12 +195,15 @@ To istotnie poprawia spójność odpowiedzi błędów dla wyjątków nieprzechwy
 
 ### 4.2 error.details
 
-**Wynik: FAIL jako standard backendowy**
+**Wynik: PASS dla krytycznych błędów objętych testami / do dalszego pilnowania coverage**
 
-Frontend potrafi już odczytywać `error.details`, ale backend nie gwarantuje jeszcze wszędzie:
-- obecności `details`,
-- słownikowego shape,
-- jednolitego formatu.
+Frontend potrafi już odczytywać `error.details`, a backend dla głównych ścieżek błędów zwraca dziś `details` jako obiekt. Potwierdzają to smoke testy i test kontraktu API, w tym scenariusze:
+- walidacji requestów,
+- `not_found`,
+- błędów importu XTB,
+- błędów 500 mapowanych przez globalny handler.
+
+Otwarty pozostaje obowiązek utrzymania tego standardu przy kolejnych endpointach i refaktorach.
 
 ### 4.3 logowanie błędów
 
@@ -248,7 +261,8 @@ Build przechodzi poprawnie. Jedyna uwaga to ostrzeżenie Vite o dużych chunkach
 Potwierdzone komendami:
 - `npm --prefix frontend run check`,
 - `python -m compileall backend`,
-- `python backend/test_smoke_endpoints.py`.
+- `python backend/test_smoke_endpoints.py`,
+- `python -m unittest backend.test_api_contract`.
 
 Smoke test backendu pokrywa krytyczne endpointy:
 - dashboard global summary,
@@ -299,11 +313,13 @@ Po stronie architektury pozytywna zmiana jest jednak istotna:
 
 ### 8.1 API
 
-**Wynik: PASS dla smoke testów krytycznych endpointów**
+**Wynik: PASS dla smoke testów i testu kontraktu API**
 
-Potwierdzony automatem smoke test backendu obejmuje najważniejsze flowy integracyjne.
+Potwierdzone automatem są dziś dwa poziomy weryfikacji backendu:
+- smoke test krytycznych endpointów integracyjnych,
+- test kontraktu API sprawdzający envelope `payload/error`, `error.code`, `error.message` i słownikowe `error.details` dla objętych route'ów.
 
-To oznacza, że wcześniejszy status „niezweryfikowane automatem” jest już nieaktualny.
+To oznacza, że wcześniejszy status „niezweryfikowane automatem” jest już nieaktualny także na poziomie kontraktu odpowiedzi.
 
 ### 8.2 UI
 
@@ -325,9 +341,9 @@ Nadal niepotwierdzone w tej aktualizacji:
 
 ### Nadal potwierdzone red flagi
 
-- **backend nie ma jeszcze jednego, globalnie egzekwowanego kontraktu success/error**,
-- **backend nie ma jeszcze pełnej standaryzacji `error.details`**,
-- **część odpowiedzi nadal jest legacy i endpoint-specific**,
+- **backend ma już canonical contract dla głównych route'ów, ale nie ma jeszcze pełnego pokrycia testem kontraktu dla każdego endpointu**,
+- **wewnętrzna semantyka payloadów nadal jest częściowo endpoint-specific**,
+- **część lokalnych route-level obsług wyjątków nadal warto dalej upraszczać i centralizować**,
 - **część UI nadal ma dług typowania (`any`, lokalne założenia DTO)**,
 - **lint frontendu jest obecnie czerwony i potwierdza zaległości w `any`, unused vars i hook dependencies**,
 - **brak pełnego manualnego E2E UI po całej aplikacji**,
@@ -347,10 +363,10 @@ Nadal niepotwierdzone w tej aktualizacji:
 
 ## Priorytet poprawek
 
-### P1 – domknięcie standardu backendowego
-1. Ustalić jeden backendowy kontrakt success/error dla wszystkich endpointów.
-2. Wprowadzić spójny `error.details` jako obiekt.
-3. Ograniczyć lokalne `except Exception` i przenieść mapowanie błędów do warstwy centralnej.
+### P1 – domknięcie i rozszerzenie standardu backendowego
+1. Rozszerzyć test kontraktu API na wszystkie mniej krytyczne endpointy.
+2. Utrzymać i egzekwować `error.details` jako obiekt przy każdej nowej zmianie.
+3. Ograniczyć lokalne `except Exception` i dalej przenosić mapowanie błędów do warstwy centralnej.
 
 ### P2 – dalsze utwardzenie frontendu
 1. Ograniczyć `any` w krytycznych ekranach.
@@ -366,4 +382,4 @@ Nadal niepotwierdzone w tej aktualizacji:
 
 ## Finalna ocena
 
-**Wniosek:** projekt jest dziś **istotnie bardziej dojrzały integracyjnie** niż wskazywała wcześniejsza wersja audytu. Frontend ma już wspólną warstwę HTTP, centralne parsowanie success/error i compatibility layer, a build oraz smoke test backendu przechodzą poprawnie. Główne otwarte ryzyko przesunęło się z „frontend może się masowo wywracać po zmianie kontraktu” na **„backend nadal nie ma jednego, globalnie wymuszonego standardu odpowiedzi i błędów”**.
+**Wniosek:** projekt jest dziś **istotnie bardziej dojrzały integracyjnie** niż wskazywała wcześniejsza wersja audytu. Frontend ma już wspólną warstwę HTTP, centralne parsowanie success/error i compatibility layer, a `check`, `build`, smoke test backendu oraz test kontraktu API przechodzą poprawnie. Główne otwarte ryzyko przesunęło się z „frontend może się masowo wywracać po zmianie kontraktu” na **„trzeba utrzymać i rozszerzyć już wdrożony standard kontraktu backendowego, domknąć lint oraz potwierdzić pełne E2E UI”**.

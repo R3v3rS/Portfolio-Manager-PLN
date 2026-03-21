@@ -24,7 +24,8 @@ Potwierdzone w repo i komendami:
 - frontend przechodzi `npm --prefix frontend run build`,
 - backend przechodzi `python -m compileall backend`,
 - istnieje smoke test krytycznych endpointów `python backend/test_smoke_endpoints.py`,
-- najważniejsze flowy backendowe mają przynajmniej podstawową automatyczną weryfikację integracyjną.
+- istnieje także test kontraktu API `python -m unittest backend.test_api_contract`,
+- najważniejsze flowy backendowe mają przynajmniej podstawową automatyczną weryfikację integracyjną i kontraktową.
 
 Dodatkowa weryfikacja wykazała też, że:
 - skrypt `npm --prefix frontend run lint` istnieje, ale obecnie **nie przechodzi**,
@@ -46,16 +47,19 @@ Potwierdzone wykonanie:
 Wniosek: największy historyczny problem po stronie frontendu został już w praktyce rozwiązany. Otwarty pozostaje głównie brak pełnej standaryzacji backendowych odpowiedzi.
 
 #### Etap 3 — Porządki w backendzie i podziale odpowiedzialności
-Stan: **w dużej mierze wykonany strukturalnie, częściowo otwarty kontraktowo**.
+Stan: **w dużej mierze wykonany strukturalnie i istotnie domknięty kontraktowo dla głównych route'ów**.
 
 Potwierdzone wykonanie:
 - backend jest podzielony na mniejsze moduły route’ów,
 - logika portfolio została rozbita na mniejsze serwisy,
-- krytyczne endpointy są objęte smoke testem.
+- krytyczne endpointy są objęte smoke testem,
+- istnieją canonical helpers `success_response` / `error_response`,
+- działa globalny exception handling,
+- istnieje test kontraktu API dla głównych endpointów.
 
 Otwarte elementy Etapu 3:
-- spójna walidacja requestów,
-- jeden kontrakt success/error,
+- rozszerzanie coverage kontraktu na wszystkie mniej krytyczne endpointy,
+- dalsze porządkowanie semantyki payloadów i DTO,
 - ograniczenie lokalnego łapania `Exception`.
 
 ### Najważniejszy wniosek po aktualizacji planu
@@ -63,9 +67,9 @@ Otwarte elementy Etapu 3:
 Największy bieżący problem projektu nie leży już w braku wspólnej warstwy frontendowej, bo ta została wdrożona.
 
 Największe otwarte ryzyko to dziś:
-- **brak jednego backendowego standardu success/error**, 
-- **niepełna standaryzacja `error.details`**,
+- **niepełne pokrycie wszystkich endpointów testem kontraktu API i dalszym egzekwowaniem standardu**, 
 - **dług typowania i DTO w części ekranów**,
+- **czerwony lint frontendu**,
 - **brak pełnego manualnego E2E UI oraz szerszych testów regresji biznesowej**.
 
 ---
@@ -74,8 +78,8 @@ Największe otwarte ryzyko to dziś:
 
 Na podstawie aktualnego stanu repo najwyższy wpływ na jakość mają dziś następujące obszary:
 
-1. **Brak jednego globalnie egzekwowanego kontraktu backendowych odpowiedzi**.
-2. **Brak pełnej standaryzacji błędów backendu** (`error.code`, `error.message`, `error.details`).
+1. **Rozszerzenie egzekwowania kontraktu backendowych odpowiedzi na wszystkie endpointy**.
+2. **Dalsze porządkowanie semantyki błędów backendu** (`error.code`, `error.message`, `error.details`) i coverage testowego.
 3. **Nadal obecny dług typowania i lokalnych założeń DTO w części UI**.
 4. **Brak rozszerzonych testów regresji dla logiki biznesowej wysokiego ryzyka**.
 5. **Brak pełnego manualnego E2E smoke testu frontendu po głównych ekranach**.
@@ -86,10 +90,10 @@ Na podstawie aktualnego stanu repo najwyższy wpływ na jakość mają dziś nas
 
 ## 2. Priorytety strategiczne po aktualizacji planu
 
-### Priorytet P1 — Domknięcie standardu backendowego API
+### Priorytet P1 — Rozszerzenie i utrzymanie standardu backendowego API
 To jest obecnie priorytet absolutny.
 
-Trzeba doprowadzić do tego, żeby backend zwracał jeden przewidywalny format sukcesu i błędu dla wszystkich endpointów.
+Trzeba doprowadzić do tego, żeby wdrożony już standard backendu był pokryty testem i konsekwentnie utrzymany dla wszystkich endpointów.
 
 ### Priorytet P2 — Rozszerzenie jakości i testów regresji
 Drugi priorytet to zwiększyć pewność zmian przez lepsze testy biznesowe oraz manualny smoke test UI.
@@ -107,13 +111,14 @@ Po ustabilizowaniu kontraktu warto szerzej optymalizować i poprawiać monitorin
 ## Etap 1 — Stabilizacja podstaw
 
 ### Status
-**W dużej mierze wykonany.**
+**W dużej mierze wykonany i dobrze potwierdzony automatycznie.**
 
 ### Co zostało zrobione / potwierdzone
 - istnieje działający minimalny quality gate dla repo,
 - frontend przechodzi check i build,
 - backend przechodzi kompilację modułów,
 - istnieje smoke test krytycznych endpointów backendu,
+- istnieje test kontraktu API dla głównych route'ów,
 - smoke test obejmuje dashboard, portfolio, budżet, kredyty, radar i symbol map.
 
 ### Co zostało do zrobienia
@@ -150,7 +155,7 @@ Obecne minimum już działa, ale nadal wymaga domknięcia:
 ## Etap 2 — Ujednolicenie komunikacji frontend ↔ backend
 
 ### Status
-**W dużej mierze wykonany po stronie frontendu.**
+**W dużej mierze wykonany po stronie frontendu i w dużej mierze domknięty na granicy API.**
 
 ### Co zostało już zrobione
 - istnieje wspólny HTTP layer,
@@ -162,8 +167,8 @@ Obecne minimum już działa, ale nadal wymaga domknięcia:
 
 ### Co trzeba zrobić teraz priorytetowo
 
-#### 2.1 Domknąć zgodność backendu ze wspólnym kontraktem
-Docelowo backend powinien zwracać jeden format odpowiedzi, tak aby frontend nie musiał długoterminowo utrzymywać szerokiej warstwy kompatybilności.
+#### 2.1 Rozszerzyć zgodność backendu ze wspólnym kontraktem na pełne API
+Dla głównych route'ów standard już działa, ale trzeba go jeszcze konsekwentnie utrzymać i objąć nim mniej krytyczne endpointy, tak aby frontend nie musiał długoterminowo utrzymywać szerokiej warstwy kompatybilności.
 
 #### 2.2 Kontynuować normalizację DTO na granicy API
 Dla każdego istotnego modułu warto utrzymywać:
@@ -177,8 +182,8 @@ W pierwszej kolejności warto jeszcze przejrzeć:
 - ekrany z pozostałym `any`,
 - miejsca, gdzie shape odpowiedzi nie jest jeszcze wyraźnie normalizowany.
 
-#### 2.4 Ujednolicić finalnie flow XTB import
-Frontend jest już kompatybilny, ale backend powinien docelowo zwracać jeden standard błędu z `error.details.missing_symbols`.
+#### 2.4 Utrzymać ujednolicony flow XTB import i ograniczyć warstwę legacy
+Frontend zachowuje kompatybilność przejściową, ale aktualny route XTB zwraca już standard błędu z `error.details.missing_symbols`; kolejne zmiany nie powinny wracać do legacy shape.
 
 ### Efekt końcowy etapu
 - frontend pozostanie odporny na zmiany,
@@ -190,7 +195,7 @@ Frontend jest już kompatybilny, ale backend powinien docelowo zwracać jeden st
 ## Etap 3 — Porządki w backendzie i podziale odpowiedzialności
 
 ### Status
-**W dużej mierze wykonany strukturalnie, wymaga domknięcia kontraktu i walidacji.**
+**W dużej mierze wykonany strukturalnie, z wdrożonym kontraktem dla głównych route'ów; wymaga dalszego rozszerzania coverage i walidacji.**
 
 ### Co już zostało zrobione
 
@@ -224,9 +229,12 @@ W repo są już m.in.:
 #### 3.3 Smoke test krytycznych endpointów
 To również należy uznać za wykonany krok porządkujący backend.
 
+#### 3.4 Test kontraktu API
+To jest już wykonane dla głównych endpointów i realnie podnosi poziom bezpieczeństwa zmian kontraktowych.
+
 ### Co zostało do zrobienia
 
-#### 3.4 Ustandaryzować walidację requestów
+#### 3.5 Ustandaryzować walidację requestów
 Najpierw trzeba objąć walidacją endpointy:
 - tworzenia portfela,
 - buy / sell,
@@ -234,12 +242,17 @@ Najpierw trzeba objąć walidacją endpointy:
 - transferów budżetowych,
 - kredytów i nadpłat.
 
-#### 3.5 Ustandaryzować kontrakt success / error
-Rekomendowany kierunek pozostaje bez zmian:
-- sukces: jeden ustalony envelope, np. `{ payload: ... }`,
+#### 3.6 Rozszerzać i egzekwować kontrakt success / error
+Kierunek jest już wdrożony dla głównych route'ów:
+- sukces: envelope `{ payload: ... }`,
 - błąd: `{ error: { code, message, details } }`.
 
-#### 3.6 Ograniczyć lokalne `except Exception`
+Teraz trzeba przede wszystkim:
+- utrzymać ten standard przy nowych zmianach,
+- rozszerzać coverage testów kontraktowych,
+- dopinać mniej krytyczne endpointy i obrzeża API.
+
+#### 3.7 Ograniczyć lokalne `except Exception`
 Mapowanie wyjątków powinno być centralne i przewidywalne.
 
 ### Efekt końcowy etapu
@@ -367,8 +380,8 @@ Np.:
 
 ## 4. Rekomendowana kolejność wdrożenia po aktualizacji
 
-1. **Domknąć Etap 3** — walidacja requestów i ujednolicenie kontraktu success/error.
-2. **Rozszerzać Etap 1** — więcej testów regresji i quality gate.
+1. **Rozszerzać Etap 3** — coverage kontraktu API, walidacja requestów i dalsze uproszczenie obsługi błędów.
+2. **Rozszerzać Etap 1** — więcej testów regresji i pełniejszy quality gate.
 3. **Równolegle rozpocząć Etap 5** — formalizacja DTO / OpenAPI.
 4. **Dalej porządkować Etap 2 na obrzeżach** — usuwać pozostałe legacy assumptions i `any`.
 5. **Dopiero potem szerzej robić Etap 4 i 6** — wydajność i obserwowalność.
@@ -381,14 +394,13 @@ To jest najbardziej sensowna kolejność po obecnym stanie projektu: wspólna wa
 
 Najwyższy zwrot teraz dadzą:
 
-1. ujednolicić backendowy success envelope,
-2. ujednolicić backendowy error envelope z `error.details`,
-3. dodać testy błędnych payloadów buy / sell / transfer,
-4. ograniczyć najbardziej ryzykowne `any` w warstwie integracyjnej UI,
-5. uruchomić manualny smoke test ekranów: dashboard, radar, budżet, portfolio details,
-6. naprawić aktualne błędy `npm --prefix frontend run lint`,
-7. utrzymać lint jako obowiązkowy element minimalnego quality gate,
-8. rozważyć podział największych chunków frontendu.
+1. rozszerzyć test kontraktu API na kolejne endpointy,
+2. dodać testy błędnych payloadów buy / sell / transfer,
+3. ograniczyć najbardziej ryzykowne `any` w warstwie integracyjnej UI,
+4. uruchomić manualny smoke test ekranów: dashboard, radar, budżet, portfolio details,
+5. naprawić aktualne błędy `npm --prefix frontend run lint`,
+6. utrzymać lint jako obowiązkowy element minimalnego quality gate,
+7. rozważyć podział największych chunków frontendu.
 
 ---
 
@@ -456,9 +468,9 @@ Zrobione / poprawione:
 - symbol map jest objęty smoke testem backendowym.
 
 Do zrobienia:
-- przenieść backend finalnie na `error.details.missing_symbols`,
-- zachować zgodność przejściową tylko do czasu pełnej standaryzacji,
-- dodać test regresji importu i mapowania symboli.
+- utrzymać backend na `error.details.missing_symbols` bez regresji do legacy shape,
+- zachować zgodność przejściową tylko tam, gdzie jest jeszcze naprawdę potrzebna,
+- dodać dalsze testy regresji importu i mapowania symboli.
 
 ---
 
@@ -466,7 +478,7 @@ Do zrobienia:
 
 Plan będzie można uznać za skutecznie wdrażany, jeśli projekt osiągnie następujący stan:
 
-- backend zwraca jeden spójny format success/error,
+- backend zwraca jeden spójny format success/error i ma to szeroko pokryte testem kontraktu,
 - `error.details` jest wszędzie przewidywalne i słownikowe,
 - frontend ogranicza compatibility hacks do minimum,
 - najważniejsze flowy mają smoke testy i dodatkowe testy regresji,
@@ -481,6 +493,6 @@ Plan będzie można uznać za skutecznie wdrażany, jeśli projekt osiągnie nas
 Najważniejsza zmiana względem wcześniejszej wersji planu jest taka:
 - **Etap 1 nie jest już tylko planem — jego minimalny quality gate działa, choć pełny gate z lintem nadal wymaga domknięcia**,
 - **Etap 2 nie jest już główną dziurą architektoniczną po stronie frontendu — wspólna warstwa HTTP została wdrożona**,
-- **główny ciężar prac przesunął się teraz na backendowy standard kontraktu, walidację i dalsze testy regresji**.
+- **główny ciężar prac przesunął się teraz na rozszerzanie coverage kontraktu, walidację, lint frontendu i dalsze testy regresji**.
 
 Krótko: fundament integracyjny jest już postawiony; teraz trzeba go uporządkować kontraktowo i testowo do poziomu przewidywalnego standardu zespołowego.
