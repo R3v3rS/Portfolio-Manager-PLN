@@ -1,8 +1,9 @@
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from flask import jsonify, request
+from flask import request
 
+from api.response import success_response
 from database import get_db
 from portfolio_service import PortfolioService
 from price_service import PriceService
@@ -11,65 +12,53 @@ from routes_portfolio_base import portfolio_bp
 
 @portfolio_bp.route('/history/monthly/<int:portfolio_id>', methods=['GET'])
 def get_portfolio_history_monthly(portfolio_id):
-    try:
-        benchmark = request.args.get('benchmark')
-        if benchmark == '':
-            benchmark = None
+    benchmark = request.args.get('benchmark')
+    if benchmark == '':
+        benchmark = None
 
-        history = PortfolioService.get_portfolio_history(portfolio_id, benchmark_ticker=benchmark)
-        return jsonify({'history': history}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    history = PortfolioService.get_portfolio_history(portfolio_id, benchmark_ticker=benchmark)
+    return success_response({'history': history})
 
 
 @portfolio_bp.route('/history/profit/<int:portfolio_id>', methods=['GET'])
 def get_portfolio_profit_history(portfolio_id):
-    try:
-        days = request.args.get('days', type=int)
-        if days:
-            history = PortfolioService.get_portfolio_profit_history_daily(portfolio_id, days=days)
-        else:
-            history = PortfolioService.get_portfolio_profit_history(portfolio_id)
-        return jsonify({'history': history}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    days = request.args.get('days', type=int)
+    if days:
+        history = PortfolioService.get_portfolio_profit_history_daily(portfolio_id, days=days)
+    else:
+        history = PortfolioService.get_portfolio_profit_history(portfolio_id)
+    return success_response({'history': history})
 
 
 @portfolio_bp.route('/history/value/<int:portfolio_id>', methods=['GET'])
 def get_portfolio_value_history(portfolio_id):
-    try:
-        days = request.args.get('days', type=int)
-        if days:
-            history = PortfolioService.get_portfolio_value_history_daily(portfolio_id, days=days)
-        else:
-            history = PortfolioService.get_portfolio_history(portfolio_id)
-        return jsonify({'history': history}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    days = request.args.get('days', type=int)
+    if days:
+        history = PortfolioService.get_portfolio_value_history_daily(portfolio_id, days=days)
+    else:
+        history = PortfolioService.get_portfolio_history(portfolio_id)
+    return success_response({'history': history})
 
 
 @portfolio_bp.route('/history/<string:ticker>', methods=['GET'])
 def get_stock_history(ticker):
-    try:
-        db = get_db()
-        PriceService.sync_stock_history(ticker)
+    db = get_db()
+    PriceService.sync_stock_history(ticker)
 
-        prices = db.execute(
-            'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
-            (ticker,)
-        ).fetchall()
-        last_updated = db.execute(
-            'SELECT MAX(date) as last_date FROM stock_prices WHERE ticker = ?',
-            (ticker,)
-        ).fetchone()
+    prices = db.execute(
+        'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
+        (ticker,)
+    ).fetchall()
+    last_updated = db.execute(
+        'SELECT MAX(date) as last_date FROM stock_prices WHERE ticker = ?',
+        (ticker,)
+    ).fetchone()
 
-        return jsonify({
-            'ticker': ticker,
-            'history': [dict(price) for price in prices],
-            'last_updated': last_updated['last_date'] if last_updated else None
-        }), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return success_response({
+        'ticker': ticker,
+        'history': [dict(price) for price in prices],
+        'last_updated': last_updated['last_date'] if last_updated else None,
+    })
 
 
 @portfolio_bp.route('/<int:portfolio_id>/closed-positions', methods=['GET'])
@@ -111,11 +100,11 @@ def closed_positions(portfolio_id):
                 (float(row['realized_profit'] or 0) / float(row['invested_capital'])) * 100
                 if (row['invested_capital'] or 0) > 0
                 else None
-            )
+            ),
         }
         for row in rows
     ]
-    return jsonify({'positions': positions, 'total_historical_profit': total})
+    return success_response({'positions': positions, 'total_historical_profit': total})
 
 
 @portfolio_bp.route('/<int:portfolio_id>/closed-position-cycles', methods=['GET'])
@@ -253,7 +242,7 @@ def closed_position_cycles(portfolio_id):
                     'sell_count': int(state['sell_count']),
                     'status': 'CLOSED',
                     'is_partially_closed': False,
-                    'remaining_quantity': 0.0
+                    'remaining_quantity': 0.0,
                 })
                 state['open_qty'] = 0.0
                 state['invested_capital'] = 0.0
@@ -292,7 +281,7 @@ def closed_position_cycles(portfolio_id):
                 'sell_count': int(state['sell_count']),
                 'status': 'PARTIALLY_CLOSED',
                 'is_partially_closed': True,
-                'remaining_quantity': float(state['open_qty'])
+                'remaining_quantity': float(state['open_qty']),
             })
 
     closed_cycles.sort(
@@ -300,19 +289,16 @@ def closed_position_cycles(portfolio_id):
             1 if item.get('is_partially_closed') else 0,
             item['closed_at'] or '',
             item['ticker'],
-            item['cycle_id']
+            item['cycle_id'],
         ),
-        reverse=True
+        reverse=True,
     )
 
     total = sum(item['realized_profit'] for item in closed_cycles)
-    return jsonify({'positions': closed_cycles, 'total_historical_profit': total})
+    return success_response({'positions': closed_cycles, 'total_historical_profit': total})
 
 
 @portfolio_bp.route('/<int:portfolio_id>/performance', methods=['GET'])
 def get_performance_matrix(portfolio_id):
-    try:
-        matrix = PortfolioService.get_performance_matrix(portfolio_id)
-        return jsonify({'matrix': matrix}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    matrix = PortfolioService.get_performance_matrix(portfolio_id)
+    return success_response({'matrix': matrix})
