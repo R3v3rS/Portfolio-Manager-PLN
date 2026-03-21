@@ -1,20 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CreditCard, Calendar, TrendingDown, Trash2 } from 'lucide-react';
-import { getLoans, createLoan, deleteLoan, getSchedule } from '../../api_loans';
+import { getLoans, createLoan, deleteLoan, getSchedule, type LoanSummary } from '../../api_loans';
 
-interface Loan {
-  id: number;
-  name: string;
-  original_amount: number;
-  duration_months: number;
-  start_date: string;
-  installment_type: 'EQUAL' | 'DECREASING';
-  category?: 'HIPOTECZNY' | 'GOTOWKOWY' | 'RATY_0';
-}
 
 const LoansDashboard: React.FC = () => {
-  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loans, setLoans] = useState<LoanSummary[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [newLoan, setNewLoan] = useState({
     name: '',
@@ -35,7 +26,7 @@ const LoansDashboard: React.FC = () => {
   const fetchLoans = async () => {
     try {
       const response = await getLoans();
-      setLoans(response as Loan[]);
+      setLoans(response);
     } catch (error) {
       console.error('Error fetching loans:', error);
     }
@@ -83,7 +74,6 @@ const LoansDashboard: React.FC = () => {
     return new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' }).format(amount);
   };
 
-  const totalOriginalAmount = loans.reduce((sum, loan) => sum + Number(loan.original_amount), 0);
   // Note: We don't have remaining balance in the list API yet, only in details.
   // For now, I'll just show original amount sum or fetch details for each loan if needed.
   // The requirement says "Total Debt (Remaining Amount)". 
