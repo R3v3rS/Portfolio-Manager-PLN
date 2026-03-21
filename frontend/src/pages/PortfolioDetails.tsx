@@ -325,6 +325,14 @@ const PortfolioDetails: React.FC = () => {
   // Monthly Dividend state
   const [monthlyDividends, setMonthlyDividends] = useState<{ label: string; amount: number }[]>([]);
   
+  // Calculate latest price update
+  const latestPriceUpdate = holdings.reduce((latest, h) => {
+    if (!h.price_last_updated_at) return latest;
+    const current = new Date(h.price_last_updated_at);
+    if (!latest || current > latest) return current;
+    return latest;
+  }, null as Date | null);
+
   // Portfolio History (Monthly)
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number; benchmark_value?: number }[]>([]);
   const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
@@ -778,14 +786,22 @@ const PortfolioDetails: React.FC = () => {
                     </button>
                     
                     {(portfolio.account_type === 'STANDARD' || portfolio.account_type === 'IKE') && (
-                        <button
-                            onClick={refreshStockPrices}
-                            disabled={refreshingPrices}
-                            className="w-full inline-flex items-center justify-center px-3 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                            <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
-                            {refreshingPrices ? 'Odświeżanie...' : 'Odśwież ceny z giełdy'}
-                        </button>
+                        <div className="flex flex-col gap-2">
+                            <button
+                                onClick={refreshStockPrices}
+                                disabled={refreshingPrices}
+                                className="w-full inline-flex items-center justify-center px-3 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
+                                {refreshingPrices ? 'Odświeżanie...' : 'Odśwież ceny z giełdy'}
+                            </button>
+                            {latestPriceUpdate && (
+                                <div className="text-center text-[10px] text-gray-500 flex items-center justify-center gap-1">
+                                    <RefreshCw className="w-3 h-3" />
+                                    <span>Ostatnia aktualizacja: {formatPriceUpdateTimestamp(latestPriceUpdate.toISOString())}</span>
+                                </div>
+                            )}
+                        </div>
                     )}
                 </>
             )}
@@ -929,11 +945,10 @@ const PortfolioDetails: React.FC = () => {
                       <th className="min-w-[90px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Ilość</th>
                       <th className="min-w-[110px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Śr. Cena</th>
                       <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Obecna Cena</th>
-                      <th className="min-w-[140px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Aktualizacja Ceny</th>
                       <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Wartość</th>
                       <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk/Strata</th>
                       <th className="min-w-[90px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Waga</th>
-                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Akcje</th>
+                      <th className="min-w-[130px] px-3 py-3 text-center text-xs font-bold uppercase tracking-wider text-gray-700 bg-gray-100/80 border-l border-gray-200">Akcje</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -969,9 +984,6 @@ const PortfolioDetails: React.FC = () => {
                           {h.current_price ? `${h.current_price.toFixed(2)} ${h.currency || 'PLN'}` : '-'}
                         </td>
                         <td className="px-3 py-4 text-sm text-right text-gray-500">
-                          {formatPriceUpdateTimestamp(h.price_last_updated_at)}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500">
                           {h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}
                         </td>
                         <td className={cn(
@@ -998,14 +1010,14 @@ const PortfolioDetails: React.FC = () => {
                         <td className="px-3 py-4 text-sm text-right text-gray-500 font-medium">
                           {h.weight_percent ? `${h.weight_percent}%` : '-'}
                         </td>
-                        <td className="px-3 py-4 text-sm text-right font-medium">
-                          <div className="flex flex-wrap justify-end gap-2">
+                        <td className="px-3 py-4 text-sm text-center font-medium bg-gray-50/30 border-l border-gray-100/50">
+                          <div className="flex flex-wrap justify-center gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 initiateSell(h);
                               }}
-                              className="rounded-md bg-red-50 px-2.5 py-1 text-xs text-red-600 transition-colors hover:text-red-900 sm:px-3 sm:text-sm"
+                              className="rounded-md bg-red-50 px-2.5 py-1 text-xs text-red-600 transition-colors hover:bg-red-100 hover:text-red-900 sm:px-3 sm:text-sm"
                             >
                               Sprzedaj
                             </button>
@@ -1015,7 +1027,7 @@ const PortfolioDetails: React.FC = () => {
                                   e.stopPropagation();
                                   closePositionAtLastPrice(h);
                                 }}
-                                className="rounded-md bg-orange-100 px-2.5 py-1 text-xs text-orange-700 transition-colors hover:text-orange-900 sm:px-3 sm:text-sm"
+                                className="rounded-md bg-orange-100 px-2.5 py-1 text-xs text-orange-700 transition-colors hover:bg-orange-200 hover:text-orange-900 sm:px-3 sm:text-sm"
                                 title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
                               >
                                 Zamknij
@@ -1027,7 +1039,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {holdings.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
+                        <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
                       </tr>
                     )}
                   </tbody>
