@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, TrendingUp, TrendingDown, AlertCircle, Activity, DollarSign, Users } from 'lucide-react';
+import { radarApi } from '../api_radar';
 import { StockAnalysisData } from '../types';
 
 interface StockProfilerModalProps {
@@ -19,15 +20,11 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/radar/analysis/${ticker}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch analysis data');
-        }
-        const result = await response.json();
+        const result = await radarApi.getAnalysis(ticker);
         setData(result);
       } catch (err) {
         console.error(err);
-        setError('Nie udało się pobrać danych analitycznych.');
+        setError(err instanceof Error ? err.message : 'Nie udało się pobrać danych analitycznych.');
       } finally {
         setLoading(false);
       }
