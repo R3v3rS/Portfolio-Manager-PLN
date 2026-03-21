@@ -119,7 +119,7 @@ class PortfolioHistoryService(PortfolioCoreService):
                     elif t['type'] == 'SELL':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
 
-            total_value = current_cash
+            holdings_value = 0.0
             if account_type not in ['SAVINGS', 'BONDS']:
                 for ticker, qty in holdings_qty.items():
                     if qty > 0.0001:
@@ -130,10 +130,16 @@ class PortfolioHistoryService(PortfolioCoreService):
                             fx_rate = 1.0
                         gross_value_pln = qty * native_price * fx_rate
                         net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
-                        total_value += net_value_pln
+                        holdings_value += net_value_pln
 
+            total_value = current_cash + holdings_value
             profit = total_value - invested_capital
-            metrics = {"total_value": total_value, "profit": profit}
+            metrics = {
+                "total_value": total_value,
+                "profit": profit,
+                "cash_value": round(current_cash, 2),
+                "holdings_value": round(holdings_value, 2),
+            }
             if benchmark_ticker:
                 bp_end = get_price_at_date(benchmark_ticker, end_date)
                 metrics["benchmark_value"] = round(benchmark_shares * bp_end, 2)
@@ -148,7 +154,13 @@ class PortfolioHistoryService(PortfolioCoreService):
         result = []
         for k in sorted(monthly_data.keys()):
             dt = datetime.strptime(k, '%Y-%m')
-            entry = {'date': k, 'label': dt.strftime('%b %Y'), 'value': round(monthly_data[k]['total_value'], 2)}
+            entry = {
+                'date': k,
+                'label': dt.strftime('%b %Y'),
+                'value': round(monthly_data[k]['total_value'], 2),
+                'cash_value': round(monthly_data[k].get('cash_value', 0), 2),
+                'holdings_value': round(monthly_data[k].get('holdings_value', 0), 2),
+            }
             if 'benchmark_value' in monthly_data[k]:
                 entry['benchmark_value'] = monthly_data[k]['benchmark_value']
             result.append(entry)

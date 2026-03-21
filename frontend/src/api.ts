@@ -43,6 +43,8 @@ export interface PortfolioHistoryPoint {
   label: string;
   value: number;
   benchmark_value?: number;
+  cash_value?: number;
+  holdings_value?: number;
 }
 
 export interface PriceHistoryPoint {
@@ -239,6 +241,8 @@ const normalizePortfolioHistoryPoint = (value: unknown): PortfolioHistoryPoint =
     label: toString(source.label),
     value: toNumber(source.value),
     benchmark_value: source.benchmark_value == null ? undefined : toNumber(source.benchmark_value),
+    cash_value: source.cash_value == null ? undefined : toNumber(source.cash_value),
+    holdings_value: source.holdings_value == null ? undefined : toNumber(source.holdings_value),
   };
 };
 

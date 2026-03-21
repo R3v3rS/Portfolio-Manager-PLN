@@ -888,7 +888,7 @@ const PortfolioDetails: React.FC = () => {
 
         <div className="p-6">
           {activeTab === 'analytics' && (
-            <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} />
+            <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} />
           )}
 
           {activeTab === 'results' && (
