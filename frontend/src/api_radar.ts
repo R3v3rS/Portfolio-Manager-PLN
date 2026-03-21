@@ -1,7 +1,7 @@
-import { createHttpClient } from './http';
+import { createApiClient } from './apiConfig';
 import { RadarItem, StockAnalysisData } from './types';
 
-const radarHttp = createHttpClient('/api/radar');
+const radarHttp = createApiClient('/radar');
 
 interface RadarActionResult {
   message: string;

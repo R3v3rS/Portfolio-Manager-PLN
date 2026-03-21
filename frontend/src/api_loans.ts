@@ -1,4 +1,5 @@
-import { createHttpClient, type QueryParams } from './http';
+import { type QueryParams } from './http';
+import { createApiClient } from './apiConfig';
 
 export interface LoanPayload {
   name: string;
@@ -81,7 +82,7 @@ export interface ScheduleQuery {
   simulated_action?: 'REDUCE_TERM' | 'REDUCE_INSTALLMENT';
 }
 
-const loansHttp = createHttpClient('/api/loans');
+const loansHttp = createApiClient('/loans');
 
 const loanPath = {
   list: '/',

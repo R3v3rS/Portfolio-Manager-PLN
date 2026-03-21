@@ -185,14 +185,9 @@ Komponenty współdzielone i modułowe. Znajdują się tu m.in.:
 - modale transakcyjne.
 
 ### `frontend/src/api*.ts`
-Warstwa komunikacji z backendem, ale **niespójna technologicznie**:
+Spójna warstwa komunikacji z backendem oparta o wspólny klient HTTP z `frontend/src/http.ts` oraz wspólną konfigurację endpointów z `frontend/src/apiConfig.ts`.
 
-- `api.ts` używa Axios i celuje w `/api/portfolio`,
-- `api_loans.ts` używa Axios i celuje w `/api/loans`,
-- `api_budget.ts` używa `fetch`,
-- `api_symbol_map.ts` używa `fetch`.
-
-Dodatkowo w niektórych miejscach komponenty same wołają API bezpośrednio. To ważne przy refaktorach.
+Zasada architektoniczna dla frontendu: komponenty i strony nie wykonują bezpośrednich requestów HTTP — każde wywołanie backendu powinno przejść przez moduł API. Helpery infrastrukturalne także powinny opierać się o wspólny klient HTTP, chyba że istnieje dobrze udokumentowany wyjątek techniczny.
 
 ### `frontend/src/services/`
 Pomocnicze usługi po stronie klienta, np. kalkulatory PPK i provider cen.

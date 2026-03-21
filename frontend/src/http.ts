@@ -114,8 +114,9 @@ const prepareBody = (body: unknown, headers: Headers) => {
 async function request<T>(
   method: string,
   path: string,
-  body?: unknown,
-  options: HttpClientOptions = {}
+  body: unknown = undefined,
+  options: HttpClientOptions = {},
+  parser: (response: Response) => Promise<T> = parseJsonApiResponse
 ): Promise<T> {
   const headers = mergeHeaders({ Accept: 'application/json' }, options.headers);
   const response = await fetch(buildUrl(options.baseURL ?? '', path, options.params), {
@@ -126,7 +127,7 @@ async function request<T>(
   });
 
   try {
-    return await parseJsonApiResponse<T>(response);
+    return await parser(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Request failed';
     const data = typeof error === 'object' && error !== null && 'body' in error ? (error as { body?: T }).body : undefined;
@@ -134,8 +135,30 @@ async function request<T>(
   }
 }
 
+async function requestText(
+  method: string,
+  path: string,
+  body: unknown = undefined,
+  options: HttpClientOptions = {}
+): Promise<string> {
+  const headers = mergeHeaders({ Accept: 'text/plain, text/html, */*' }, options.headers);
+  const response = await fetch(buildUrl(options.baseURL ?? '', path, options.params), {
+    method,
+    headers,
+    body: prepareBody(body, headers),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    throw new HttpError(`Request failed with status ${response.status}`, response.status);
+  }
+
+  return response.text();
+}
+
 export const http = {
   get: <T>(path: string, options?: HttpClientOptions) => request<T>('GET', path, undefined, options),
+  getText: (path: string, options?: HttpClientOptions) => requestText('GET', path, undefined, options),
   post: <T>(path: string, body?: unknown, options?: HttpClientOptions) => request<T>('POST', path, body, options),
   put: <T>(path: string, body?: unknown, options?: HttpClientOptions) => request<T>('PUT', path, body, options),
   patch: <T>(path: string, body?: unknown, options?: HttpClientOptions) => request<T>('PATCH', path, body, options),
@@ -145,6 +168,8 @@ export const http = {
 export const createHttpClient = (baseURL: string, defaults: Omit<HttpClientOptions, 'baseURL'> = {}) => ({
   get: <T>(path: string, options?: HttpRequestOptions) =>
     http.get<T>(path, { ...defaults, ...options, baseURL, headers: mergeHeaders(defaults.headers, options?.headers) }),
+  getText: (path: string, options?: HttpRequestOptions) =>
+    http.getText(path, { ...defaults, ...options, baseURL, headers: mergeHeaders(defaults.headers, options?.headers) }),
   post: <T>(path: string, body?: unknown, options?: HttpRequestOptions) =>
     http.post<T>(path, body, { ...defaults, ...options, baseURL, headers: mergeHeaders(defaults.headers, options?.headers) }),
   put: <T>(path: string, body?: unknown, options?: HttpRequestOptions) =>

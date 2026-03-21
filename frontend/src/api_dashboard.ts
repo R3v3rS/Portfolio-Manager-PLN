@@ -1,4 +1,4 @@
-import { createHttpClient } from './http';
+import { createApiClient } from './apiConfig';
 
 export interface GlobalSummary {
   net_worth: number;
@@ -23,7 +23,7 @@ export interface GlobalSummary {
   };
 }
 
-const dashboardHttp = createHttpClient('/api/dashboard');
+const dashboardHttp = createApiClient('/dashboard');
 
 const EMPTY_GLOBAL_SUMMARY: GlobalSummary = {
   net_worth: 0,

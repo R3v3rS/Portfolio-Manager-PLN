@@ -1,6 +1,6 @@
-import { createHttpClient } from './http';
+import { createApiClient } from './apiConfig';
 
-const symbolMapHttp = createHttpClient('/api/symbol-map');
+const symbolMapHttp = createApiClient('/symbol-map');
 
 export type MappingCurrency = 'PLN' | 'USD' | 'EUR' | 'GBP';
 
