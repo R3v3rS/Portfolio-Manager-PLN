@@ -1,7 +1,9 @@
-from flask import Blueprint, request
+from flask import Blueprint
 
-from api_response import SymbolMappingDTO, error_response, success_response
+from api.exceptions import NotFoundError, ValidationError
+from api.response import SymbolMappingDTO, error_response, success_response
 from database import get_db
+from routes_portfolio_base import require_json_body
 
 symbol_map_bp = Blueprint('symbol_map', __name__)
 
@@ -16,6 +18,10 @@ def serialize_symbol_mapping(row) -> SymbolMappingDTO:
     }
 
 
+def normalize_upper_string(value) -> str:
+    return str(value).strip().upper()
+
+
 @symbol_map_bp.route('', methods=['GET'], strict_slashes=False)
 def list_symbol_mappings():
     db = get_db()
@@ -24,24 +30,21 @@ def list_symbol_mappings():
            FROM symbol_mappings
            ORDER BY symbol_input ASC'''
     ).fetchall()
-    return success_response([serialize_symbol_mapping(row) for row in rows], 200)
+    return success_response([serialize_symbol_mapping(row) for row in rows])
 
 
 @symbol_map_bp.route('', methods=['POST'], strict_slashes=False)
 def create_symbol_mapping():
-    payload = request.get_json(silent=True) or {}
-    symbol_input_raw = payload.get('symbol_input', '')
-    ticker_raw = payload.get('ticker', '')
+    payload = require_json_body()
+    symbol_input = normalize_upper_string(payload.get('symbol_input', ''))
+    ticker = normalize_upper_string(payload.get('ticker', ''))
     currency_raw = payload.get('currency')
-
-    symbol_input = str(symbol_input_raw).strip().upper()
-    ticker = str(ticker_raw).strip().upper()
-    currency = str(currency_raw).strip().upper() if currency_raw is not None else None
+    currency = normalize_upper_string(currency_raw) if currency_raw is not None else None
 
     if not symbol_input:
-        return error_response('symbol_input is required', status_code=400, code='symbol_input_required')
+        raise ValidationError('symbol_input is required', details={'field': 'symbol_input'})
     if not ticker:
-        return error_response('ticker is required', status_code=400, code='ticker_required')
+        raise ValidationError('ticker is required', details={'field': 'ticker'})
 
     db = get_db()
 
@@ -51,9 +54,10 @@ def create_symbol_mapping():
     ).fetchone()
     if existing:
         return error_response(
+            'symbol_mapping_conflict',
             f'Mapping for {symbol_input} already exists',
-            status_code=409,
-            code='symbol_mapping_conflict',
+            details={'field': 'symbol_input', 'symbol_input': symbol_input},
+            status=409,
         )
 
     cursor = db.execute(
@@ -70,28 +74,28 @@ def create_symbol_mapping():
         (cursor.lastrowid,)
     ).fetchone()
 
-    return success_response(serialize_symbol_mapping(row), 201)
+    return success_response(serialize_symbol_mapping(row), status=201)
 
 
 @symbol_map_bp.route('/<int:mapping_id>', methods=['PUT'], strict_slashes=False)
 def update_symbol_mapping(mapping_id: int):
-    payload = request.get_json(silent=True) or {}
+    payload = require_json_body()
     ticker_raw = payload.get('ticker')
     currency_raw = payload.get('currency')
 
-    ticker = str(ticker_raw).strip().upper() if ticker_raw is not None else None
-    currency = str(currency_raw).strip().upper() if currency_raw is not None else None
+    ticker = normalize_upper_string(ticker_raw) if ticker_raw is not None else None
+    currency = normalize_upper_string(currency_raw) if currency_raw is not None else None
 
     if ticker is None and currency is None:
-        return error_response('No fields to update', status_code=400, code='empty_update')
+        raise ValidationError('No fields to update', details={'fields': ['ticker', 'currency']})
 
     db = get_db()
     existing = db.execute('SELECT id FROM symbol_mappings WHERE id = ?', (mapping_id,)).fetchone()
     if not existing:
-        return error_response('Mapping not found', status_code=404, code='symbol_mapping_not_found')
+        raise NotFoundError('Mapping not found', details={'mapping_id': mapping_id})
 
     if ticker is not None and not ticker:
-        return error_response('ticker cannot be empty', status_code=400, code='ticker_empty')
+        raise ValidationError('ticker cannot be empty', details={'field': 'ticker'})
 
     if ticker is not None and currency is not None:
         db.execute(
@@ -118,7 +122,7 @@ def update_symbol_mapping(mapping_id: int):
         (mapping_id,)
     ).fetchone()
 
-    return success_response(serialize_symbol_mapping(row), 200)
+    return success_response(serialize_symbol_mapping(row))
 
 
 @symbol_map_bp.route('/<int:mapping_id>', methods=['DELETE'], strict_slashes=False)
@@ -126,8 +130,8 @@ def delete_symbol_mapping(mapping_id: int):
     db = get_db()
     existing = db.execute('SELECT id FROM symbol_mappings WHERE id = ?', (mapping_id,)).fetchone()
     if not existing:
-        return error_response('Mapping not found', status_code=404, code='symbol_mapping_not_found')
+        raise NotFoundError('Mapping not found', details={'mapping_id': mapping_id})
 
     db.execute('DELETE FROM symbol_mappings WHERE id = ?', (mapping_id,))
     db.commit()
-    return success_response({'success': True, 'message': 'Mapping deleted'}, 200)
+    return success_response({'success': True, 'message': 'Mapping deleted'})

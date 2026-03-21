@@ -276,7 +276,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(error['code'], 'validation_error')
         self.assertEqual(error['details']['field'], 'budget_account_id')
 
-    def test_xtb_import_error_is_normalized_to_error_details(self):
+    def test_xtb_import_missing_symbols_returns_consistent_error_details(self):
         portfolio_id = self.seed_portfolio_with_cash()
 
         with patch('routes_imports.PortfolioService.import_xtb_csv', return_value={'success': False, 'missing_symbols': ['XTB.US']}):
@@ -288,9 +288,25 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400, response.get_json())
         error = response.get_json()['error']
-        self.assertEqual(error['message'], 'Import failed.')
-        self.assertEqual(error['details']['missing_symbols'], ['XTB.US'])
+        self.assertEqual(error['code'], 'IMPORT_VALIDATION_ERROR')
+        self.assertEqual(error['message'], 'Missing symbol mappings')
+        self.assertEqual(error['details'], {'missing_symbols': ['XTB.US']})
 
+    def test_xtb_import_invalid_csv_returns_consistent_error_details(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        with patch('routes_imports.pd.read_csv', side_effect=ValueError('Invalid CSV format')):
+            response = self.client.post(
+                f'/api/portfolio/{portfolio_id}/import/xtb',
+                data={'file': (io.BytesIO(b'not,a,valid,csv'), 'xtb.csv')},
+                content_type='multipart/form-data',
+            )
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'xtb_import_invalid_csv')
+        self.assertEqual(error['message'], 'Invalid CSV format')
+        self.assertEqual(error['details'], {})
 
 
     def test_global_error_handlers_preserve_contract_and_status_codes(self):
