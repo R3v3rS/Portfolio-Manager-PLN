@@ -1,9 +1,9 @@
 # Plan usprawnień aplikacji Portfolio Manager (PLN)
 
-Ten dokument jest aktualnym planem działania dla projektu po wykonanych refaktorach i ostatnim audycie integracji API / frontend / backend.
+Ten dokument jest aktualnym planem działania dla projektu po wykonanych refaktorach i po ponownej weryfikacji repo w dniu 2026-03-21.
 
-Łączy on dwie perspektywy:
-- **co już zostało zrobione lub jest w dużej mierze wdrożone**, 
+Łączy dwie perspektywy:
+- **co jest już faktycznie wykonane i potwierdzone w repo**, 
 - **co nadal wymaga domknięcia**, żeby projekt był spójny, przewidywalny i bezpieczny przy kolejnych zmianach.
 
 Dokument został zaktualizowany po przeglądzie repo oraz wnioskach z:
@@ -14,56 +14,57 @@ Dokument został zaktualizowany po przeglądzie repo oraz wnioskach z:
 
 ## 0. Snapshot stanu projektu
 
-### Co wygląda na zrobione / mocno posunięte
+### Co jest już potwierdzone jako wykonane
 
 #### Etap 1 — Stabilizacja podstaw
-Stan: **częściowo zrobione, ale niezamknięte formalnie**.
+Stan: **fundamenty wykonane, ale etap nie jest jeszcze formalnie zamknięty**.
 
-W praktyce projekt przeszedł już kilka ważnych usprawnień organizacyjnych i refaktorów, ale w repo nadal nie widać jeszcze pełnego, jednoznacznego domknięcia etapu testowego w skali całej aplikacji.
+Potwierdzone w repo i komendami:
+- frontend przechodzi `npm --prefix frontend run check`,
+- frontend przechodzi `npm --prefix frontend run build`,
+- backend przechodzi `python -m compileall backend`,
+- istnieje smoke test krytycznych endpointów `python backend/test_smoke_endpoints.py`,
+- najważniejsze flowy backendowe mają przynajmniej podstawową automatyczną weryfikację integracyjną.
 
-To znaczy:
-- architektura i podział odpowiedzialności poprawiły się względem wcześniejszego stanu,
-- aplikacja przechodzi build frontendu,
-- część krytycznych flowów została już przerobiona,
-- ale nadal brakuje czytelnego dowodu, że wszystkie najważniejsze smoke testy i quality gate są domknięte dla całego repo.
+Wniosek: Etap 1 nie jest już „tylko częściowo zaczęty”, ale też nie powinien być jeszcze traktowany jako zakończony. Minimalny quality gate działa, natomiast nadal brakuje szerszego lintu, większej liczby testów regresji i manualnego E2E UI.
 
 #### Etap 2 — Ujednolicenie komunikacji frontend ↔ backend
-Stan: **częściowo zrobione, ale wymaga domknięcia priorytetowego**.
+Stan: **fundament wdrożony po stronie frontendu, etap nadal niezamknięty systemowo**.
 
-Zrobione / rozpoczęte:
-- istnieją dedykowane moduły API po stronie frontendu (`api.ts`, `api_loans.ts`, `api_budget.ts`, `api_symbol_map.ts`),
-- część requestów została już wyciągnięta poza komponenty,
-- widać kierunek porządkowania integracji.
+Potwierdzone wykonanie:
+- istnieje wspólny klient HTTP `frontend/src/http.ts`,
+- istnieje wspólny parser odpowiedzi `frontend/src/http/response.ts`,
+- istnieją helpery `extractPayload`, `extractErrorMessage`, `parseJsonApiResponse`,
+- najważniejsze requesty zostały przepięte przez wspólne moduły API,
+- dashboard, radar, budżet i część importów korzystają już z ujednoliconej warstwy integracyjnej,
+- frontend ma compatibility layer dla `payload / data / raw JSON` oraz dla legacy error shape.
 
-Niezamknięte problemy:
-- frontend nadal używa miksu `axios`, `fetch` i requestów inline,
-- nie ma jednej wspólnej warstwy HTTP,
-- nie ma centralnego `unwrap payload` / `extract error`,
-- nie ma pełnej warstwy compatibility dla starego i nowego kontraktu API.
+Wniosek: największa luka po stronie frontendu została już istotnie ograniczona, ale etap nie jest jeszcze zamknięty, bo backend nadal nie zwraca jednego, globalnie wymuszonego standardu odpowiedzi.
 
 #### Etap 3 — Porządki w backendzie i podziale odpowiedzialności
-Stan: **w dużej mierze zrobione**.
+Stan: **strukturalnie mocno posunięty, ale nadal otwarty kontraktowo i walidacyjnie**.
 
-To jest obszar, w którym faktycznie widać największy postęp.
+Potwierdzone wykonanie:
+- backend jest podzielony na mniejsze moduły route’ów,
+- logika portfolio została rozbita na mniejsze serwisy,
+- krytyczne endpointy są objęte smoke testem.
 
-Już wykonane:
-- `backend/routes.py` został rozbity na mniejsze moduły (`routes_portfolios.py`, `routes_transactions.py`, `routes_history.py`, `routes_imports.py`, `routes_ppk.py`, `routes_admin.py`),
-- logika portfela została rozdzielona na mniejsze serwisy (`portfolio_history_service.py`, `portfolio_import_service.py`, `portfolio_valuation_service.py`, `portfolio_trade_service.py`, `portfolio_audit_service.py`, `portfolio_core_service.py`),
-- poprawił się podział odpowiedzialności po stronie backendu.
-
-Nadal do domknięcia w Etapie 3:
+Otwarte elementy Etapu 3:
 - spójna walidacja requestów,
-- spójny kontrakt success/error,
-- redukcja ręcznego łapania `Exception` bez ustandaryzowanych odpowiedzi.
+- jeden kontrakt success/error,
+- ograniczenie lokalnego łapania `Exception`.
 
-### Najważniejszy wniosek po audycie
+### Najważniejszy wniosek po aktualizacji planu
 
-Największy bieżący problem projektu nie leży już w samym podziale backendu, tylko na styku:
-- **HTTP layer frontendu**,
-- **unwrap payload / compatibility layer**,
-- **spójność odpowiedzi backendowych success/error**.
+> Uwaga interpretacyjna: w tym planie „wykonane” oznacza „potwierdzone w repo lub komendami podczas przeglądu”, a nie automatycznie „całkowicie zamknięte procesowo”.
 
-To właśnie ten obszar jest teraz głównym priorytetem technicznym.
+Największy bieżący problem projektu nie leży już w braku wspólnej warstwy frontendowej, bo ta została wdrożona.
+
+Największe otwarte ryzyko to dziś:
+- **brak jednego backendowego standardu success/error**, 
+- **niepełna standaryzacja `error.details`**,
+- **dług typowania i DTO w części ekranów**,
+- **brak pełnego manualnego E2E UI oraz szerszych testów regresji biznesowej**.
 
 ---
 
@@ -71,34 +72,30 @@ To właśnie ten obszar jest teraz głównym priorytetem technicznym.
 
 Na podstawie aktualnego stanu repo najwyższy wpływ na jakość mają dziś następujące obszary:
 
-1. **Brak jednej wspólnej warstwy HTTP na frontendzie** (`axios` + `fetch` + requesty inline).
-2. **Brak wspólnego parsera odpowiedzi API** dla wariantów `payload` / `data` / goły JSON.
-3. **Brak wspólnego parsera błędów** (`error.message`, `error.details`, fallback string).
-4. **Niespójny backendowy kontrakt odpowiedzi** — mieszanka surowych list, surowych obiektów, `{ message: ... }`, `{ error: ... }`.
-5. **Brak pełnej warstwy compatibility backend ↔ frontend** po refaktorze envelope.
-6. **Brak formalnego domknięcia quality gate / smoke testów dla najważniejszych flowów**.
-7. **Dalsze użycie `any` i lokalnych założeń o shape JSON**, co zwiększa ryzyko crashy runtime.
+1. **Brak jednego globalnie egzekwowanego kontraktu backendowych odpowiedzi**.
+2. **Brak pełnej standaryzacji błędów backendu** (`error.code`, `error.message`, `error.details`).
+3. **Nadal obecny dług typowania i lokalnych założeń DTO w części UI**.
+4. **Brak rozszerzonych testów regresji dla logiki biznesowej wysokiego ryzyka**.
+5. **Brak pełnego manualnego E2E smoke testu frontendu po głównych ekranach**.
+6. **Ostrzeżenia o dużych chunkach frontendu przy buildzie**.
 
 ---
 
 ## 2. Priorytety strategiczne po aktualizacji planu
 
-### Priorytet P1 — Domknięcie integracji API / frontend / backend
+### Priorytet P1 — Domknięcie standardu backendowego API
 To jest obecnie priorytet absolutny.
 
-Najpierw trzeba zapewnić, że:
-- frontend umie odczytać nowy i stary format odpowiedzi,
-- backend zwraca przewidywalne success/error,
-- UI nie wywraca się na pustych danych albo envelope bez unwrap.
+Trzeba doprowadzić do tego, żeby backend zwracał jeden przewidywalny format sukcesu i błędu dla wszystkich endpointów.
 
-### Priorytet P2 — Formalne domknięcie jakości i testów regresji
-Drugi priorytet to potwierdzić automatycznie, że najważniejsze flowy nadal działają.
+### Priorytet P2 — Rozszerzenie jakości i testów regresji
+Drugi priorytet to zwiększyć pewność zmian przez lepsze testy biznesowe oraz manualny smoke test UI.
 
-### Priorytet P3 — Dalsze porządki architektoniczne
-Tutaj wchodzą dalsze refaktory i wygładzanie granic modułów.
+### Priorytet P3 — Dalsze porządki typów i DTO na frontendzie
+Wspólna warstwa HTTP już istnieje; teraz trzeba ograniczyć resztki `any` i doprecyzować modele danych.
 
 ### Priorytet P4 — Wydajność i obserwowalność
-Dopiero po ustabilizowaniu kontraktu i testów warto szerzej optymalizować koszt obliczeń.
+Po ustabilizowaniu kontraktu warto szerzej optymalizować i poprawiać monitoring.
 
 ---
 
@@ -107,32 +104,23 @@ Dopiero po ustabilizowaniu kontraktu i testów warto szerzej optymalizować kosz
 ## Etap 1 — Stabilizacja podstaw
 
 ### Status
-**Częściowo wykonany, wymaga formalnego domknięcia.**
+**Fundamenty wykonane, ale etap nie jest jeszcze formalnie zamknięty.**
 
-Etap 1 traktuję jako „już przerabiany”, ale nadal nie jest w pełni zakończony w sensie repozytoryjnym i procesowym.
-
-### Co zostało zrobione / poprawione
-- projekt przeszedł już istotne refaktory zmniejszające chaos w kodzie,
-- istnieją rozdzielone moduły backendowe, co ułatwia testowanie,
-- frontend buduje się poprawnie,
-- część ryzykownych flowów została uporządkowana funkcjonalnie.
+### Co zostało zrobione / potwierdzone
+- istnieje działający minimalny quality gate dla repo,
+- frontend przechodzi check i build,
+- backend przechodzi kompilację modułów,
+- istnieje smoke test krytycznych endpointów backendu,
+- smoke test obejmuje dashboard, portfolio, budżet, kredyty, radar i symbol map.
 
 ### Co zostało do zrobienia
 
-#### 1.1 Domknąć smoke testy backendu dla krytycznych endpointów
-Na start powinny być objęte przynajmniej:
-- `GET /api/dashboard/global-summary`,
-- `GET /api/portfolio/list`,
-- `POST /api/portfolio/create`,
-- `POST /api/portfolio/buy`,
-- `POST /api/portfolio/sell`,
-- `GET /api/portfolio/value/<id>`,
-- `POST /api/budget/transfer-to-portfolio`,
-- `POST /api/budget/withdraw-from-portfolio`,
-- `GET /api/loans/<id>/schedule`,
-- `GET /api/radar`,
-- `POST /api/radar/refresh`,
-- `GET /api/symbol-map`.
+#### 1.1 Rozszerzyć smoke testy backendu o kolejne edge case’y
+Na start warto dodać scenariusze:
+- błędny payload dla buy / sell,
+- błędny payload dla transferów budżetowych,
+- puste i częściowe dane dla krytycznych summary endpointów,
+- błędy importu i mapowania symboli.
 
 #### 1.2 Domknąć testy logiki biznesowej dla obszarów wysokiego ryzyka
 Najwyższy priorytet mają:
@@ -143,120 +131,68 @@ Najwyższy priorytet mają:
 - harmonogramy kredytów,
 - dashboard globalny.
 
-#### 1.3 Ustalić i egzekwować minimalny quality gate
-Na początek wystarczy:
-- `npm --prefix frontend run check`,
-- `npm --prefix frontend run build`,
-- `python -m compileall backend`,
-- smoke testy backendu.
+#### 1.3 Rozszerzyć quality gate o lint i/lub kolejne testy
+Obecne minimum już działa, ale warto dodać:
+- `npm --prefix frontend run lint`,
+- bardziej granularne testy backendowe,
+- ewentualne testy UI dla kluczowych flowów.
 
 ### Efekt końcowy etapu
 - zmiany będą bezpieczniejsze,
-- łatwiej będzie refaktoryzować HTTP layer i kontrakt API,
-- mniej regresji przejdzie niezauważenie.
+- regresje będą szybciej wykrywane,
+- repo będzie gotowe do dalszego porządkowania kontraktu API.
 
 ---
 
 ## Etap 2 — Ujednolicenie komunikacji frontend ↔ backend
 
 ### Status
-**Rozpoczęty, ale jeszcze niezamknięty. To obecnie najważniejszy etap do domknięcia.**
+**Kluczowy fundament frontendowy wykonany, ale etap nie jest jeszcze domknięty end-to-end.**
 
 ### Co zostało już zrobione
-- część komunikacji została przeniesiona do plików API,
-- projekt ma już wydzielone moduły typu `api_budget.ts`, `api_loans.ts`, `api_symbol_map.ts`,
-- kierunek architektoniczny został wyznaczony.
+- istnieje wspólny HTTP layer,
+- istnieje centralny `unwrap payload`,
+- istnieje centralny parser błędów,
+- istnieje `parseJsonApiResponse`,
+- najważniejsze ekrany zostały przepięte na moduły API,
+- frontend obsługuje stary i nowszy kształt odpowiedzi.
 
 ### Co trzeba zrobić teraz priorytetowo
 
-#### 2.1 Wprowadzić jeden wspólny HTTP layer
-Docelowo wszystkie requesty powinny przechodzić przez jeden mechanizm, np. wspólny `http.ts`.
+#### 2.1 Domknąć zgodność backendu ze wspólnym kontraktem
+Docelowo backend powinien zwracać jeden format odpowiedzi, tak aby frontend nie musiał długoterminowo utrzymywać szerokiej warstwy kompatybilności.
 
-Ta warstwa powinna obsługiwać:
-- `GET / POST / PATCH / DELETE`,
-- spójne nagłówki i serializację,
-- wspólną obsługę błędów,
-- wspólne unwrapowanie odpowiedzi,
-- kompatybilność dla starego i nowego kontraktu.
+#### 2.2 Kontynuować normalizację DTO na granicy API
+Dla każdego istotnego modułu warto utrzymywać:
+- wejście jako `unknown`,
+- normalizację do jawnego modelu,
+- bezpieczne fallbacki dla pól opcjonalnych.
 
-Do przepięcia w pierwszej kolejności:
-- `api.ts`,
-- `api_loans.ts`,
-- `api_budget.ts`,
-- `api_symbol_map.ts`,
-- requesty inline w `MainDashboard.tsx`,
-- requesty inline w `InvestmentRadar.tsx`,
-- requesty inline / specyficzne flowy w `PortfolioDetails.tsx`,
-- requesty inline w `BudgetDashboard.tsx`.
+#### 2.3 Dokończyć przegląd mniej krytycznych ekranów
+W pierwszej kolejności warto jeszcze przejrzeć:
+- mniej używane modale i flowy specjalne,
+- ekrany z pozostałym `any`,
+- miejsca, gdzie shape odpowiedzi nie jest jeszcze wyraźnie normalizowany.
 
-#### 2.2 Dodać centralny `unwrap payload`
-Potrzebna jest jedna funkcja kompatybilności, np.:
-- `extractPayload(response)`
-
-która obsłuży:
-- `{ payload: ... }`,
-- `{ data: ... }`,
-- stary surowy JSON jako fallback.
-
-To jest krytyczne szczególnie dla:
-- dashboardu,
-- radaru,
-- budżetu,
-- importów,
-- symbol mapping.
-
-#### 2.3 Dodać centralny parser błędów
-Potrzebna jest jedna funkcja, np.:
-- `extractErrorMessage(errorBody)`
-
-Powinna ona obsługiwać:
-- `error.message`,
-- `error.details`,
-- stare `{ error: "..." }`,
-- fallback string,
-- sytuację, gdy odpowiedź jest pusta albo błędna.
-
-#### 2.4 Dodać `parseJsonApiResponse`
-Wspólny parser powinien:
-- bezpiecznie parsować JSON,
-- działać dla pustego body,
-- odróżniać success/error,
-- zwracać czytelny błąd dla UI,
-- delegować unwrap i extract error do helperów wspólnych.
-
-#### 2.5 Zaktualizować najbardziej wrażliwe ekrany
-Najpierw:
-- `MainDashboard.tsx`,
-- `InvestmentRadar.tsx`,
-- `PortfolioDetails.tsx`,
-- `BudgetDashboard.tsx`.
-
-Tu trzeba dopilnować:
-- guardów dla `undefined` / `null`,
-- sensownych fallbacków dla pustych tablic i pustych obiektów,
-- braku bezpośredniego zakładania shape odpowiedzi bez normalizacji.
-
-#### 2.6 Domknąć XTB import pod nowy kontrakt błędów
-Scenariusz `missing_symbols` powinien działać zarówno dla starego formatu, jak i nowego:
-- stary: `{ success: false, missing_symbols: [...] }`,
-- nowy: `{ error: { message, details: { missing_symbols: [...] } } }`.
+#### 2.4 Ujednolicić finalnie flow XTB import
+Frontend jest już kompatybilny, ale backend powinien docelowo zwracać jeden standard błędu z `error.details.missing_symbols`.
 
 ### Efekt końcowy etapu
-- frontend przestanie być kruchy na zmianę formatu odpowiedzi,
-- backend będzie można migrować bez rozwalania UI ekran po ekranie,
-- zniknie duża część ryzyka „białego ekranu” i `undefined` w runtime.
+- frontend pozostanie odporny na zmiany,
+- kompatybilność przestanie być głównym źródłem ryzyka,
+- utrzymanie modułów API będzie prostsze.
 
 ---
 
 ## Etap 3 — Porządki w backendzie i podziale odpowiedzialności
 
 ### Status
-**W dużej mierze wykonany, ale wymaga domknięcia kontraktu i walidacji.**
+**Strukturalnie wykonany w dużej części, wymaga jednak domknięcia kontraktu i walidacji.**
 
 ### Co już zostało zrobione
 
 #### 3.1 Rozbicie `backend/routes.py`
-To wygląda na wykonane.
+To jest wykonane.
 
 Aktualny podział obejmuje m.in.:
 - `routes_portfolios.py`,
@@ -264,10 +200,15 @@ Aktualny podział obejmuje m.in.:
 - `routes_history.py`,
 - `routes_imports.py`,
 - `routes_ppk.py`,
-- `routes_admin.py`.
+- `routes_admin.py`,
+- `routes_budget.py`,
+- `routes_dashboard.py`,
+- `routes_loans.py`,
+- `routes_radar.py`,
+- `routes_symbol_map.py`.
 
 #### 3.2 Rozbicie logiki portfela na mniejsze serwisy
-To również wygląda na wykonane.
+To również jest wykonane.
 
 W repo są już m.in.:
 - `portfolio_history_service.py`,
@@ -277,54 +218,38 @@ W repo są już m.in.:
 - `portfolio_audit_service.py`,
 - `portfolio_core_service.py`.
 
+#### 3.3 Smoke test krytycznych endpointów
+To również należy uznać za wykonany krok porządkujący backend.
+
 ### Co zostało do zrobienia
 
-#### 3.3 Ustandaryzować walidację requestów
-Obecnie nadal wiele endpointów:
-- czyta `request.json[...]` bez warstwy walidacji,
-- łapie `Exception` szeroko,
-- zwraca różne shape’y błędów.
-
+#### 3.4 Ustandaryzować walidację requestów
 Najpierw trzeba objąć walidacją endpointy:
 - tworzenia portfela,
 - buy / sell,
 - importów,
 - transferów budżetowych,
-- kredytów i nadpłat,
-- dashboardowych summary requestów, jeśli pojawią się parametry wejściowe.
+- kredytów i nadpłat.
 
-#### 3.4 Ustandaryzować kontrakt success / error
-Backend powinien przejść na jeden format odpowiedzi.
-
-Rekomendowany kierunek:
-- sukces: `{ payload: ... }` albo inny jeden ustalony envelope,
+#### 3.5 Ustandaryzować kontrakt success / error
+Rekomendowany kierunek pozostaje bez zmian:
+- sukces: jeden ustalony envelope, np. `{ payload: ... }`,
 - błąd: `{ error: { code, message, details } }`.
 
-Najważniejsze zasady:
-- brak surowych list i surowych dictów bez envelope,
-- `details` zawsze jako obiekt,
-- brak mieszania `{ message: ... }`, `{ error: ... }`, `{ success: false }` bez wspólnego standardu.
-
-#### 3.5 Ograniczyć lokalne `except Exception`
-Routy powinny docelowo:
-- przyjąć dane,
-- zwalidować je,
-- wywołać serwis,
-- zwrócić ustandaryzowaną odpowiedź.
-
-A mapowanie wyjątków powinno być centralne i przewidywalne.
+#### 3.6 Ograniczyć lokalne `except Exception`
+Mapowanie wyjątków powinno być centralne i przewidywalne.
 
 ### Efekt końcowy etapu
 - backend będzie naprawdę spójny kontraktowo,
-- łatwiej będzie utrzymać frontendową compatibility layer,
-- mniej kodu będzie trzeba „zgadywać” przy kolejnych zmianach.
+- frontendowa compatibility layer będzie mogła zostać uproszczona,
+- kolejne refaktory będą bezpieczniejsze.
 
 ---
 
 ## Etap 4 — Wydajność historii, dashboardu i radaru
 
 ### Status
-**Do zrobienia po ustabilizowaniu integracji.**
+**Do zrobienia po pełnym domknięciu kontraktu backendowego.**
 
 ### Zadania
 
@@ -336,12 +261,6 @@ Możliwe kierunki:
 - osobna tabela agregatów historycznych.
 
 #### 4.2 Zoptymalizować `global-summary`
-Aktualny dashboard nadal może być kosztowny, bo:
-- iteruje po portfelach,
-- dociąga ich wyceny,
-- iteruje po kredytach,
-- liczy harmonogramy.
-
 Po ustabilizowaniu kontraktu warto dodać:
 - cache summary,
 - cache sald kredytów,
@@ -372,7 +291,7 @@ Do rozważenia:
 ## Etap 5 — Kontrakt danych i przewidywalność zmian
 
 ### Status
-**Do zrobienia równolegle z końcówką Etapu 2 i 3.**
+**Do zrobienia równolegle z końcówką Etapu 3.**
 
 ### Zadania
 
@@ -380,14 +299,6 @@ Do rozważenia:
 Najlepiej przez:
 - OpenAPI,
 - albo przynajmniej jawne DTO per endpoint.
-
-Najpierw dla obszarów:
-- portfolio,
-- budżet,
-- kredyty,
-- radar,
-- symbol mapping,
-- dashboard.
 
 #### 5.2 Współdzielić lub generować typy
 Dzięki temu frontend nie będzie ręcznie zgadywał pól odpowiedzi.
@@ -410,7 +321,7 @@ Szczególnie przy:
 ## Etap 6 — Obserwowalność, diagnostyka i utrzymanie
 
 ### Status
-**Wciąż ważne, ale wtórne wobec integracji i testów.**
+**Wciąż ważne, ale wtórne wobec kontraktu backendowego i testów.**
 
 ### Zadania
 
@@ -453,13 +364,13 @@ Np.:
 
 ## 4. Rekomendowana kolejność wdrożenia po aktualizacji
 
-1. **Domknąć Etap 2** — wspólny HTTP layer, unwrap payload, parser błędów, compatibility layer.
-2. **Formalnie domknąć Etap 1** — smoke testy, testy logiki i quality gate.
-3. **Domknąć Etap 3** — walidacja requestów i ujednolicenie kontraktu success/error.
-4. **Równolegle rozpocząć Etap 5** — formalizacja DTO / OpenAPI.
+1. **Domknąć Etap 3** — walidacja requestów i ujednolicenie kontraktu success/error.
+2. **Rozszerzać Etap 1** — więcej testów regresji i quality gate.
+3. **Równolegle rozpocząć Etap 5** — formalizacja DTO / OpenAPI.
+4. **Dalej porządkować Etap 2 na obrzeżach** — usuwać pozostałe legacy assumptions i `any`.
 5. **Dopiero potem szerzej robić Etap 4 i 6** — wydajność i obserwowalność.
 
-To jest najbardziej sensowna kolejność po obecnym stanie projektu: backendowy rozdział modułów już w dużej mierze jest, ale największe ryzyko siedzi dziś na granicy integracyjnej.
+To jest najbardziej sensowna kolejność po obecnym stanie projektu: wspólna warstwa frontendowa już działa, a największe ryzyko siedzi dziś po stronie kontraktu backendowego i jakości walidacji.
 
 ---
 
@@ -467,16 +378,13 @@ To jest najbardziej sensowna kolejność po obecnym stanie projektu: backendowy 
 
 Najwyższy zwrot teraz dadzą:
 
-1. dodać wspólny `http.ts` dla frontendu,
-2. dodać `extractPayload`,
-3. dodać `extractErrorMessage`,
-4. dodać `parseJsonApiResponse`,
-5. przepiąć `MainDashboard.tsx` i `InvestmentRadar.tsx` na wspólną warstwę HTTP,
-6. przepiąć `PortfolioDetails.tsx` i `BudgetDashboard.tsx` na wspólną warstwę HTTP,
-7. ujednolicić backendowy error envelope,
-8. dodać obsługę `missing_symbols` w `error.details`,
-9. uruchomić smoke test dla `global-summary`, buy / sell, transfer budżet → inwestycje,
-10. ograniczyć najbardziej ryzykowne `any` w warstwie integracyjnej.
+1. ujednolicić backendowy success envelope,
+2. ujednolicić backendowy error envelope z `error.details`,
+3. dodać testy błędnych payloadów buy / sell / transfer,
+4. ograniczyć najbardziej ryzykowne `any` w warstwie integracyjnej UI,
+5. uruchomić manualny smoke test ekranów: dashboard, radar, budżet, portfolio details,
+6. dodać `npm --prefix frontend run lint` do minimalnego quality gate,
+7. rozważyć podział największych chunków frontendu.
 
 ---
 
@@ -485,58 +393,67 @@ Najwyższy zwrot teraz dadzą:
 ### Inwestycje
 Zrobione / poprawione:
 - rozbita logika serwisowa,
-- lepszy podział odpowiedzialności backendu.
+- lepszy podział odpowiedzialności backendu,
+- podstawowy smoke test flowów portfolio.
 
 Do zrobienia:
-- objąć testami buy / sell / import / historię,
-- przepiąć odpowiedzi API na wspólny envelope,
-- uprościć integracyjnie `PortfolioDetails.tsx`.
+- objąć testami błędne i graniczne payloady buy / sell / import / historię,
+- przepiąć backend na wspólny envelope,
+- dalej ograniczać integracyjne `any` w `PortfolioDetails.tsx` i powiązanych komponentach.
 
 ### Budżet
 Zrobione / poprawione:
-- istnieje wydzielona warstwa API i logika modułu budżetowego.
+- istnieje wydzielona warstwa API,
+- summary i akcje korzystają ze wspólnego klienta HTTP,
+- flow transferów jest objęty smoke testem backendowym.
 
 Do zrobienia:
-- wyeliminować inline requesty i twarde założenia o shape JSON,
-- dodać testy dla free pool, kopert i transferów,
-- dopiąć kompatybilność odpowiedzi po stronie UI.
+- dodać więcej testów dla free pool, kopert i transferów,
+- dopiąć finalny standard odpowiedzi backendowych,
+- przejrzeć pozostałe edge case’y UI.
 
 ### Kredyty
 Zrobione / poprawione:
-- istnieje osobny moduł i logika harmonogramów.
+- istnieje osobny moduł i logika harmonogramów,
+- harmonogram jest objęty smoke testem backendowym.
 
 Do zrobienia:
 - dodać walidację requestów,
-- pokryć harmonogramy i nadpłaty testami,
+- pokryć harmonogramy i nadpłaty dodatkowymi testami,
 - ujednolicić kontrakt odpowiedzi harmonogramów.
 
 ### Radar i ceny
 Zrobione / poprawione:
-- istnieje osobny moduł radarowy i cache cen.
+- istnieje osobny moduł radarowy,
+- frontend radaru korzysta ze wspólnej warstwy HTTP,
+- flow odświeżania jest objęty smoke testem backendowym.
 
 Do zrobienia:
-- przepiąć frontend na wspólny HTTP layer,
-- dodać lepsze fallbacki błędów,
-- dopracować semantykę „dane świeże / nieświeże / błąd źródła”.
+- dopracować semantykę „dane świeże / nieświeże / błąd źródła”,
+- dodać więcej fallbacków i testów regresji,
+- zoptymalizować wydajność/caching po domknięciu kontraktu backendowego.
 
 ### Dashboard globalny
 Zrobione / poprawione:
-- istnieje osobny endpoint i ekran.
+- istnieje osobny endpoint i ekran,
+- frontend dashboardu korzysta z dedykowanego modułu API,
+- odpowiedź jest normalizowana do bezpiecznego modelu,
+- endpoint jest objęty smoke testem.
 
 Do zrobienia:
-- ujednolicić kontrakt odpowiedzi,
-- dodać compatibility unwrap,
-- dopiąć smoke testy,
+- ujednolicić finalny kontrakt odpowiedzi backendu,
+- przeprowadzić manualny smoke test UI,
 - w kolejnym kroku dodać cache.
 
 ### Symbol mapping / importy
 Zrobione / poprawione:
 - istnieje osobny panel i osobny moduł API,
-- import XTB ma już osobny flow.
+- import XTB ma kompatybilność frontendu dla `missing_symbols`,
+- symbol map jest objęty smoke testem backendowym.
 
 Do zrobienia:
-- przenieść `missing_symbols` do ustandaryzowanego `error.details`,
-- zachować kompatybilność dla starego formatu,
+- przenieść backend finalnie na `error.details.missing_symbols`,
+- zachować zgodność przejściową tylko do czasu pełnej standaryzacji,
 - dodać test regresji importu i mapowania symboli.
 
 ---
@@ -545,23 +462,21 @@ Do zrobienia:
 
 Plan będzie można uznać za skutecznie wdrażany, jeśli projekt osiągnie następujący stan:
 
-- frontend korzysta z jednej wspólnej warstwy HTTP,
-- istnieje wspólny `unwrap payload` dla `payload / data / raw JSON`,
-- istnieje wspólny `extract error` dla `error.message / error.details / fallback`,
 - backend zwraca jeden spójny format success/error,
-- najważniejsze flowy mają smoke testy,
-- krytyczne obszary biznesowe mają testy regresji,
-- dashboard, radar, budżet i portfolio details nie wywracają się na pustych albo niepełnych danych,
+- `error.details` jest wszędzie przewidywalne i słownikowe,
+- frontend ogranicza compatibility hacks do minimum,
+- najważniejsze flowy mają smoke testy i dodatkowe testy regresji,
+- krytyczne obszary biznesowe mają lepsze pokrycie testami,
+- dashboard, radar, budżet i portfolio details przejdą także manualny smoke test UI,
 - dokumentacja opisuje stan faktyczny: co zrobione, co do zrobienia i w jakiej kolejności.
 
 ---
 
 ## 8. Rekomendacja końcowa
 
-Jeśli mam wskazać **3 najważniejsze rzeczy od teraz**, to są to:
+Najważniejsza zmiana względem wcześniejszej wersji planu jest taka:
+- **Etap 1 nie jest już tylko planem — jego minimalny quality gate działa**,
+- **Etap 2 nie jest już główną dziurą architektoniczną po stronie frontendu — wspólna warstwa HTTP została wdrożona**,
+- **główny ciężar prac przesunął się teraz na backendowy standard kontraktu, walidację i dalsze testy regresji**.
 
-1. **domknąć Etap 2: wspólny HTTP layer + unwrap payload + parser błędów + compatibility layer**,  
-2. **formalnie domknąć Etap 1: smoke testy i quality gate**,  
-3. **domknąć Etap 3 od strony kontraktu i walidacji: jeden format success/error + jedna strategia mapowania błędów**.
-
-To jest dziś najkrótsza droga do realnej stabilności projektu: architektura backendu została już mocno poprawiona, ale żeby to naprawdę działało bezpiecznie, trzeba teraz domknąć warstwę integracji i przewidywalność kontraktu danych.
+Krótko: fundament integracyjny jest już postawiony; teraz trzeba go uporządkować kontraktowo i testowo do poziomu przewidywalnego standardu zespołowego.
