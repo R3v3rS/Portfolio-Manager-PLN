@@ -201,14 +201,14 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
 
         response = self.client.get('/api/radar/')
         self.assertEqual(response.status_code, 200, response.get_json())
-        radar_items = response.get_json()
+        radar_items = response.get_json()['payload']
         self.assertEqual(len(radar_items), 1)
         self.assertEqual(radar_items[0]['ticker'], 'AAPL')
         self.assertTrue(radar_items[0]['is_watched'])
 
         response = self.client.post('/api/radar/refresh', json={})
         self.assertEqual(response.status_code, 200, response.get_json())
-        self.assertEqual(response.get_json()['tickers'], ['AAPL'])
+        self.assertEqual(response.get_json()['payload']['tickers'], ['AAPL'])
 
         response = self.client.get('/api/symbol-map')
         self.assertEqual(response.status_code, 200, response.get_json())
