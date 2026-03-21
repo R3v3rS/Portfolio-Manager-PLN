@@ -17,34 +17,37 @@ Dokument został zaktualizowany po przeglądzie repo oraz wnioskach z:
 ### Co jest już potwierdzone jako wykonane
 
 #### Etap 1 — Stabilizacja podstaw
-Stan: **w dużej mierze wykonany, ale nie w pełni zielony jakościowo**.
+Stan: **wykonany (fundamenty), wymaga dalszego rozszerzania i domknięcia jakościowego**.
 
-Potwierdzone w repo i komendami:
+Potwierdzone w repo i komendami (2026-03-21):
 - frontend przechodzi `npm --prefix frontend run check`,
 - frontend przechodzi `npm --prefix frontend run build`,
 - backend przechodzi `python -m compileall backend`,
 - istnieje smoke test krytycznych endpointów `python backend/test_smoke_endpoints.py`,
 - istnieje także test kontraktu API `python -m unittest backend.test_api_contract`,
-- najważniejsze flowy backendowe mają przynajmniej podstawową automatyczną weryfikację integracyjną i kontraktową.
+- najważniejsze flowy backendowe mają automatyczną weryfikację integracyjną i kontraktową.
 
-Dodatkowa weryfikacja wykazała też, że:
-- skrypt `npm --prefix frontend run lint` istnieje, ale obecnie **nie przechodzi**,
-- główne problemy lintu to `no-explicit-any`, `no-unused-vars` i ostrzeżenia hook dependencies.
+Aktualne problemy (2026-03-21):
+- skrypt `npm --prefix frontend run lint` **nie przechodzi** (25 problemów: `no-explicit-any`, `no-unused-vars`, `exhaustive-deps`),
+- wykryto i naprawiono błąd `TypeError` w `BondService` podczas testów kontraktu (niepoprawny parsing daty),
+- `PortfolioDetails.tsx` nadal zawiera bezpośrednie wywołania `api.post` (PPK, Sell), co narusza zasadę korzystania wyłącznie z modułów API.
 
-Wniosek: Etap 1 nie jest już „tylko częściowo zaczęty” — jego fundament został realnie domknięty. Nadal jednak nie można go uznać za całkowicie zamknięty, dopóki lint frontendu pozostaje czerwony i testy biznesowe są wciąż ograniczone.
+Wniosek: Etap 1 ma solidne fundamenty, ale lint i drobne błędy implementacyjne wciąż wymagają uwagi.
 
 #### Etap 2 — Ujednolicenie komunikacji frontend ↔ backend
-Stan: **w dużej mierze wykonany, ale nie domknięty po stronie backendowego standardu odpowiedzi**.
+Stan: **w dużej mierze wykonany, ale wymaga finalnego przepięcia wszystkich akcji na moduły API**.
 
 Potwierdzone wykonanie:
 - istnieje wspólny klient HTTP `frontend/src/http.ts`,
 - istnieje wspólny parser odpowiedzi `frontend/src/http/response.ts`,
-- istnieją helpery `extractPayload`, `extractErrorMessage`, `parseJsonApiResponse`,
-- najważniejsze requesty zostały przepięte przez wspólne moduły API,
-- dashboard, radar, budżet i część importów korzystają już z ujednoliconej warstwy integracyjnej,
-- frontend ma compatibility layer dla `payload / data / raw JSON` oraz dla legacy error shape.
+- najważniejsze requesty (GET) zostały przepięte przez wspólne moduły API,
+- dashboard, radar, budżet i część importów korzystają już z ujednoliconej warstwy integracyjnej.
 
-Wniosek: największy historyczny problem po stronie frontendu został już w praktyce rozwiązany. Otwarty pozostaje głównie brak pełnej standaryzacji backendowych odpowiedzi.
+Otwarte elementy Etapu 2:
+- przepiąć pozostałe akcje POST/DELETE (np. w `PortfolioDetails.tsx`) na dedykowane moduły API,
+- wyeliminować resztki `any` w typowaniu odpowiedzi (szczególnie w `PortfolioDetails.tsx`).
+
+Wniosek: warstwa integracyjna działa, ale proces migracji na moduły API musi zostać domknięty dla wszystkich operacji (nie tylko odczytu).
 
 #### Etap 3 — Porządki w backendzie i podziale odpowiedzialności
 Stan: **w dużej mierze wykonany strukturalnie i istotnie domknięty kontraktowo dla głównych route'ów**.

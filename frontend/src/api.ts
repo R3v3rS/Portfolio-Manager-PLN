@@ -484,12 +484,21 @@ export const portfolioApi = {
     const source = isRecord(response) ? response : {};
     return { message: toOptionalString(source.message) };
   },
-  importXtbCsv: async (portfolioId: number, file: File): Promise<XtbImportResult> => {
+  importXtbCsv: async (portfolio_id: number, file: File): Promise<XtbImportResult> => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await portfolioHttp.post<unknown>(`/${portfolioId}/import/xtb`, formData);
+    const response = await portfolioHttp.post<unknown>(`/${portfolio_id}/import/xtb`, formData);
     return normalizeXtbImportResult(response);
   },
+  sell: (payload: { portfolio_id: number; ticker: string; quantity: number; price: number; date?: string }) =>
+    portfolioHttp.post('/sell', payload),
+  addPpkTransaction: (payload: {
+    portfolio_id: number;
+    date: string;
+    employeeUnits: number;
+    employerUnits: number;
+    pricePerUnit: number;
+  }) => portfolioHttp.post('/ppk/transactions', payload),
   getPpkTransactions: async (portfolioId: number): Promise<PPKTransactionsResponse> => {
     const response = await portfolioHttp.get<unknown>(`/ppk/transactions/${portfolioId}`);
     const source = isRecord(response) ? response : {};

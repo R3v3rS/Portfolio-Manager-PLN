@@ -10,12 +10,14 @@ Zakres: kontrakt API, warstwa HTTP frontendu, compatibility unwrap/error parsing
 - **Najważniejsze elementy warstwy integracyjnej po stronie frontendu zostały już wdrożone.**
 - **Projekt nie ma dziś czerwonego, oczywistego blokera builda ani podstawowych smoke testów**, a backend ma już **wdrożone canonical helpers `success_response` / `error_response`, globalny exception handling oraz automatyczny test kontraktu API dla krytycznych route'ów**.
 - **Najważniejsze endpointy backendu przechodzą już smoke test i test kontraktu envelope `payload/error`**, więc ryzyko integracyjne przesunęło się z awarii runtime na dalsze porządkowanie coverage i egzekwowania standardu w całym API.
-- **Pełny quality gate nadal nie jest zielony**, ponieważ osobno uruchomiony lint frontendu kończy się błędami `@typescript-eslint/no-explicit-any` i `@typescript-eslint/no-unused-vars` oraz ostrzeżeniami `react-hooks/exhaustive-deps`.
+- **Pełny quality gate nadal nie jest zielony**, ponieważ osobno uruchomiony lint frontendu kończy się 25 błędami (m.in. `@typescript-eslint/no-explicit-any`, `@typescript-eslint/no-unused-vars`, `react-hooks/exhaustive-deps`).
+- **Wykryto i naprawiono błąd integracyjny w `BondService`** (TypeError przy parsowaniu daty z bazy), który objawił się podczas testów kontraktu.
+- **`PortfolioDetails.tsx` nadal zawiera bezpośrednie wywołania `api.post`** (PPK, Sell), co narusza architekturę modułów API.
 
 Najważniejsza zmiana względem wcześniejszej wersji audytu:
 - frontend ma już wspólny klient HTTP,
 - istnieją wspólne helpery `extractPayload`, `extractErrorMessage`, `parseJsonApiResponse`,
-- najważniejsze ekrany zostały przepięte na wspólną warstwę,
+- najważniejsze ekrany zostały przepięte na wspólną warstwę (choć operacje zapisu wciąż wymagają uwagi),
 - quality gate został potwierdzony komendami,
 - backend ma smoke test krytycznych endpointów,
 - backend ma też test kontraktu API (`payload/error`) dla najważniejszych route'ów.
