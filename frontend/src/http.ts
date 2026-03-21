@@ -57,18 +57,19 @@ const mergeHeaders = (...headersList: Array<HeadersInit | undefined>) => {
 };
 
 const buildUrl = (baseURL: string, path: string, params?: QueryParams) => {
-  const url = new URL(path, window.location.origin);
+  const isAbsoluteUrl = /^https?:\/\//.test(path);
+  const normalizedPath = path.startsWith('./') ? path.slice(2) : path;
+  let url: URL;
 
-  if (!/^https?:\/\//.test(path) && !path.startsWith('/')) {
+  if (isAbsoluteUrl) {
+    url = new URL(normalizedPath);
+  } else if (baseURL) {
     const normalizedBase = baseURL.endsWith('/') ? baseURL : `${baseURL}/`;
-    const normalizedPath = path.startsWith('./') ? path.slice(2) : path;
-    return buildUrl(baseURL, `${normalizedBase}${normalizedPath}`, params);
-  }
-
-  if (baseURL && path.startsWith('/')) {
-    const normalizedBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    return buildUrl('', `${normalizedBase}${normalizedPath}`, params);
+    const relativePath = normalizedPath.startsWith('/') ? normalizedPath.slice(1) : normalizedPath;
+    url = new URL(relativePath, new URL(normalizedBase, window.location.origin));
+  } else {
+    const rootPath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+    url = new URL(rootPath, window.location.origin);
   }
 
   Object.entries(params ?? {}).forEach(([key, value]) => {
@@ -86,7 +87,7 @@ const buildUrl = (baseURL: string, path: string, params?: QueryParams) => {
     url.searchParams.set(key, String(value));
   });
 
-  return `${url.pathname}${url.search}${url.hash}`;
+  return isAbsoluteUrl ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
 };
 
 const prepareBody = (body: unknown, headers: Headers) => {

@@ -2,6 +2,7 @@ from flask import Flask, jsonify
 import logging
 import traceback
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 from database import init_db
 from routes import portfolio_bp
 from routes_loans import loans_bp
@@ -48,6 +49,9 @@ def create_app():
 
     @app.errorhandler(Exception)
     def handle_exception(e):
+        if isinstance(e, HTTPException):
+            return jsonify({'error': e.description, 'status': e.code}), e.code
+
         logging.exception("Unhandled exception")
         if app.debug:
             traceback.print_exc()
