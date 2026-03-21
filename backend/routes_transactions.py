@@ -1,109 +1,114 @@
-from flask import jsonify, request
-
 from portfolio_service import PortfolioService
-from routes_portfolio_base import portfolio_bp
+from api.response import success_response
+from routes_portfolio_base import (
+    portfolio_bp,
+    optional_bool,
+    optional_number,
+    optional_string,
+    raise_portfolio_validation_error,
+    require_json_body,
+    require_non_empty_string,
+    require_number,
+    require_positive_int,
+)
 
 
 @portfolio_bp.route('/deposit', methods=['POST'])
 def deposit():
-    data = request.json
+    data = require_json_body()
     try:
-        PortfolioService.deposit_cash(data['portfolio_id'], data['amount'], data.get('date'))
-        return jsonify({'message': 'Deposit successful'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        PortfolioService.deposit_cash(
+            require_positive_int(data, 'portfolio_id'),
+            require_number(data, 'amount', positive=True),
+            optional_string(data, 'date'),
+        )
+    except ValueError as error:
+        raise_portfolio_validation_error(error)
+    return success_response({'message': 'Deposit successful'})
 
 
 @portfolio_bp.route('/withdraw', methods=['POST'])
 def withdraw():
-    data = request.json
+    data = require_json_body()
     try:
-        PortfolioService.withdraw_cash(data['portfolio_id'], data['amount'], data.get('date'))
-        return jsonify({'message': 'Withdrawal successful'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        PortfolioService.withdraw_cash(
+            require_positive_int(data, 'portfolio_id'),
+            require_number(data, 'amount', positive=True),
+            optional_string(data, 'date'),
+        )
+    except ValueError as error:
+        raise_portfolio_validation_error(error)
+    return success_response({'message': 'Withdrawal successful'})
 
 
 @portfolio_bp.route('/buy', methods=['POST'])
 def buy():
-    data = request.json
+    data = require_json_body()
     try:
         PortfolioService.buy_stock(
-            data['portfolio_id'],
-            data['ticker'],
-            data['quantity'],
-            data['price'],
-            data.get('date'),
-            data.get('commission', 0.0),
-            data.get('auto_fx_fees', False)
+            require_positive_int(data, 'portfolio_id'),
+            require_non_empty_string(data, 'ticker'),
+            require_number(data, 'quantity', positive=True),
+            require_number(data, 'price', positive=True),
+            optional_string(data, 'date'),
+            optional_number(data, 'commission', default=0.0, non_negative=True),
+            optional_bool(data, 'auto_fx_fees', default=False),
         )
-        return jsonify({'message': 'Buy successful'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_portfolio_validation_error(error)
+    return success_response({'message': 'Buy successful'})
 
 
 @portfolio_bp.route('/sell', methods=['POST'])
 def sell():
-    data = request.json
+    data = require_json_body()
     try:
         PortfolioService.sell_stock(
-            data['portfolio_id'],
-            data['ticker'],
-            data['quantity'],
-            data['price'],
-            data.get('date')
+            require_positive_int(data, 'portfolio_id'),
+            require_non_empty_string(data, 'ticker'),
+            require_number(data, 'quantity', positive=True),
+            require_number(data, 'price', positive=True),
+            optional_string(data, 'date'),
         )
-        return jsonify({'message': 'Sell successful'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_portfolio_validation_error(error)
+    return success_response({'message': 'Sell successful'})
 
 
 @portfolio_bp.route('/transactions/<int:portfolio_id>', methods=['GET'])
 def get_transactions(portfolio_id):
-    try:
-        transactions = PortfolioService.get_transactions(portfolio_id)
-        return jsonify({'transactions': transactions}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    transactions = PortfolioService.get_transactions(portfolio_id)
+    return success_response({'transactions': transactions})
 
 
 @portfolio_bp.route('/transactions/all', methods=['GET'])
 def get_all_transactions():
-    try:
-        transactions = PortfolioService.get_all_transactions()
-        return jsonify({'transactions': transactions}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    transactions = PortfolioService.get_all_transactions()
+    return success_response({'transactions': transactions})
 
 
 @portfolio_bp.route('/dividend', methods=['POST'])
 def record_dividend():
-    data = request.json
+    data = require_json_body()
     try:
         PortfolioService.record_dividend(
-            data['portfolio_id'],
-            data['ticker'],
-            data['amount'],
-            data['date']
+            require_positive_int(data, 'portfolio_id'),
+            require_non_empty_string(data, 'ticker'),
+            require_number(data, 'amount', positive=True),
+            require_non_empty_string(data, 'date'),
         )
-        return jsonify({'message': 'Dividend recorded successfully'}), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    except ValueError as error:
+        raise_portfolio_validation_error(error)
+    return success_response({'message': 'Dividend recorded successfully'}, status=201)
 
 
 @portfolio_bp.route('/dividends/<int:portfolio_id>', methods=['GET'])
 def get_dividends(portfolio_id):
-    try:
-        dividends = PortfolioService.get_dividends(portfolio_id)
-        return jsonify({'dividends': dividends}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    dividends = PortfolioService.get_dividends(portfolio_id)
+    return success_response({'dividends': dividends})
 
 
 @portfolio_bp.route('/dividends/monthly/<int:portfolio_id>', methods=['GET'])
 def get_monthly_dividends(portfolio_id):
-    try:
-        monthly_data = PortfolioService.get_monthly_dividends(portfolio_id)
-        return jsonify({'monthly_dividends': monthly_data}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    monthly_data = PortfolioService.get_monthly_dividends(portfolio_id)
+    return success_response({'monthly_dividends': monthly_data})

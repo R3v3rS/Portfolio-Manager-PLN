@@ -1,10 +1,10 @@
 from flask import Flask
 import logging
-import traceback
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 from database import init_db
-from api_response import error_response
+from api.exceptions import NotFoundError, ValidationError
+from api.response import error_response
 from routes import portfolio_bp
 from routes_loans import loans_bp
 from routes_budget import budget_bp
@@ -47,19 +47,56 @@ def create_app():
     app.register_blueprint(symbol_map_bp, url_prefix='/api/symbol-map')
 
 
-    # Global error handler to return consistent JSON responses
+    # Global API error handling.
+    #
+    # Contract: unhandled exceptions are normalized to the canonical JSON error
+    # envelope so new consumers can rely on a consistent structure.
+    # Migration strategy: route-level legacy return shapes remain untouched for now;
+    # only framework-level exception handling is standardized in this change.
+
+    @app.errorhandler(ValidationError)
+    def handle_validation_error(error):
+        return error_response(
+            'validation_error',
+            getattr(error, 'message', 'Validation failed.'),
+            details=getattr(error, 'details', None),
+            status=400,
+        )
+
+    @app.errorhandler(ValueError)
+    def handle_value_error(error):
+        return error_response(
+            'value_error',
+            str(error),
+            status=400,
+        )
+
+    @app.errorhandler(NotFoundError)
+    def handle_not_found_error(error):
+        return error_response(
+            'not_found',
+            getattr(error, 'message', 'Resource not found.'),
+            details=getattr(error, 'details', None),
+            status=404,
+        )
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(error):
+        return error_response(
+            f'http_{error.code}',
+            error.description,
+            status=error.code,
+        )
 
     @app.errorhandler(Exception)
-    def handle_exception(e):
-        if isinstance(e, HTTPException):
-            return error_response(e.description, status_code=e.code)
-
-        logging.exception("Unhandled exception")
-        if app.debug:
-            traceback.print_exc()
-            return error_response(str(e), status_code=500, code='internal_error')
-        # don't expose internals in production responses
-        return error_response('Internal server error', status_code=500, code='internal_error')
+    def handle_exception(error):
+        logging.exception('Unhandled exception')
+        # Never leak raw exception text for 500 responses; keep details in logs only.
+        return error_response(
+            'internal_error',
+            'Internal server error',
+            status=500,
+        )
 
     @app.route('/')
     def health_check():

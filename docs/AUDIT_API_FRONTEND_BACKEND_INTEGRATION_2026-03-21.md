@@ -8,7 +8,7 @@ Zakres: kontrakt API, warstwa HTTP frontendu, compatibility unwrap/error parsing
 
 - **Stan jest wyraźnie lepszy niż w pierwotnej wersji audytu.**
 - **Najważniejsze elementy warstwy integracyjnej po stronie frontendu zostały już wdrożone.**
-- **Projekt nie ma dziś czerwonego, oczywistego blokera builda ani podstawowych smoke testów**, ale nadal ma **otwarte ryzyka kontraktowe po stronie backendu**, bo odpowiedzi success/error nie są jeszcze w pełni ujednolicone endpoint-by-endpoint.
+- **Projekt nie ma dziś czerwonego, oczywistego blokera builda ani podstawowych smoke testów**, a backend ma już **wprowadzony globalny kontrakt odpowiedzi dla helperów i centralnego exception handlingu**; nadal pozostają **otwarte ryzyka kontraktowe endpoint-by-endpoint**, bo odpowiedzi success/error nie są jeszcze w pełni ujednolicone na każdym route.
 - **Pełny quality gate nadal nie jest zielony**, ponieważ osobno uruchomiony lint frontendu kończy się błędami `@typescript-eslint/no-explicit-any` i `@typescript-eslint/no-unused-vars` oraz ostrzeżeniami `react-hooks/exhaustive-deps`.
 
 Najważniejsza zmiana względem wcześniejszej wersji audytu:
@@ -83,7 +83,7 @@ Uwaga:
 - backend nadal zwraca realny kontrakt oparty o pola `net_worth`, `total_assets`, `total_liabilities`, `liabilities_breakdown`, `assets_breakdown`, `quick_stats`,
 - nie ma dowodu, że docelowy kontrakt typu `total_value` / `portfolio_value` / `budget_summary` został wdrożony globalnie.
 
-Wniosek: dashboard jest już zabezpieczony integracyjnie, ale formalny docelowy kontrakt backendowy nadal wymaga decyzji i ujednolicenia.
+Wniosek: dashboard jest już zabezpieczony integracyjnie, a endpoint `global-summary` został przepięty na envelope `{ payload: ... }` bez zmiany wewnętrznego shape danych. Formalny docelowy kontrakt backendowy nadal wymaga jednak dalszego ujednolicania poza tym endpointem.
 
 ---
 
@@ -136,15 +136,15 @@ Wniosek: flow importu jest lepiej zabezpieczony niż wcześniej, ale pełna stan
 
 ### 3.1 Success response
 
-**Wynik: FAIL jako pełny standard systemowy / MIXED praktycznie**
+**Wynik: POPRAWA / nadal MIXED jako pełny standard systemowy**
 
-Nie ma dowodu, że wszystkie endpointy backendu używają jednego helpera typu `success_response(...)`.
+Backend ma już centralny helper docelowego kontraktu sukcesu `success_response(payload, status=...)`, ale nie ma jeszcze dowodu, że wszystkie endpointy backendu używają go konsekwentnie.
 
-Backend nadal zwraca mieszankę odpowiedzi, np.:
+Backend nadal zwraca mieszankę odpowiedzi, ale zakres legacy został zawężony. Portfolio i dashboard mają już wdrożony canonical envelope dla odpowiedzi sukcesu, natomiast inne moduły nadal zawierają miks shape'ów, np.:
 - surowe listy,
 - surowe obiekty,
 - obiekty z `message`,
-- obiekty domenowe typu `portfolios`, `baseline`, `simulation`, `tickers`.
+- obiekty domenowe typu `baseline`, `simulation`, `tickers`.
 
 To oznacza, że **frontend jest dziś przygotowany kompatybilnościowo**, ale **backend nie jest jeszcze formalnie ujednolicony kontraktowo**.
 
@@ -172,19 +172,16 @@ Dzięki wspólnemu parserowi i normalizacji po stronie frontendu, `null` / `unde
 
 ### 4.1 Typy błędów
 
-**Wynik: FAIL**
+**Wynik: POPRAWA / CZĘŚCIOWO PASS**
 
-Nie ma jeszcze pełnej, centralnej warstwy domenowych wyjątków i ich mapowania na statusy HTTP w stylu:
+Backend ma już globalny exception handler w inicjalizacji aplikacji, z mapowaniem:
 - `ValidationError` → 400,
-- `BusinessError` → 400,
+- `ValueError` → 400 (tymczasowy fallback),
 - `NotFoundError` → 404,
-- `ForbiddenError` → 403,
-- nieobsłużone błędy → 500.
+- `HTTPException` → zachowanie oryginalnego statusu HTTP,
+- nieobsłużone błędy → 500 bez ujawniania surowego komunikatu wyjątku.
 
-Nadal widać miks:
-- `ValueError`,
-- lokalnych `except Exception`,
-- ręcznego zwracania `{ error: ... }`.
+To istotnie poprawia spójność odpowiedzi błędów dla wyjątków nieprzechwyconych przez route. Nadal jednak pozostaje miks lokalnych `except Exception` i ręcznego zwracania legacy shape'ów, więc pełna standaryzacja backendu nie jest jeszcze zakończona.
 
 ### 4.2 error.details
 

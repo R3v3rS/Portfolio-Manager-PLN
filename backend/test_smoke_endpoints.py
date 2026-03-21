@@ -102,7 +102,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
             'created_at': '2026-03-01',
         })
         self.assertEqual(response.status_code, 201, response.get_json())
-        return response.get_json()['id']
+        return response.get_json()['payload']['id']
 
     def seed_loan(self):
         response = self.client.post('/api/loans/', json={
@@ -129,14 +129,14 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
 
         response = self.client.get('/api/dashboard/global-summary')
         self.assertEqual(response.status_code, 200, response.get_json())
-        dashboard = response.get_json()
+        dashboard = response.get_json()['payload']
         self.assertIn('net_worth', dashboard)
         self.assertIn('assets_breakdown', dashboard)
         self.assertIn('quick_stats', dashboard)
 
         response = self.client.get('/api/portfolio/list')
         self.assertEqual(response.status_code, 200, response.get_json())
-        portfolios = response.get_json()['portfolios']
+        portfolios = response.get_json()['payload']['portfolios']
         self.assertEqual(len(portfolios), 1)
         self.assertEqual(portfolios[0]['id'], portfolio_id)
 
@@ -148,6 +148,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
             'date': '2026-03-02',
         })
         self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()['payload']['message'], 'Buy successful')
 
         response = self.client.post('/api/portfolio/sell', json={
             'portfolio_id': portfolio_id,
@@ -157,10 +158,11 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
             'date': '2026-03-03',
         })
         self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()['payload']['message'], 'Sell successful')
 
         response = self.client.get(f'/api/portfolio/value/{portfolio_id}')
         self.assertEqual(response.status_code, 200, response.get_json())
-        value_payload = response.get_json()
+        value_payload = response.get_json()['payload']
         self.assertAlmostEqual(value_payload['cash_value'], 420.0)
         self.assertAlmostEqual(value_payload['holdings_value'], 110.0)
         self.assertAlmostEqual(value_payload['portfolio_value'], 530.0)
@@ -208,6 +210,35 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertEqual(response.get_json()['payload'], [])
 
+    def test_invalid_buy_payload_returns_validation_error(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        response = self.client.post('/api/portfolio/buy', json={
+            'portfolio_id': portfolio_id,
+            'ticker': 'AAPL',
+            'price': 100.0,
+        })
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'quantity')
+
+    def test_invalid_sell_payload_returns_validation_error(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        response = self.client.post('/api/portfolio/sell', json={
+            'portfolio_id': portfolio_id,
+            'ticker': 'AAPL',
+            'quantity': -1,
+            'price': 120.0,
+        })
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'quantity')
+
     def test_xtb_import_error_is_normalized_to_error_details(self):
         portfolio_id = self.seed_portfolio_with_cash()
 
@@ -223,6 +254,31 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(error['message'], 'Import failed.')
         self.assertEqual(error['details']['missing_symbols'], ['XTB.US'])
 
+
+
+    def test_global_error_handlers_preserve_contract_and_status_codes(self):
+        @self.app.route('/__test/value-error')
+        def _value_error_route():
+            raise ValueError('Bad input provided')
+
+        @self.app.route('/__test/unhandled-error')
+        def _unhandled_error_route():
+            raise RuntimeError('sensitive internal message')
+
+        response = self.client.get('/__test/value-error')
+        self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertEqual(response.get_json()['error']['code'], 'value_error')
+        self.assertEqual(response.get_json()['error']['message'], 'Bad input provided')
+
+        response = self.client.get('/__test/unhandled-error')
+        self.assertEqual(response.status_code, 500, response.get_json())
+        self.assertEqual(response.get_json()['error']['code'], 'internal_error')
+        self.assertEqual(response.get_json()['error']['message'], 'Internal server error')
+        self.assertNotIn('sensitive internal message', str(response.get_json()))
+
+        response = self.client.get('/missing-route-for-http-exception')
+        self.assertEqual(response.status_code, 404, response.get_json())
+        self.assertEqual(response.get_json()['error']['code'], 'http_404')
 
 if __name__ == '__main__':
     unittest.main()
