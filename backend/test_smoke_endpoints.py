@@ -120,6 +120,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
     def add_watchlist_ticker(self, ticker='AAPL'):
         response = self.client.post('/api/radar/watchlist', json={'ticker': ticker})
         self.assertEqual(response.status_code, 201, response.get_json())
+        self.assertEqual(response.get_json()['payload']['message'], 'Added to watchlist')
 
     def test_critical_backend_smoke_endpoints(self):
         account_id, _category_id = self.seed_budget_account()
@@ -275,6 +276,67 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         error = response.get_json()['error']
         self.assertEqual(error['code'], 'validation_error')
         self.assertEqual(error['details']['field'], 'budget_account_id')
+
+    def test_loan_schedule_rejects_invalid_simulation_inputs(self):
+        loan_id = self.seed_loan()
+
+        response = self.client.get(f'/api/loans/{loan_id}/schedule?sim_amount=0')
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'sim_amount')
+
+        response = self.client.get(f'/api/loans/{loan_id}/schedule?sim_amount=500')
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'sim_date')
+
+        response = self.client.get(f'/api/loans/{loan_id}/schedule?monthly_overpayment=-10')
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'monthly_overpayment')
+
+        response = self.client.get(f'/api/loans/{loan_id}/schedule?sim_amount=500&sim_date=2026-02-15&simulated_action=INVALID')
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'simulated_action')
+
+    def test_loan_mutations_validate_positive_amounts_and_missing_loans(self):
+        response = self.client.post('/api/loans/', json={
+            'name': 'Zero loan',
+            'original_amount': 0,
+            'duration_months': 12,
+            'start_date': '2026-01-01',
+            'installment_type': 'EQUAL',
+            'initial_rate': 7.2,
+        })
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'original_amount')
+
+        loan_id = self.seed_loan()
+
+        response = self.client.post(f'/api/loans/{loan_id}/overpayments', json={
+            'amount': 0,
+            'date': '2026-02-10',
+        })
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'validation_error')
+        self.assertEqual(error['details']['field'], 'amount')
+
+        response = self.client.post('/api/loans/9999/rates', json={
+            'interest_rate': 5.5,
+            'valid_from_date': '2026-02-01',
+        })
+        self.assertEqual(response.status_code, 404, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'not_found')
+        self.assertEqual(error['details']['loan_id'], 9999)
 
     def test_xtb_import_missing_symbols_returns_consistent_error_details(self):
         portfolio_id = self.seed_portfolio_with_cash()
