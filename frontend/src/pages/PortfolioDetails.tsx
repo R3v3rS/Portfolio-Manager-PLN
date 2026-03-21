@@ -1,12 +1,11 @@
 import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench } from 'lucide-react';
-import api, {
+import {
   portfolioApi,
   normalizeXtbImportError,
   normalizeXtbImportResult,
   type PortfolioAuditResult,
-  type XtbImportResult,
 } from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
@@ -18,7 +17,6 @@ import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
 
 
-const PortfolioChart = lazy(() => import('../components/PortfolioChart'));
 const PortfolioAnalytics = lazy(() => import('../components/PortfolioAnalytics'));
 const PriceHistoryChart = lazy(() => import('../components/PriceHistoryChart'));
 const DividendBarChart = lazy(() => import('../components/DividendBarChart'));
@@ -258,7 +256,7 @@ function PPKContributionForm({ portfolioId, onSuccess }: { portfolioId: number; 
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.post('/ppk/transactions', {
+    await portfolioApi.addPpkTransaction({
       portfolio_id: portfolioId,
       date,
       employeeUnits: parseFloat(employeeUnits),
@@ -377,7 +375,7 @@ const PortfolioDetails: React.FC = () => {
     if (!confirmed) return;
 
     try {
-      await api.post('/sell', {
+      await portfolioApi.sell({
         portfolio_id: parseInt(id),
         ticker: holding.ticker,
         quantity: holding.quantity,

@@ -27,7 +27,11 @@ class BondService:
         
         for b in bonds:
             b_dict = {key: b[key] for key in b.keys()}
-            p_date = datetime.strptime(b_dict['purchase_date'], '%Y-%m-%d').date()
+            
+            p_date = b_dict['purchase_date']
+            if isinstance(p_date, str):
+                p_date = datetime.strptime(p_date, '%Y-%m-%d').date()
+            
             days_passed = (today - p_date).days
             if days_passed < 0: days_passed = 0
             
