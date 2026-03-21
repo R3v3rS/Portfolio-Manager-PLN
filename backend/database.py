@@ -460,6 +460,14 @@ def init_db(app):
         except sqlite3.OperationalError:
             pass
 
+        # Inflation data table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS inflation_data (
+                date TEXT PRIMARY KEY,
+                index_value REAL NOT NULL
+            );
+        ''')
+
         db.commit()
 
 def reset_budget_data():

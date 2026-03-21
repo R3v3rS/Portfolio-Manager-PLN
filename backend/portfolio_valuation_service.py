@@ -120,6 +120,52 @@ class PortfolioValuationService(PortfolioCoreService):
             open_positions_result = sum(float(h.get('profit_loss', 0.0) or 0.0) for h in holdings)
             total_value = current_cash + holdings_value
 
+            # Calculate 1D and 7D changes for STANDARD/IKE portfolios
+            if account_type in ['STANDARD', 'IKE'] and holdings:
+                tickers = [h['ticker'] for h in holdings]
+                currencies = {h.get('currency') or 'PLN' for h in holdings}
+                fx_tickers = [f"{c.upper()}PLN=X" for c in currencies if c.upper() != 'PLN']
+                
+                all_needed_tickers = tickers + fx_tickers
+                quotes = PriceService.get_quotes(all_needed_tickers)
+                
+                holdings_value_now = 0.0
+                holdings_value_1d = 0.0
+                holdings_value_7d = 0.0
+                
+                for h in holdings:
+                    ticker = h['ticker']
+                    currency = (h.get('currency') or 'PLN').upper()
+                    qty = float(h['quantity'])
+                    
+                    q = quotes.get(ticker, {})
+                    p_now = q.get('price') or float(h.get('current_price', 0))
+                    p_1d = q.get('prev_close') or p_now
+                    p_7d = q.get('price_7d_ago') or p_now
+                    
+                    fx_q = quotes.get(f"{currency}PLN=X", {}) if currency != 'PLN' else {'price': 1.0, 'prev_close': 1.0, 'price_7d_ago': 1.0}
+                    fx_now = fx_q.get('price') or 1.0
+                    fx_1d = fx_q.get('prev_close') or fx_now
+                    fx_7d = fx_q.get('price_7d_ago') or fx_now
+                    
+                    fee_rate = 0.005 if currency != 'PLN' else 0.0
+                    
+                    val_now = (qty * p_now * fx_now) * (1.0 - fee_rate)
+                    val_1d = (qty * p_1d * fx_1d) * (1.0 - fee_rate)
+                    val_7d = (qty * p_7d * fx_7d) * (1.0 - fee_rate)
+                    
+                    holdings_value_now += val_now
+                    holdings_value_1d += val_1d
+                    holdings_value_7d += val_7d
+                
+                if holdings_value_1d > 0:
+                    extra_data['change_1d'] = holdings_value_now - holdings_value_1d
+                    extra_data['change_1d_percent'] = (extra_data['change_1d'] / holdings_value_1d) * 100
+                
+                if holdings_value_7d > 0:
+                    extra_data['change_7d'] = holdings_value_now - holdings_value_7d
+                    extra_data['change_7d_percent'] = (extra_data['change_7d'] / holdings_value_7d) * 100
+
         db = get_db()
         div_result = db.execute('SELECT SUM(amount) as total_div FROM dividends WHERE portfolio_id = ?', (portfolio_id,)).fetchone()
         total_dividends = div_result['total_div'] or 0.0
@@ -175,6 +221,7 @@ class PortfolioValuationService(PortfolioCoreService):
             'xirr_percent': xirr_percent,
             'live_interest': live_interest
         }
+
         if extra_data:
             result.update(extra_data)
         return result

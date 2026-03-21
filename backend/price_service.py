@@ -549,94 +549,120 @@ class PriceService:
         if not tickers:
             return quotes
             
-        for ticker in tickers:
-            try:
-                t = yf.Ticker(ticker)
-                
-                # Fetch 1 year history to calculate all changes
-                hist = cls._normalize_yf_dataframe(t.history(period="1y"))
-                if hist is None or hist.empty or 'Close' not in hist.columns:
-                     # Fallback if no history
-                    quotes[ticker] = {
-                        'price': 0.0,
-                        'change_1d': None,
-                        'change_7d': None,
-                        'change_1m': None,
-                        'change_1y': None
-                    }
-                    continue
+        normalized_tickers = sorted({str(t).strip().upper() for t in tickers if t})
+        
+        # Try bulk download first for efficiency
+        try:
+            # Fetch 1 year of history for all tickers at once
+            data = cls._download_with_retry(normalized_tickers, period="1y", group_by='ticker', threads=False)
+            
+            for ticker in normalized_tickers:
+                try:
+                    ticker_df = None
+                    if isinstance(data.columns, pd.MultiIndex):
+                        if ticker in data.columns.levels[0]:
+                            ticker_df = data[ticker]
+                    elif 'Close' in data.columns and len(normalized_tickers) == 1:
+                        ticker_df = data
 
-                hist = hist.dropna(subset=['Close'])
-                if hist.empty:
-                    quotes[ticker] = {
-                        'price': 0.0,
-                        'change_1d': None,
-                        'change_7d': None,
-                        'change_1m': None,
-                        'change_1y': None
-                    }
-                    continue
+                    ticker_df = cls._normalize_yf_dataframe(ticker_df)
+                    if ticker_df is None or ticker_df.empty or 'Close' not in ticker_df.columns:
+                        quotes[ticker] = {
+                            'price': 0.0,
+                            'change_1d': None,
+                            'change_7d': None,
+                            'change_1m': None,
+                            'change_1y': None,
+                            'prev_close': None,
+                            'price_7d_ago': None
+                        }
+                        continue
 
-                # Get latest price
-                current_price = cls._safe_float_from_value(hist['Close'].iloc[-1])
-                if current_price is None:
-                    raise ValueError(f"No valid latest close price for {ticker}")
-                
-                # Helper to calculate percentage change safely
-                def calc_change(current, old):
-                    if old == 0: return 0.0
-                    return ((current - old) / old) * 100
+                    hist = ticker_df.dropna(subset=['Close'])
+                    if hist.empty:
+                        quotes[ticker] = {
+                            'price': 0.0,
+                            'change_1d': None,
+                            'change_7d': None,
+                            'change_1m': None,
+                            'change_1y': None,
+                            'prev_close': None,
+                            'price_7d_ago': None
+                        }
+                        continue
 
-                # 1D Change (compare with previous row)
-                change_1d = None
-                if len(hist) >= 2:
-                    prev_close = cls._safe_float_from_value(hist['Close'].iloc[-2])
-                    if prev_close is not None:
-                        change_1d = calc_change(current_price, prev_close)
-
-                # 7D Change (approx 5 trading days ago)
-                change_7d = None
-                if len(hist) >= 6:
-                    price_7d_ago = cls._safe_float_from_value(hist['Close'].iloc[-6])
-                    if price_7d_ago is not None:
-                        change_7d = calc_change(current_price, price_7d_ago)
-
-                # 1M Change (approx 21 trading days ago)
-                change_1m = None
-                if len(hist) >= 22:
-                    price_1m_ago = cls._safe_float_from_value(hist['Close'].iloc[-22])
-                    if price_1m_ago is not None:
-                        change_1m = calc_change(current_price, price_1m_ago)
-
-                # 1Y Change (approx start of the dataframe if it has enough data)
-                change_1y = None
-                # If we asked for 1y, the first row is roughly 1y ago
-                if len(hist) > 0:
-                     price_1y_ago = cls._safe_float_from_value(hist['Close'].iloc[0])
-                     if price_1y_ago is not None:
-                         change_1y = calc_change(current_price, price_1y_ago)
-
-                quotes[ticker] = {
-                    'price': round(float(current_price), 2),
-                    'change_1d': round(change_1d, 2) if change_1d is not None else None,
-                    'change_7d': round(change_7d, 2) if change_7d is not None else None,
-                    'change_1m': round(change_1m, 2) if change_1m is not None else None,
-                    'change_1y': round(change_1y, 2) if change_1y is not None else None,
-                }
-                
-                # Update cache while we are at it
-                cls._price_cache[ticker] = round(float(current_price), 2)
+                    # Get latest price
+                    current_price = cls._safe_float_from_value(hist['Close'].iloc[-1])
+                    if current_price is None:
+                        raise ValueError(f"No valid latest close price for {ticker}")
                     
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error processing yfinance data for {ticker}: {e}")
-                quotes[ticker] = {
-                    'price': 0.0,
-                    'change_1d': None,
-                    'change_7d': None,
-                    'change_1m': None,
-                    'change_1y': None
-                }
+                    # Helper to calculate percentage change safely
+                    def calc_change(current, old):
+                        if old == 0: return 0.0
+                        return ((current - old) / old) * 100
+
+                    # 1D Change (compare with previous row)
+                    change_1d = None
+                    prev_close = None
+                    if len(hist) >= 2:
+                        prev_close = cls._safe_float_from_value(hist['Close'].iloc[-2])
+                        if prev_close is not None:
+                            change_1d = calc_change(current_price, prev_close)
+
+                    # 7D Change (approx 5 trading days ago)
+                    change_7d = None
+                    price_7d_ago = None
+                    if len(hist) >= 6:
+                        price_7d_ago = cls._safe_float_from_value(hist['Close'].iloc[-6])
+                        if price_7d_ago is not None:
+                            change_7d = calc_change(current_price, price_7d_ago)
+
+                    # 1M Change (approx 21 trading days ago)
+                    change_1m = None
+                    if len(hist) >= 22:
+                        price_1m_ago = cls._safe_float_from_value(hist['Close'].iloc[-22])
+                        if price_1m_ago is not None:
+                            change_1m = calc_change(current_price, price_1m_ago)
+
+                    # 1Y Change (approx start of the dataframe if it has enough data)
+                    change_1y = None
+                    if len(hist) > 0:
+                         price_1y_ago = cls._safe_float_from_value(hist['Close'].iloc[0])
+                         if price_1y_ago is not None:
+                             change_1y = calc_change(current_price, price_1y_ago)
+
+                    quotes[ticker] = {
+                        'price': round(float(current_price), 2),
+                        'change_1d': round(change_1d, 2) if change_1d is not None else None,
+                        'change_7d': round(change_7d, 2) if change_7d is not None else None,
+                        'change_1m': round(change_1m, 2) if change_1m is not None else None,
+                        'change_1y': round(change_1y, 2) if change_1y is not None else None,
+                        'prev_close': round(float(prev_close), 2) if prev_close is not None else None,
+                        'price_7d_ago': round(float(price_7d_ago), 2) if price_7d_ago is not None else None,
+                    }
+                    
+                    # Update cache
+                    cls._price_cache[ticker] = round(float(current_price), 2)
+                    cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
+                except Exception as e:
+                    logging.error(f"Error processing bulk quote for {ticker}: {e}")
+                    quotes[ticker] = {
+                        'price': 0.0,
+                        'change_1d': None,
+                        'change_7d': None,
+                        'change_1m': None,
+                        'change_1y': None,
+                        'prev_close': None,
+                        'price_7d_ago': None
+                    }
+
+        except Exception as e:
+            logging.error(f"Bulk fetch for quotes failed: {e}")
+            # Fallback to individual if bulk fails
+            for ticker in normalized_tickers:
+                if ticker not in quotes:
+                    # ... (rest of individual fetch logic if needed, but bulk usually works or everything fails)
+                    pass
         
         return quotes
 

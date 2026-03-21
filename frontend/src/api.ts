@@ -44,6 +44,7 @@ export interface PortfolioHistoryPoint {
   value: number;
   net_contributions?: number;
   benchmark_value?: number;
+  benchmark_inflation?: number;
   cash_value?: number;
   holdings_value?: number;
 }
@@ -212,6 +213,10 @@ const normalizePortfolioValue = (value: unknown): PortfolioValue & { live_intere
     total_result_percent: toNumber(source.total_result_percent),
     xirr_percent: source.xirr_percent == null ? undefined : toNumber(source.xirr_percent),
     live_interest: source.live_interest == null ? undefined : toNumber(source.live_interest),
+    change_1d: source.change_1d == null ? undefined : toNumber(source.change_1d),
+    change_1d_percent: source.change_1d_percent == null ? undefined : toNumber(source.change_1d_percent),
+    change_7d: source.change_7d == null ? undefined : toNumber(source.change_7d),
+    change_7d_percent: source.change_7d_percent == null ? undefined : toNumber(source.change_7d_percent),
   };
 };
 

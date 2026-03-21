@@ -3,6 +3,7 @@ from database import get_db
 from datetime import datetime, timedelta, date
 from portfolio_core_service import PortfolioCoreService
 from portfolio_trade_service import PortfolioTradeService
+from inflation_service import InflationService
 
 
 class PortfolioHistoryService(PortfolioCoreService):
@@ -55,10 +56,10 @@ class PortfolioHistoryService(PortfolioCoreService):
         fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
         sync_tickers = set(tickers)
         sync_tickers.update(fx_tickers)
-        if benchmark_ticker:
+        if benchmark_ticker and benchmark_ticker != '__INFLATION__':
             sync_tickers.add(benchmark_ticker)
 
-        if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
+        if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
             tickers_to_sync = PriceService.get_tickers_requiring_history_sync(sync_tickers, start_date)
             for ticker in tickers_to_sync:
                 try:
@@ -67,12 +68,26 @@ class PortfolioHistoryService(PortfolioCoreService):
                     print(f"Failed to sync history for {ticker}: {e}")
 
         price_history = {}
-        if account_type not in ['SAVINGS', 'BONDS'] or benchmark_ticker:
+        inflation_map = {}
+        # Always fetch inflation data to support the "benchmark_inflation" field in history
+        inf_series = InflationService.get_inflation_series(start_date.strftime('%Y-%m'), today.strftime('%Y-%m'))
+        inflation_map = {item['date']: item['index_value'] for item in inf_series}
+
+        if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
             for ticker in sync_tickers:
                 rows = db.execute('SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC', (ticker,)).fetchall()
                 price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
 
         def get_price_at_date(ticker, target_date):
+            if ticker == '__INFLATION__':
+                month_key = target_date.strftime('%Y-%m')
+                if month_key in inflation_map:
+                    return inflation_map[month_key]
+                past_months = sorted([m for m in inflation_map.keys() if m <= month_key])
+                if past_months:
+                    return inflation_map[past_months[-1]]
+                return 0
+
             if ticker not in price_history or not price_history[ticker]:
                 return 0
             target_str = target_date.strftime('%Y-%m-%d')
@@ -89,6 +104,7 @@ class PortfolioHistoryService(PortfolioCoreService):
             invested_capital = 0.0
             holdings_qty = {}
             benchmark_shares = 0.0
+            inflation_shares = 0.0
             for t in transactions:
                 t_date_str = str(t['date']).split(' ')[0].split('T')[0]
                 t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
@@ -103,16 +119,26 @@ class PortfolioHistoryService(PortfolioCoreService):
                     current_cash -= t_val
                 if t['type'] == 'DEPOSIT':
                     invested_capital += t_val
-                    if benchmark_ticker:
+                    if benchmark_ticker and benchmark_ticker != '__INFLATION__':
                         bp = get_price_at_date(benchmark_ticker, t_date)
                         if bp > 0:
                             benchmark_shares += (t_val / bp)
+                    
+                    ip = get_price_at_date('__INFLATION__', t_date)
+                    if ip > 0:
+                        inflation_shares += (t_val / ip)
+
                 elif t['type'] == 'WITHDRAW':
                     invested_capital -= t_val
-                    if benchmark_ticker:
+                    if benchmark_ticker and benchmark_ticker != '__INFLATION__':
                         bp = get_price_at_date(benchmark_ticker, t_date)
                         if bp > 0:
                             benchmark_shares -= (t_val / bp)
+                    
+                    ip = get_price_at_date('__INFLATION__', t_date)
+                    if ip > 0:
+                        inflation_shares -= (t_val / ip)
+                
                 if t_ticker != 'CASH':
                     if t['type'] == 'BUY':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
@@ -141,9 +167,13 @@ class PortfolioHistoryService(PortfolioCoreService):
                 "cash_value": round(current_cash, 2),
                 "holdings_value": round(holdings_value, 2),
             }
-            if benchmark_ticker:
+            if benchmark_ticker and benchmark_ticker != '__INFLATION__':
                 bp_end = get_price_at_date(benchmark_ticker, end_date)
                 metrics["benchmark_value"] = round(benchmark_shares * bp_end, 2)
+            
+            ip_end = get_price_at_date('__INFLATION__', end_date)
+            metrics["benchmark_inflation_value"] = round(inflation_shares * ip_end, 2)
+            
             monthly_data[end_date.strftime('%Y-%m')] = metrics
         return monthly_data
 
@@ -152,8 +182,10 @@ class PortfolioHistoryService(PortfolioCoreService):
         monthly_data = PortfolioHistoryService._calculate_historical_metrics(portfolio_id, benchmark_ticker)
         if not monthly_data:
             return []
+            
+        sorted_keys = sorted(monthly_data.keys())
         result = []
-        for k in sorted(monthly_data.keys()):
+        for k in sorted_keys:
             dt = datetime.strptime(k, '%Y-%m')
             entry = {
                 'date': k,
@@ -163,8 +195,17 @@ class PortfolioHistoryService(PortfolioCoreService):
                 'cash_value': round(monthly_data[k].get('cash_value', 0), 2),
                 'holdings_value': round(monthly_data[k].get('holdings_value', 0), 2),
             }
-            if 'benchmark_value' in monthly_data[k]:
+            
+            # If inflation is the primary benchmark, set it to benchmark_value
+            if benchmark_ticker == '__INFLATION__':
+                entry['benchmark_value'] = monthly_data[k].get('benchmark_inflation_value', 0.0)
+            elif 'benchmark_value' in monthly_data[k]:
                 entry['benchmark_value'] = monthly_data[k]['benchmark_value']
+            
+            # Always provide inflation adjusted contributions for the overlay checkbox
+            if 'benchmark_inflation_value' in monthly_data[k]:
+                entry['benchmark_inflation'] = monthly_data[k]['benchmark_inflation_value']
+                
             result.append(entry)
         return result
 
