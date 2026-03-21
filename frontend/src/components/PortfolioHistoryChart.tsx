@@ -11,11 +11,20 @@ import {
 } from 'recharts';
 
 interface PortfolioHistoryChartProps {
-  data: { date: string; label: string; value: number; benchmark_value?: number }[];
+  data: {
+    date: string;
+    label: string;
+    value: number;
+    net_contributions?: number;
+    benchmark_value?: number;
+  }[];
   title?: string;
 }
 
 const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data, title = 'Wartość Portfela w Czasie' }) => {
+  const hasContributionsLine = data.some((point) => point.net_contributions !== undefined);
+  const hasBenchmarkLine = data.some((point) => point.benchmark_value !== undefined);
+
   return (
     <div className="h-80 w-full">
       {/* Title is handled by parent or chart configuration, but Recharts doesn't have a built-in Title component like Chart.js 
@@ -50,7 +59,11 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data, tit
             contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
             formatter={(value: number, name: string) => [
               `${value.toFixed(2)} PLN`, 
-              name === 'benchmark_value' ? 'Benchmark' : name
+              name === 'benchmark_value'
+                ? 'Benchmark'
+                : name === 'net_contributions'
+                  ? 'Wpłaty netto'
+                  : name
             ]}
             labelStyle={{ color: '#374151', fontWeight: 'bold', marginBottom: '4px' }}
           />
@@ -64,7 +77,18 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data, tit
             dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
             activeDot={{ r: 6, strokeWidth: 0 }}
           />
-          {data.some(d => d.benchmark_value !== undefined) && (
+          {hasContributionsLine && (
+            <Line
+              type="monotone"
+              dataKey="net_contributions"
+              name="Wpłaty netto"
+              stroke="#4338ca"
+              strokeWidth={2}
+              dot={{ r: 3, fill: '#4338ca', strokeWidth: 2, stroke: '#fff' }}
+              activeDot={{ r: 6, strokeWidth: 0 }}
+            />
+          )}
+          {hasBenchmarkLine && (
             <Line
               type="monotone"
               dataKey="benchmark_value"

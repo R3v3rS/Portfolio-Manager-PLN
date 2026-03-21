@@ -133,7 +133,11 @@ class PortfolioHistoryService(PortfolioCoreService):
                         total_value += net_value_pln
 
             profit = total_value - invested_capital
-            metrics = {"total_value": total_value, "profit": profit}
+            metrics = {
+                "total_value": total_value,
+                "profit": profit,
+                "net_contributions": invested_capital,
+            }
             if benchmark_ticker:
                 bp_end = get_price_at_date(benchmark_ticker, end_date)
                 metrics["benchmark_value"] = round(benchmark_shares * bp_end, 2)
@@ -148,7 +152,12 @@ class PortfolioHistoryService(PortfolioCoreService):
         result = []
         for k in sorted(monthly_data.keys()):
             dt = datetime.strptime(k, '%Y-%m')
-            entry = {'date': k, 'label': dt.strftime('%b %Y'), 'value': round(monthly_data[k]['total_value'], 2)}
+            entry = {
+                'date': k,
+                'label': dt.strftime('%b %Y'),
+                'value': round(monthly_data[k]['total_value'], 2),
+                'net_contributions': round(monthly_data[k].get('net_contributions', 0.0), 2),
+            }
             if 'benchmark_value' in monthly_data[k]:
                 entry['benchmark_value'] = monthly_data[k]['benchmark_value']
             result.append(entry)
