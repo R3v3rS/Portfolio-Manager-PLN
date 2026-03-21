@@ -224,5 +224,30 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(error['details']['missing_symbols'], ['XTB.US'])
 
 
+
+    def test_global_error_handlers_preserve_contract_and_status_codes(self):
+        @self.app.route('/__test/value-error')
+        def _value_error_route():
+            raise ValueError('Bad input provided')
+
+        @self.app.route('/__test/unhandled-error')
+        def _unhandled_error_route():
+            raise RuntimeError('sensitive internal message')
+
+        response = self.client.get('/__test/value-error')
+        self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertEqual(response.get_json()['error']['code'], 'value_error')
+        self.assertEqual(response.get_json()['error']['message'], 'Bad input provided')
+
+        response = self.client.get('/__test/unhandled-error')
+        self.assertEqual(response.status_code, 500, response.get_json())
+        self.assertEqual(response.get_json()['error']['code'], 'internal_error')
+        self.assertEqual(response.get_json()['error']['message'], 'Internal server error')
+        self.assertNotIn('sensitive internal message', str(response.get_json()))
+
+        response = self.client.get('/missing-route-for-http-exception')
+        self.assertEqual(response.status_code, 404, response.get_json())
+        self.assertEqual(response.get_json()['error']['code'], 'http_404')
+
 if __name__ == '__main__':
     unittest.main()

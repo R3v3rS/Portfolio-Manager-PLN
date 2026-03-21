@@ -1,57 +1,30 @@
 from __future__ import annotations
 
-from typing import Any, TypedDict
+"""Backward-compatible shim for legacy imports.
 
-from flask import jsonify
+New code should import from `api.response`.
+Existing routes still import this module, so we keep the old call signature while
+routing responses through the new canonical helpers.
+"""
 
+from typing import Any
 
-class ApiErrorDetails(TypedDict, total=False):
-    missing_symbols: list[str]
-    field: str
-
-
-class ApiErrorBody(TypedDict, total=False):
-    message: str
-    code: str
-    details: ApiErrorDetails | dict[str, Any]
-
-
-class SymbolMappingDTO(TypedDict):
-    id: int
-    symbol_input: str
-    ticker: str
-    currency: str | None
-    created_at: str | None
-
-
-class SymbolMappingMutationResultDTO(TypedDict, total=False):
-    message: str
-    success: bool
-
-
-class XtbImportResultDTO(TypedDict, total=False):
-    success: bool
-    message: str
-    missing_symbols: list[str]
-
-
-class LoanMutationResultDTO(TypedDict):
-    id: int
-    message: str
-
-
-class ApiErrorEnvelope(TypedDict):
-    error: ApiErrorBody
-
-
-class ApiSuccessEnvelope(TypedDict):
-    payload: Any
-
+from api.response import (
+    ApiErrorBody,
+    ApiErrorDetails,
+    ApiErrorEnvelope,
+    ApiSuccessEnvelope,
+    LoanMutationResultDTO,
+    SymbolMappingDTO,
+    SymbolMappingMutationResultDTO,
+    XtbImportResultDTO,
+    error_response as _canonical_error_response,
+    success_response as _canonical_success_response,
+)
 
 
 def success_response(payload: Any, status_code: int = 200):
-    envelope: ApiSuccessEnvelope = {'payload': payload}
-    return jsonify(envelope), status_code
+    return _canonical_success_response(payload, status=status_code)
 
 
 
@@ -62,11 +35,8 @@ def error_response(
     code: str | None = None,
     details: dict[str, Any] | None = None,
 ):
-    error: ApiErrorBody = {'message': message}
-    if code:
-        error['code'] = code
-    if details:
-        error['details'] = details
-
-    envelope: ApiErrorEnvelope = {'error': error}
-    return jsonify(envelope), status_code
+    # Compatibility layer: legacy callers often passed only a message and optional
+    # status/code kwargs. The new canonical helper requires an explicit string code,
+    # so we derive a stable fallback here until routes are migrated individually.
+    error_code = code or f'http_{status_code}_error'
+    return _canonical_error_response(error_code, message, details=details, status=status_code)
