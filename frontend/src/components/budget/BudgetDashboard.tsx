@@ -1,11 +1,26 @@
-import React, { useEffect, useState } from 'react';
-import { budgetApi, BudgetSummary, Envelope } from '../../api_budget';
-import { createHttpClient } from '../../http';
-import { Banknote, Plus, FolderPlus, Wallet, Send, MinusCircle, ArrowRightLeft, TrendingUp, PieChart, AlertTriangle, ChevronDown, Percent, ChevronLeft, ChevronRight, Copy, XCircle, Pencil } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { portfolioApi } from '../../api';
+import { budgetApi, BudgetSummary, Envelope, EnvelopeCategory } from '../../api_budget';
+import { extractErrorMessageFromUnknown } from '../../http/response';
+import { Banknote, Plus, FolderPlus, Wallet, MinusCircle, ArrowRightLeft, TrendingUp, PieChart, AlertTriangle, Percent, ChevronLeft, ChevronRight, Copy, XCircle, Pencil } from 'lucide-react';
 import TransactionHistory from './TransactionHistory';
 import BudgetAnalytics from './BudgetAnalytics';
+import type { Portfolio } from '../../types';
 
-const portfolioApi = createHttpClient('/api/portfolio');
+const EMPTY_SUMMARY: BudgetSummary = {
+  account_balance: 0,
+  free_pool: 0,
+  total_allocated: 0,
+  total_borrowed: 0,
+  envelopes: [],
+  loans: [],
+  accounts: [],
+  flow_analysis: {
+    income: 0,
+    investment_transfers: 0,
+    savings_rate: 0,
+  },
+};
 
 export default function BudgetDashboard() {
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
@@ -48,14 +63,8 @@ export default function BudgetDashboard() {
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountBalance, setNewAccountBalance] = useState('');
 
-  const [categories, setCategories] = useState<any[]>([]);
-  const [portfolios, setPortfolios] = useState<any[]>([]);
-
-  useEffect(() => {
-    fetchData();
-    if (categories.length === 0) fetchCategories();
-    if (portfolios.length === 0) fetchPortfolios();
-  }, [selectedAccountId, selectedMonth]);
+  const [categories, setCategories] = useState<EnvelopeCategory[]>([]);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
 
   useEffect(() => {
     if (targetAccountId) {
@@ -66,7 +75,7 @@ export default function BudgetDashboard() {
     setTargetEnvelopeId(null);
   }, [targetAccountId]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const data = await budgetApi.getSummary(selectedAccountId || undefined, selectedMonth);
@@ -74,29 +83,40 @@ export default function BudgetDashboard() {
       if (data.accounts.length > 0 && !selectedAccountId) {
         setSelectedAccountId(data.accounts[0].id);
       }
-    } catch (err: any) {
-      setError(err.message);
+      setError(null);
+    } catch (err) {
+      setError(extractErrorMessageFromUnknown(err));
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedAccountId, selectedMonth]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const data = await budgetApi.getCategories();
       setCategories(data);
     } catch (err) {
       console.error(err);
     }
-  };
+  }, []);
 
-  const fetchPortfolios = async () => {
+  const fetchPortfolios = useCallback(async () => {
     try {
-      const data = await portfolioApi.get<{ portfolios: any[] }>('/list');
-      setPortfolios(data.portfolios || []);
+      const data = await portfolioApi.list();
+      setPortfolios(data.portfolios);
     } catch (err) {
       console.error(err);
     }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    if (categories.length === 0) fetchCategories();
+    if (portfolios.length === 0) fetchPortfolios();
+  }, [categories.length, fetchCategories, fetchData, fetchPortfolios, portfolios.length]);
+
+  const showApiError = (err: unknown) => {
+    alert(extractErrorMessageFromUnknown(err));
   };
 
   const handleAddIncome = async () => {
@@ -106,8 +126,8 @@ export default function BudgetDashboard() {
       setShowIncomeModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -118,8 +138,8 @@ export default function BudgetDashboard() {
       setShowAllocateModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -132,8 +152,8 @@ export default function BudgetDashboard() {
       setShowQuickExpenseModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -148,15 +168,15 @@ export default function BudgetDashboard() {
       setShowTransferModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
   const handleInvestmentTransfer = async () => {
     if (!selectedAccountId || !targetPortfolioId || !amount) return;
     try {
-      await budgetApi.transferToPortfolio(
+      const result = await budgetApi.transferToPortfolio(
         selectedAccountId, 
         targetPortfolioId, 
         parseFloat(amount), 
@@ -167,9 +187,9 @@ export default function BudgetDashboard() {
       setShowInvestmentModal(false);
       resetForms();
       fetchData();
-      alert("Pomyślnie przesłano środki do portfela inwestycyjnego!");
-    } catch (err: any) {
-      alert(err.message);
+      alert(result.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -180,8 +200,8 @@ export default function BudgetDashboard() {
       setShowBorrowModal(false);
       resetForms();
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -192,8 +212,8 @@ export default function BudgetDashboard() {
       setShowCategoryModal(false);
       setNewCategoryName('');
       fetchCategories();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -213,8 +233,8 @@ export default function BudgetDashboard() {
       setNewEnvelopeName('');
       setTargetAmount('');
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -223,8 +243,8 @@ export default function BudgetDashboard() {
       try {
         await budgetApi.closeEnvelope(id);
         fetchData();
-      } catch (err: any) {
-        alert(err.message);
+      } catch (err) {
+        showApiError(err);
       }
     }
   };
@@ -248,8 +268,8 @@ export default function BudgetDashboard() {
          try {
              await budgetApi.cloneBudget(selectedAccountId, prevMonthStr, selectedMonth);
              fetchData();
-         } catch (err: any) {
-             alert(err.message);
+         } catch (err) {
+             showApiError(err);
          }
     }
   };
@@ -262,8 +282,8 @@ export default function BudgetDashboard() {
       setNewAccountName('');
       setNewAccountBalance('');
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -296,8 +316,8 @@ export default function BudgetDashboard() {
       setEditPlanAmount('');
       setEditEnvelopeName('');
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
@@ -305,19 +325,19 @@ export default function BudgetDashboard() {
     try {
       await budgetApi.repay(loanId, amount);
       fetchData();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      showApiError(err);
     }
   };
 
   const handleReset = async () => {
     if (confirm("WARNING: This will DELETE ALL budget data (Transactions, Envelopes, Loans). Are you sure?")) {
       try {
-        await budgetApi.reset();
-        alert("Budget data reset successfully.");
+        const result = await budgetApi.reset();
+        alert(result.message);
         window.location.reload(); // Reload to clear all states
-      } catch (err: any) {
-        alert("Error resetting data: " + err.message);
+      } catch (err) {
+        showApiError(err);
       }
     }
   };
@@ -336,23 +356,20 @@ export default function BudgetDashboard() {
     // Don't reset selectedAccountId
   };
 
-  const getProgressColorClass = (balance: number, target: number) => {
-    if (balance < 0) return 'bg-red-500';
-    if (!target) return 'bg-blue-500';
-    const ratio = balance / target;
-    if (ratio >= 1) return 'bg-green-500'; // Well funded
-    if (ratio > 0.2) return 'bg-yellow-400'; // Moderate
-    return 'bg-red-400'; // Nearly empty / Critical
-  };
-
   if (loading && !summary) return <div className="p-8 text-center">Loading budget...</div>;
   if (error) return <div className="p-8 text-red-500">Error: {error}</div>;
 
-  const monthlyEnvelopes = summary?.envelopes.filter(e => (e.type === 'MONTHLY' || !e.type)) || [];
+  const safeSummary = summary ?? EMPTY_SUMMARY;
+  const accounts = safeSummary.accounts ?? [];
+  const envelopes = safeSummary.envelopes ?? [];
+  const loans = safeSummary.loans ?? [];
+  const flowAnalysis = safeSummary.flow_analysis ?? EMPTY_SUMMARY.flow_analysis!;
+
+  const monthlyEnvelopes = envelopes.filter(e => (e.type === 'MONTHLY' || !e.type));
   const activeMonthly = monthlyEnvelopes.filter(e => e.status !== 'CLOSED');
   const closedMonthly = monthlyEnvelopes.filter(e => e.status === 'CLOSED');
   
-  const longTermEnvelopes = summary?.envelopes.filter(e => e.type === 'LONG_TERM' && e.status !== 'CLOSED') || [];
+  const longTermEnvelopes = envelopes.filter(e => e.type === 'LONG_TERM' && e.status !== 'CLOSED');
 
   const groupByCategory = (envs: Envelope[]) => envs.reduce((acc, env) => {
     const catName = env.category_name || 'Uncategorized';
@@ -365,15 +382,15 @@ export default function BudgetDashboard() {
   const closedByCategory = groupByCategory(closedMonthly);
   const longTermByCategory = groupByCategory(longTermEnvelopes);
 
-  const currentAccount = summary?.accounts.find(a => a.id === selectedAccountId);
+  const currentAccount = accounts.find(a => a.id === selectedAccountId);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 bg-gray-50 min-h-screen">
       {/* Account Tabs */}
-      {summary?.accounts && summary.accounts.length > 0 ? (
+      {accounts.length > 0 ? (
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 pb-2 gap-4">
           <div className="flex space-x-2 overflow-x-auto w-full sm:w-auto">
-            {summary.accounts.map(account => (
+            {accounts.map(account => (
               <button
                 key={account.id}
                 onClick={() => setSelectedAccountId(account.id)}
@@ -430,7 +447,7 @@ export default function BudgetDashboard() {
                    <Wallet className="w-24 h-24 text-green-600" />
                </div>
               <p className="text-sm text-gray-500 mb-1 font-medium">Free Pool (To Allocate)</p>
-              <p className="text-3xl font-bold text-green-600">{summary?.free_pool.toFixed(2)} PLN</p>
+              <p className="text-3xl font-bold text-green-600">{safeSummary.free_pool.toFixed(2)} PLN</p>
               <div className="flex gap-2 mt-4 relative z-10">
                   <button 
                     onClick={() => setShowAllocateModal(true)}
@@ -455,12 +472,12 @@ export default function BudgetDashboard() {
               <p className="text-sm text-gray-500 mb-1 font-medium">Savings Rate</p>
               <div className="flex items-baseline gap-2">
                 <p className="text-3xl font-bold text-blue-600">
-                    {summary?.flow_analysis?.savings_rate.toFixed(1)}%
+                    {flowAnalysis.savings_rate.toFixed(1)}%
                 </p>
                 <span className="text-xs text-gray-400">Target: 20%+</span>
               </div>
               <div className="mt-4 text-sm text-gray-500">
-                  Inv. Transfer: <span className="font-semibold text-gray-700">{summary?.flow_analysis?.investment_transfers.toFixed(0)} PLN</span>
+                  Inv. Transfer: <span className="font-semibold text-gray-700">{flowAnalysis.investment_transfers.toFixed(0)} PLN</span>
               </div>
               <button 
                 onClick={() => setShowInvestmentModal(true)}
@@ -473,7 +490,7 @@ export default function BudgetDashboard() {
              {/* Internal Debt Widget */}
              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <p className="text-sm text-gray-500 mb-1 font-medium">Internal Debt</p>
-              <p className="text-3xl font-bold text-red-600">{summary?.total_borrowed.toFixed(2)} PLN</p>
+              <p className="text-3xl font-bold text-red-600">{safeSummary.total_borrowed.toFixed(2)} PLN</p>
               <div className="mt-4 flex gap-2">
                    {/* Borrow / Repay Menu */}
                    <button 
@@ -496,7 +513,7 @@ export default function BudgetDashboard() {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
                 <div>
                     <p className="text-sm text-gray-500 mb-1 font-medium">Account Balance</p>
-                    <p className="text-2xl font-bold text-gray-900">{summary?.account_balance.toFixed(2)} PLN</p>
+                    <p className="text-2xl font-bold text-gray-900">{safeSummary.account_balance.toFixed(2)} PLN</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mt-4">
                      <button 
@@ -900,7 +917,7 @@ export default function BudgetDashboard() {
 
           {/* Internal Loans Section */}
           <div id="loans-section" className="scroll-mt-8">
-          {summary?.loans && summary.loans.length > 0 && (
+          {loans.length > 0 && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-red-100 mt-12">
               <h3 className="text-lg font-bold text-red-800 mb-4 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" /> Active Internal Loans
@@ -916,7 +933,7 @@ export default function BudgetDashboard() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {summary.loans.map(loan => (
+                    {loans.map(loan => (
                       <tr key={loan.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">{loan.source_envelope}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.reason}</td>
@@ -944,7 +961,7 @@ export default function BudgetDashboard() {
               <TransactionHistory 
                 selectedAccountId={selectedAccountId}
                 categories={categories}
-                envelopes={summary?.envelopes || []}
+                envelopes={envelopes}
               />
           </div>
           </>
@@ -988,7 +1005,7 @@ export default function BudgetDashboard() {
               {showAllocateModal && (
                 <>
                   <div className="p-3 bg-blue-50 rounded-lg border border-blue-100 text-blue-800 text-sm">
-                      Available Free Pool: <b>{summary?.free_pool.toFixed(2)} PLN</b>
+                      Available Free Pool: <b>{safeSummary.free_pool.toFixed(2)} PLN</b>
                   </div>
                   {!selectedEnvelopeId && (
                       <select 
@@ -996,7 +1013,7 @@ export default function BudgetDashboard() {
                         onChange={e => setSelectedEnvelopeId(Number(e.target.value))}
                       >
                           <option value="">Select Envelope</option>
-                          {summary?.envelopes.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                          {envelopes.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                       </select>
                   )}
                   <label className="block text-sm font-medium text-gray-700 mt-2">Date:</label>
@@ -1047,18 +1064,18 @@ export default function BudgetDashboard() {
                     onChange={e => setSourceEnvelopeId(e.target.value ? Number(e.target.value) : null)}
                   >
                     <option value="">-- Wolne Środki (Free Pool) --</option>
-                    {summary?.envelopes.map(e => (
+                    {envelopes.map(e => (
                        <option key={e.id} value={e.id}>{e.icon} {e.name} ({e.balance.toFixed(2)})</option>
                     ))}
                   </select>
                   
                   {sourceEnvelopeId ? (
                       <p className="text-xs text-gray-500 mb-2">
-                          Available in Envelope: <b>{summary?.envelopes.find(e => e.id === sourceEnvelopeId)?.balance.toFixed(2)} PLN</b>
+                          Available in Envelope: <b>{(envelopes.find(e => e.id === sourceEnvelopeId)?.balance ?? 0).toFixed(2)} PLN</b>
                       </p>
                   ) : (
                       <p className="text-xs text-gray-500 mb-2">
-                          Available in Free Pool: <b>{summary?.free_pool.toFixed(2)} PLN</b>
+                          Available in Free Pool: <b>{safeSummary.free_pool.toFixed(2)} PLN</b>
                       </p>
                   )}
 
@@ -1069,7 +1086,7 @@ export default function BudgetDashboard() {
                     onChange={e => setTargetAccountId(Number(e.target.value))}
                   >
                     <option value="">Select Destination Account</option>
-                    {summary?.accounts
+                    {accounts
                         .filter(a => a.id !== selectedAccountId)
                         .map(a => <option key={a.id} value={a.id}>{a.name}</option>)
                     }
@@ -1114,7 +1131,7 @@ export default function BudgetDashboard() {
                     onChange={e => setSelectedEnvelopeId(e.target.value ? Number(e.target.value) : null)}
                   >
                     <option value="">🟢 Wolne Środki (Free Pool)</option>
-                    {summary?.envelopes.map(e => (
+                    {envelopes.map(e => (
                        <option key={e.id} value={e.id}>✉️ {e.name} ({e.balance.toFixed(2)} PLN)</option>
                     ))}
                   </select>

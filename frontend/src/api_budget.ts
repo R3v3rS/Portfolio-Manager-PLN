@@ -170,6 +170,9 @@ const normalizeFlowAnalysis = (value: unknown): FlowAnalysis | undefined => {
   };
 };
 
+const normalizeEnvelopeCategories = (value: unknown): EnvelopeCategory[] =>
+  Array.isArray(value) ? value.map(normalizeEnvelopeCategory) : [];
+
 const normalizeBudgetSummary = (value: unknown): BudgetSummary => {
   const source = isRecord(value) ? value : {};
 
@@ -431,7 +434,7 @@ export const budgetApi = {
       budgetHttp.get<unknown>(budgetPath.categories)
     );
 
-    return Array.isArray(response) ? response.map(normalizeEnvelopeCategory) : [];
+    return normalizeEnvelopeCategories(response);
   },
 
   reset: async (): Promise<BudgetActionResult> => {

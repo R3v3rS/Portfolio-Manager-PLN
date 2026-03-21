@@ -139,6 +139,14 @@ const normalizePortfolio = (value: unknown): Portfolio => {
   };
 };
 
+const normalizePortfolioListResponse = (value: unknown): PortfolioListResponse => {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    portfolios: Array.isArray(source.portfolios) ? source.portfolios.map(normalizePortfolio) : [],
+  };
+};
+
 const normalizeHolding = (value: unknown): Holding => {
   const source = isRecord(value) ? value : {};
 
@@ -365,15 +373,16 @@ const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
 };
 
 export const portfolioApi = {
-  list: () => portfolioHttp.get<PortfolioListResponse>('/list'),
+  list: async (): Promise<PortfolioListResponse> => {
+    const response = await portfolioHttp.get<unknown>('/list');
+    return normalizePortfolioListResponse(response);
+  },
   limits: () => portfolioHttp.get<PortfolioLimitsResponse>('/limits'),
   create: (payload: CreatePortfolioPayload) => portfolioHttp.post('/create', payload),
   remove: (portfolioId: number) => portfolioHttp.delete(`/${portfolioId}`),
   listTransactions: () => portfolioHttp.get<TransactionsListResponse>('/transactions/all'),
   listNormalized: async (): Promise<Portfolio[]> => {
-    const response = await portfolioHttp.get<unknown>('/list');
-    const portfolios = isRecord(response) ? response.portfolios : undefined;
-    return Array.isArray(portfolios) ? portfolios.map(normalizePortfolio) : [];
+    return (await portfolioApi.list()).portfolios;
   },
   getHoldings: async (portfolioId: number, params?: QueryParams): Promise<Holding[]> => {
     const response = await portfolioHttp.get<unknown>(`/holdings/${portfolioId}`, { params });
