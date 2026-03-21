@@ -1,7 +1,19 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request
+
+from api_response import SymbolMappingDTO, error_response, success_response
 from database import get_db
 
 symbol_map_bp = Blueprint('symbol_map', __name__)
+
+
+def serialize_symbol_mapping(row) -> SymbolMappingDTO:
+    return {
+        'id': row['id'],
+        'symbol_input': row['symbol_input'],
+        'ticker': row['ticker'],
+        'currency': row['currency'],
+        'created_at': str(row['created_at']) if row['created_at'] else None,
+    }
 
 
 @symbol_map_bp.route('', methods=['GET'], strict_slashes=False)
@@ -12,16 +24,7 @@ def list_symbol_mappings():
            FROM symbol_mappings
            ORDER BY symbol_input ASC'''
     ).fetchall()
-    return jsonify([
-        {
-            'id': row['id'],
-            'symbol_input': row['symbol_input'],
-            'ticker': row['ticker'],
-            'currency': row['currency'],
-            'created_at': str(row['created_at']) if row['created_at'] else None,
-        }
-        for row in rows
-    ]), 200
+    return success_response([serialize_symbol_mapping(row) for row in rows], 200)
 
 
 @symbol_map_bp.route('', methods=['POST'], strict_slashes=False)
@@ -36,9 +39,9 @@ def create_symbol_mapping():
     currency = str(currency_raw).strip().upper() if currency_raw is not None else None
 
     if not symbol_input:
-        return jsonify({'error': 'symbol_input is required'}), 400
+        return error_response('symbol_input is required', status_code=400, code='symbol_input_required')
     if not ticker:
-        return jsonify({'error': 'ticker is required'}), 400
+        return error_response('ticker is required', status_code=400, code='ticker_required')
 
     db = get_db()
 
@@ -47,7 +50,11 @@ def create_symbol_mapping():
         (symbol_input,)
     ).fetchone()
     if existing:
-        return jsonify({'error': f'Mapping for {symbol_input} already exists'}), 409
+        return error_response(
+            f'Mapping for {symbol_input} already exists',
+            status_code=409,
+            code='symbol_mapping_conflict',
+        )
 
     cursor = db.execute(
         '''INSERT INTO symbol_mappings (symbol_input, ticker, currency)
@@ -63,13 +70,7 @@ def create_symbol_mapping():
         (cursor.lastrowid,)
     ).fetchone()
 
-    return jsonify({
-        'id': row['id'],
-        'symbol_input': row['symbol_input'],
-        'ticker': row['ticker'],
-        'currency': row['currency'],
-        'created_at': str(row['created_at']) if row['created_at'] else None,
-    }), 201
+    return success_response(serialize_symbol_mapping(row), 201)
 
 
 @symbol_map_bp.route('/<int:mapping_id>', methods=['PUT'], strict_slashes=False)
@@ -82,15 +83,15 @@ def update_symbol_mapping(mapping_id: int):
     currency = str(currency_raw).strip().upper() if currency_raw is not None else None
 
     if ticker is None and currency is None:
-        return jsonify({'error': 'No fields to update'}), 400
+        return error_response('No fields to update', status_code=400, code='empty_update')
 
     db = get_db()
     existing = db.execute('SELECT id FROM symbol_mappings WHERE id = ?', (mapping_id,)).fetchone()
     if not existing:
-        return jsonify({'error': 'Mapping not found'}), 404
+        return error_response('Mapping not found', status_code=404, code='symbol_mapping_not_found')
 
     if ticker is not None and not ticker:
-        return jsonify({'error': 'ticker cannot be empty'}), 400
+        return error_response('ticker cannot be empty', status_code=400, code='ticker_empty')
 
     if ticker is not None and currency is not None:
         db.execute(
@@ -117,13 +118,7 @@ def update_symbol_mapping(mapping_id: int):
         (mapping_id,)
     ).fetchone()
 
-    return jsonify({
-        'id': row['id'],
-        'symbol_input': row['symbol_input'],
-        'ticker': row['ticker'],
-        'currency': row['currency'],
-        'created_at': str(row['created_at']) if row['created_at'] else None,
-    }), 200
+    return success_response(serialize_symbol_mapping(row), 200)
 
 
 @symbol_map_bp.route('/<int:mapping_id>', methods=['DELETE'], strict_slashes=False)
@@ -131,8 +126,8 @@ def delete_symbol_mapping(mapping_id: int):
     db = get_db()
     existing = db.execute('SELECT id FROM symbol_mappings WHERE id = ?', (mapping_id,)).fetchone()
     if not existing:
-        return jsonify({'error': 'Mapping not found'}), 404
+        return error_response('Mapping not found', status_code=404, code='symbol_mapping_not_found')
 
     db.execute('DELETE FROM symbol_mappings WHERE id = ?', (mapping_id,))
     db.commit()
-    return jsonify({'success': True}), 200
+    return success_response({'success': True, 'message': 'Mapping deleted'}, 200)

@@ -1,16 +1,11 @@
 import { createApiClient } from './apiConfig';
+import type { SymbolMappingDeleteDto, SymbolMappingDto } from './api-contract';
 
 const symbolMapHttp = createApiClient('/symbol-map');
 
 export type MappingCurrency = 'PLN' | 'USD' | 'EUR' | 'GBP';
 
-export interface SymbolMapping {
-  id: number;
-  symbol_input: string;
-  ticker: string;
-  currency: MappingCurrency | null;
-  created_at: string | null;
-}
+export type SymbolMapping = SymbolMappingDto;
 
 export interface CreateSymbolMappingPayload {
   symbol_input: string;
@@ -51,7 +46,7 @@ export const symbolMapApi = {
     const response = await symbolMapHttp.put<unknown>(`/${id}`, payload);
     return normalizeSymbolMapping(response);
   },
-  delete: async (id: number): Promise<void> => {
-    await symbolMapHttp.delete(`/${id}`);
+  delete: async (id: number): Promise<SymbolMappingDeleteDto> => {
+    return symbolMapHttp.delete<SymbolMappingDeleteDto>(`/${id}`);
   },
 };
