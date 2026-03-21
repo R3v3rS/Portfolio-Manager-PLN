@@ -1,3 +1,5 @@
+import { http } from '../http';
+
 const PPK_PRICE_URL =
   'https://mojefundusze.pl/Fundusze/PPK/Nationale-Nederlanden-DFE-Nasze-Jutro-2055-PPK';
 const REQUEST_TIMEOUT_MS = 5000;
@@ -104,17 +106,10 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<string>
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, {
-      method: 'GET',
+    return await http.getText(url, {
       headers: { Accept: 'text/html' },
       signal: controller.signal,
     });
-
-    if (!response.ok) {
-      throw new NetworkError(`PPK request failed with status ${response.status}.`);
-    }
-
-    return await response.text();
   } catch (error) {
     if (error instanceof PriceProviderError) {
       throw error;

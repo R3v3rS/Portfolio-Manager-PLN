@@ -1,8 +1,9 @@
-import { createHttpClient, type QueryParams } from './http';
+import { type QueryParams } from './http';
+import { createApiClient } from './apiConfig';
 import type { Bond, ClosedPosition, ClosedPositionCycle, Holding, Portfolio, PortfolioValue, Transaction } from './types';
 import type { PPKSummary, PPKTransaction } from './services/ppkCalculator';
 
-const portfolioHttp = createHttpClient('/api/portfolio');
+const portfolioHttp = createApiClient('/portfolio');
 
 export interface TaxLimitData {
   deposited: number;

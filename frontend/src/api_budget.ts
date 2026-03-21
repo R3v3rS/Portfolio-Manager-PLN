@@ -1,4 +1,5 @@
-import { createHttpClient, HttpError, type QueryParams } from './http';
+import { HttpError, type QueryParams } from './http';
+import { createApiClient } from './apiConfig';
 
 export interface BudgetAccount {
   id: number;
@@ -62,8 +63,7 @@ export interface BudgetActionResult {
   open_loans?: EnvelopeLoan[];
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
-const budgetHttp = createHttpClient(`${API_BASE_URL}/api/budget`);
+const budgetHttp = createApiClient('/budget');
 
 const budgetPath = {
   summary: '/summary',

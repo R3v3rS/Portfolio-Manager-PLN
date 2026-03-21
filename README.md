@@ -34,11 +34,18 @@ Repozytorium jest utrzymywane jako monolit z dwoma głównymi częściami:
 ## Architektura w skrócie
 
 1. React renderuje widoki zdefiniowane w `frontend/src/App.tsx`.
-2. Strony i komponenty wołają API przez `axios` lub `fetch`.
+2. Strony i komponenty korzystają z warstwy API w `frontend/src/api*.ts`, a requesty HTTP przechodzą przez wspólny klient z `frontend/src/http.ts`.
 3. Flask rejestruje blueprinty pod `/api/portfolio`, `/api/budget`, `/api/loans`, `/api/dashboard`, `/api/radar` i `/api/symbol-map`.
 4. Routy delegują logikę do serwisów domenowych.
 5. Serwisy zapisują dane bezpośrednio do SQLite przez `database.py`.
 6. Część danych rynkowych jest pobierana z zewnętrznych źródeł i cache’owana lokalnie.
+
+
+## Zasada architektoniczna frontendu
+
+- komponenty i strony **nie wykonują bezpośrednich requestów HTTP**; korzystają wyłącznie z warstwy API (`frontend/src/api*.ts`),
+- helpery infrastrukturalne używają wspólnego klienta HTTP z `frontend/src/http.ts`,
+- endpointy backendowe powinny być budowane przez wspólną konfigurację API, bez rozproszonych, twardo kodowanych baz URL.
 
 ## Najważniejsze katalogi
 
