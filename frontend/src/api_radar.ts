@@ -47,6 +47,7 @@ const normalizeRadarItem = (value: unknown): RadarItem => {
     next_earnings: toNullableString(source.next_earnings),
     ex_dividend_date: toNullableString(source.ex_dividend_date),
     dividend_yield: toNumber(source.dividend_yield),
+    score: toNumber(source.score),
     quantity: toNumber(source.quantity) ?? 0,
     is_watched: toBoolean(source.is_watched),
     last_updated_at: toNullableString(source.last_updated_at),

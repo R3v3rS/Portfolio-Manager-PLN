@@ -55,6 +55,7 @@ def get_radar():
             'next_earnings': radar_data.get('next_earnings'),
             'ex_dividend_date': radar_data.get('ex_dividend_date'),
             'dividend_yield': radar_data.get('dividend_yield'),
+            'score': radar_data.get('score'),
             'last_updated_at': radar_data.get('last_updated_at'),
             'quantity': qty,
             'is_held': qty > 0,

@@ -132,6 +132,7 @@ export interface RadarItem {
   next_earnings: string | null;
   ex_dividend_date: string | null;
   dividend_yield: number | null;
+  score: number | null;
   quantity: number;
   is_watched: boolean;
   last_updated_at: string | null;

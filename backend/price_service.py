@@ -675,7 +675,7 @@ class PriceService:
         db = get_db()
         rows = db.execute(
             f'''SELECT ticker, price, change_1d, change_7d, change_1m, change_1y,
-                       next_earnings, ex_dividend_date, dividend_yield, last_updated_at
+                       next_earnings, ex_dividend_date, dividend_yield, score, last_updated_at
                 FROM radar_cache
                 WHERE ticker IN ({placeholders})''',
             tickers
@@ -691,6 +691,7 @@ class PriceService:
                 'next_earnings': row['next_earnings'],
                 'ex_dividend_date': row['ex_dividend_date'],
                 'dividend_yield': row['dividend_yield'],
+                'score': row['score'],
                 'last_updated_at': row['last_updated_at']
             }
             for row in rows
@@ -710,12 +711,16 @@ class PriceService:
         for ticker in tickers:
             quote = quotes.get(ticker, {})
             event = events.get(ticker, {})
+            
+            # Fetch score if not already present or needs refresh
+            analysis = cls.get_stock_analysis(ticker)
+            score = analysis.get('score') if analysis else None
 
             db.execute(
                 '''INSERT INTO radar_cache
                    (ticker, price, change_1d, change_7d, change_1m, change_1y,
-                    next_earnings, ex_dividend_date, dividend_yield, last_updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    next_earnings, ex_dividend_date, dividend_yield, score, last_updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(ticker) DO UPDATE SET
                      price = excluded.price,
                      change_1d = excluded.change_1d,
@@ -725,6 +730,7 @@ class PriceService:
                      next_earnings = excluded.next_earnings,
                      ex_dividend_date = excluded.ex_dividend_date,
                      dividend_yield = excluded.dividend_yield,
+                     score = excluded.score,
                      last_updated_at = excluded.last_updated_at''',
                 (
                     ticker,
@@ -736,6 +742,7 @@ class PriceService:
                     event.get('next_earnings'),
                     event.get('ex_dividend_date'),
                     event.get('dividend_yield'),
+                    score,
                     now
                 )
             )

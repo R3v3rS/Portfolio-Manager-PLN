@@ -150,9 +150,17 @@ def init_db(app):
                 next_earnings DATE,
                 ex_dividend_date DATE,
                 dividend_yield DECIMAL(10,6),
+                score INTEGER,
                 last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+
+        # Migrations: Add score column if it doesn't exist (for existing databases)
+        try:
+            db.execute('ALTER TABLE radar_cache ADD COLUMN score INTEGER;')
+        except:
+            # Column already exists or table doesn't exist yet (handled by CREATE TABLE)
+            pass
 
         # Asset metadata cache table (to avoid repeated yfinance info calls)
         db.execute('''
