@@ -183,6 +183,7 @@ const InvestmentRadar: React.FC = () => {
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
+                <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">1D %</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">7D %</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">1M %</th>
@@ -196,10 +197,10 @@ const InvestmentRadar: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {isLoading ? (
-                <tr><td colSpan={12} className="px-6 py-4 text-center text-gray-500">Ładowanie danych...</td></tr>
+              {isLoading && radarItems.length === 0 ? (
+                <tr><td colSpan={13} className="px-6 py-4 text-center text-gray-500">Ładowanie danych...</td></tr>
               ) : radarItems.length === 0 ? (
-                <tr><td colSpan={12} className="px-6 py-4 text-center text-gray-500">Brak danych. Dodaj spółki do obserwowanych lub kup aktywa.</td></tr>
+                <tr><td colSpan={13} className="px-6 py-4 text-center text-gray-500">Brak danych. Dodaj spółki do obserwowanych lub kup aktywa.</td></tr>
               ) : (
                 radarItems.map((item) => (
                   <tr key={item.ticker} className="hover:bg-gray-50">
@@ -207,6 +208,19 @@ const InvestmentRadar: React.FC = () => {
                       <button onClick={() => setSelectedTicker(item.ticker)} className="text-blue-600 hover:text-blue-900 hover:underline cursor-pointer focus:outline-none">{item.ticker}</button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">{item.price !== null ? item.price.toFixed(2) : '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      {item.score !== null ? (
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                          item.score >= 70 ? 'bg-green-100 text-green-800' :
+                          item.score >= 40 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {item.score}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">-</span>
+                      )}
+                    </td>
                     <td className={`px-6 py-4 whitespace-nowrap text-sm text-right font-medium ${(item.change_1d || 0) > 0 ? 'text-green-600' : (item.change_1d || 0) < 0 ? 'text-red-600' : 'text-gray-500'}`}>
                       <div className="flex items-center justify-end">{(item.change_1d || 0) > 0 ? <TrendingUp className="h-4 w-4 mr-1" /> : (item.change_1d || 0) < 0 ? <TrendingDown className="h-4 w-4 mr-1" /> : null}{formatChangePercent(item.change_1d)}</div>
                     </td>

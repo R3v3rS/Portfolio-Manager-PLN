@@ -675,7 +675,7 @@ class PriceService:
         db = get_db()
         rows = db.execute(
             f'''SELECT ticker, price, change_1d, change_7d, change_1m, change_1y,
-                       next_earnings, ex_dividend_date, dividend_yield, last_updated_at
+                       next_earnings, ex_dividend_date, dividend_yield, score, last_updated_at
                 FROM radar_cache
                 WHERE ticker IN ({placeholders})''',
             tickers
@@ -691,6 +691,7 @@ class PriceService:
                 'next_earnings': row['next_earnings'],
                 'ex_dividend_date': row['ex_dividend_date'],
                 'dividend_yield': row['dividend_yield'],
+                'score': row['score'],
                 'last_updated_at': row['last_updated_at']
             }
             for row in rows
@@ -710,12 +711,16 @@ class PriceService:
         for ticker in tickers:
             quote = quotes.get(ticker, {})
             event = events.get(ticker, {})
+            
+            # Fetch score if not already present or needs refresh
+            analysis = cls.get_stock_analysis(ticker)
+            score = analysis.get('score') if analysis else None
 
             db.execute(
                 '''INSERT INTO radar_cache
                    (ticker, price, change_1d, change_7d, change_1m, change_1y,
-                    next_earnings, ex_dividend_date, dividend_yield, last_updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    next_earnings, ex_dividend_date, dividend_yield, score, last_updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(ticker) DO UPDATE SET
                      price = excluded.price,
                      change_1d = excluded.change_1d,
@@ -725,6 +730,7 @@ class PriceService:
                      next_earnings = excluded.next_earnings,
                      ex_dividend_date = excluded.ex_dividend_date,
                      dividend_yield = excluded.dividend_yield,
+                     score = excluded.score,
                      last_updated_at = excluded.last_updated_at''',
                 (
                     ticker,
@@ -736,6 +742,7 @@ class PriceService:
                     event.get('next_earnings'),
                     event.get('ex_dividend_date'),
                     event.get('dividend_yield'),
+                    score,
                     now
                 )
             )
@@ -819,15 +826,47 @@ class PriceService:
                 val = info.get(key)
                 return val if val is not None and val != 'null' else default
 
-            # 1. Fundamentals
+            # 1. Fundamentals & Quality
             fundamentals = {
                 "trailingPE": get_val("trailingPE"),
                 "priceToBook": get_val("priceToBook"),
                 "returnOnEquity": get_val("returnOnEquity"),
-                "payoutRatio": get_val("payoutRatio")
+                "payoutRatio": get_val("payoutRatio"),
+                "operatingMargins": get_val("operatingMargins"),
+                "profitMargins": get_val("profitMargins"),
+                "returnOnAssets": get_val("returnOnAssets"),
+                "freeCashflow": get_val("freeCashflow"),
+                "operatingCashflow": get_val("operatingCashflow")
             }
 
-            # 2. Analyst Consensus
+            # 2. Growth
+            growth = {
+                "revenueGrowth": get_val("revenueGrowth"),
+                "earningsGrowth": get_val("earningsGrowth"),
+                "earningsQuarterlyGrowth": get_val("earningsQuarterlyGrowth")
+            }
+
+            # 3. Risk & Stability
+            risk = {
+                "debtToEquity": get_val("debtToEquity"),
+                "currentRatio": get_val("currentRatio"),
+                "quickRatio": get_val("quickRatio"),
+                "beta": get_val("beta")
+            }
+
+            # 4. Market & Sentiment
+            market = {
+                "heldPercentInstitutions": get_val("heldPercentInstitutions"),
+                "heldPercentInsiders": get_val("heldPercentInsiders"),
+                "shortPercentOfFloat": get_val("shortPercentOfFloat"),
+                "shortRatio": get_val("shortRatio"),
+                "averageVolume": get_val("averageVolume"),
+                "volume": get_val("volume"),
+                "fiftyTwoWeekLow": get_val("fiftyTwoWeekLow"),
+                "fiftyTwoWeekHigh": get_val("fiftyTwoWeekHigh")
+            }
+
+            # 5. Analyst Consensus
             target_mean = get_val("targetMeanPrice")
             current_price = get_val("currentPrice") or get_val("regularMarketPrice")
             
@@ -844,7 +883,54 @@ class PriceService:
                 "upsidePotential": upside_potential
             }
 
-            # 3. Technicals
+            # 6. Scoring Logic
+            # Returns a dict with "score" (0-100) and sub-scores
+            def calculate_score(f, g, r):
+                q_score = 0
+                g_score = 0
+                r_score = 0
+                
+                # Quality (max 40)
+                if (f.get("returnOnEquity") or 0) > 0.15: q_score += 15
+                elif (f.get("returnOnEquity") or 0) > 0.10: q_score += 10
+                
+                if (f.get("profitMargins") or 0) > 0.10: q_score += 15
+                elif (f.get("profitMargins") or 0) > 0.05: q_score += 10
+                
+                if (f.get("freeCashflow") or 0) > 0: q_score += 10
+                
+                # Growth (max 30)
+                if (g.get("revenueGrowth") or 0) > 0.15: g_score += 15
+                elif (g.get("revenueGrowth") or 0) > 0.05: g_score += 10
+                
+                if (g.get("earningsGrowth") or 0) > 0.15: g_score += 15
+                elif (g.get("earningsGrowth") or 0) > 0.05: g_score += 10
+                
+                # Risk (max 30) - lower is better for debt/beta, higher for current ratio
+                d_e = r.get("debtToEquity")
+                if d_e is not None:
+                    if d_e < 80: r_score += 10 # yfinance debtToEquity is often in percent (e.g. 80.0 means 0.8)
+                    elif d_e < 150: r_score += 5
+                else: r_score += 5 # neutral if missing
+                
+                c_r = r.get("currentRatio")
+                if c_r is not None:
+                    if c_r > 1.5: r_score += 10
+                    elif c_r > 1.0: r_score += 5
+                else: r_score += 5
+                
+                beta = r.get("beta")
+                if beta is not None:
+                    if beta < 1.0: r_score += 10
+                    elif beta < 1.3: r_score += 5
+                else: r_score += 5
+                
+                total = q_score + g_score + r_score
+                return total, {"quality": q_score, "growth": g_score, "risk": r_score}
+
+            total_score, score_details = calculate_score(fundamentals, growth, risk)
+
+            # 7. Technicals
             technicals = {
                 "sma50": None,
                 "sma200": None,
@@ -856,7 +942,12 @@ class PriceService:
                 hist = cls._normalize_yf_dataframe(t.history(period="1y"))
                 if hist is None or hist.empty or 'Close' not in hist.columns:
                     return {
+                        "score": total_score,
+                        "details": score_details,
                         "fundamentals": fundamentals,
+                        "growth": growth,
+                        "risk": risk,
+                        "market": market,
                         "analyst": analyst,
                         "technicals": technicals
                     }
@@ -893,7 +984,12 @@ class PriceService:
                 print(f"Technical analysis failed for {ticker}: {e}")
 
             return {
+                "score": total_score,
+                "details": score_details,
                 "fundamentals": fundamentals,
+                "growth": growth,
+                "risk": risk,
+                "market": market,
                 "analyst": analyst,
                 "technicals": technicals
             }

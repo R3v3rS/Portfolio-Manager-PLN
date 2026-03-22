@@ -132,17 +132,50 @@ export interface RadarItem {
   next_earnings: string | null;
   ex_dividend_date: string | null;
   dividend_yield: number | null;
+  score: number | null;
   quantity: number;
   is_watched: boolean;
   last_updated_at: string | null;
 }
 
 export interface StockAnalysisData {
+  score: number | null;
+  details: {
+    quality: number | null;
+    growth: number | null;
+    risk: number | null;
+  };
   fundamentals: {
     trailingPE: number | null;
     priceToBook: number | null;
     returnOnEquity: number | null;
     payoutRatio: number | null;
+    operatingMargins: number | null;
+    profitMargins: number | null;
+    returnOnAssets: number | null;
+    freeCashflow: number | null;
+    operatingCashflow: number | null;
+  };
+  growth: {
+    revenueGrowth: number | null;
+    earningsGrowth: number | null;
+    earningsQuarterlyGrowth: number | null;
+  };
+  risk: {
+    debtToEquity: number | null;
+    currentRatio: number | null;
+    quickRatio: number | null;
+    beta: number | null;
+  };
+  market: {
+    heldPercentInstitutions: number | null;
+    heldPercentInsiders: number | null;
+    shortPercentOfFloat: number | null;
+    shortRatio: number | null;
+    averageVolume: number | null;
+    volume: number | null;
+    fiftyTwoWeekLow: number | null;
+    fiftyTwoWeekHigh: number | null;
   };
   analyst: {
     targetMeanPrice: number | null;
