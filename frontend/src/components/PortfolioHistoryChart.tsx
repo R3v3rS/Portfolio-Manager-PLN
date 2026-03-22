@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   LineChart,
   Line,
@@ -25,7 +25,6 @@ interface PortfolioHistoryChartProps {
 
 const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ 
   data, 
-  title = 'Wartość Portfela w Czasie',
   benchmarkName = 'Benchmark'
 }) => {
   const [showInflation, setShowInflation] = useState(false);

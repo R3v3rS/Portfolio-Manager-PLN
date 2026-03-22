@@ -495,8 +495,30 @@ export const portfolioApi = {
     const response = await portfolioHttp.post<unknown>(`/${portfolio_id}/import/xtb`, formData);
     return normalizeXtbImportResult(response);
   },
+  buy: (payload: {
+    portfolio_id: number;
+    ticker: string;
+    quantity: number;
+    price: number;
+    date: string;
+    commission?: number;
+    auto_fx_fees?: boolean;
+  }) => portfolioHttp.post('/buy', payload),
   sell: (payload: { portfolio_id: number; ticker: string; quantity: number; price: number; date?: string }) =>
     portfolioHttp.post('/sell', payload),
+  addDividend: (payload: { portfolio_id: number; ticker: string; amount: number; date: string }) =>
+    portfolioHttp.post('/dividend', payload),
+  addBond: (payload: {
+    portfolio_id: number;
+    name: string;
+    principal: number;
+    interest_rate: number;
+    purchase_date: string;
+  }) => portfolioHttp.post('/bonds', payload),
+  updateSavingsRate: (payload: { portfolio_id: number; rate: number }) =>
+    portfolioHttp.post('/savings/rate', payload),
+  addSavingsInterest: (payload: { portfolio_id: number; amount: number; date: string }) =>
+    portfolioHttp.post('/savings/interest/manual', payload),
   addPpkTransaction: (payload: {
     portfolio_id: number;
     date: string;

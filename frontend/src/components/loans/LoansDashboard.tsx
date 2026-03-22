@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CreditCard, Calendar, TrendingDown, Trash2 } from 'lucide-react';
-import { getLoans, createLoan, deleteLoan, getSchedule, type LoanSummary } from '../../api_loans';
+import { getLoans, createLoan, deleteLoan, getSchedule, type LoanSummary, type LoanScheduleResponse, type LoanScheduleEntry } from '../../api_loans';
 
+interface LoanWithDetails extends LoanSummary {
+  current_balance: number;
+  current_installment: number;
+}
 
 const LoansDashboard: React.FC = () => {
   const [loans, setLoans] = useState<LoanSummary[]>([]);
@@ -12,7 +16,7 @@ const LoansDashboard: React.FC = () => {
     original_amount: '',
     duration_months: '',
     start_date: new Date().toISOString().split('T')[0],
-    installment_type: 'EQUAL',
+    installment_type: 'EQUAL' as 'EQUAL' | 'DECREASING',
     initial_rate: '',
     category: 'GOTOWKOWY',
   });
@@ -84,7 +88,7 @@ const LoansDashboard: React.FC = () => {
   // Let's assume for now I show original amount or just leave it as placeholder until I update backend or fetch details.
   // Actually, I can fetch details for all loans in parallel.
 
-  const [loansWithDetails, setLoansWithDetails] = useState<any[]>([]);
+  const [loansWithDetails, setLoansWithDetails] = useState<LoanWithDetails[]>([]);
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -101,7 +105,7 @@ const LoansDashboard: React.FC = () => {
       
       try {
         const responses = await Promise.all(detailsPromises);
-        const details = responses.map((res: any) => {
+        const details = responses.map((res: LoanScheduleResponse) => {
             const schedule = res.baseline.schedule;
             // Find current status based on today's date?
             // Or just take the last entry if loan is finished?
@@ -109,9 +113,19 @@ const LoansDashboard: React.FC = () => {
             // For now, let's just take the first entry's remaining balance? No, that's after 1st payment.
             // Let's use the schedule to find the latest "remaining_balance" that is closest to today.
             const today = new Date();
-            const currentEntry = schedule.find((entry: any) => new Date(entry.date) > today) || schedule[schedule.length - 1];
+            const currentEntry = schedule.find((entry: LoanScheduleEntry) => new Date(entry.date) > today) || schedule[schedule.length - 1];
+            
+            // Find the original loan from the list to preserve fields like installment_type and original_amount
+            const originalLoan = loans.find(l => l.id === res.loan.id);
+
             return {
-                ...res.loan,
+                id: res.loan.id,
+                name: res.loan.name,
+                category: res.loan.category,
+                original_amount: originalLoan?.original_amount ?? 0,
+                duration_months: originalLoan?.duration_months ?? 0,
+                start_date: originalLoan?.start_date ?? '',
+                installment_type: originalLoan?.installment_type ?? 'EQUAL',
                 current_balance: currentEntry ? currentEntry.remaining_balance : 0,
                 current_installment: currentEntry ? currentEntry.installment : 0
             };
@@ -330,7 +344,7 @@ const LoansDashboard: React.FC = () => {
                     <select
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       value={newLoan.installment_type}
-                      onChange={(e) => setNewLoan({ ...newLoan, installment_type: e.target.value as any })}
+                      onChange={(e) => setNewLoan({ ...newLoan, installment_type: e.target.value as 'EQUAL' | 'DECREASING' })}
                     >
                       <option value="EQUAL">Raty Równe</option>
                       <option value="DECREASING">Raty Malejące</option>

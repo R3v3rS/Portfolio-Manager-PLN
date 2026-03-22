@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   PieChart, Pie, Cell, 
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer 
@@ -22,13 +22,7 @@ export default function BudgetAnalytics({ selectedAccountId }: Props) {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
 
-  useEffect(() => {
-    if (selectedAccountId) {
-      fetchAnalytics();
-    }
-  }, [selectedAccountId, month, year]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true);
       const res = await budgetApi.getAnalytics<AnalyticsData>(selectedAccountId, year, month);
@@ -38,7 +32,13 @@ export default function BudgetAnalytics({ selectedAccountId }: Props) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedAccountId, year, month]);
+
+  useEffect(() => {
+    if (selectedAccountId) {
+      fetchAnalytics();
+    }
+  }, [selectedAccountId, fetchAnalytics]);
 
   const months = [
     "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", 
