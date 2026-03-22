@@ -1,13 +1,15 @@
 import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { PortfolioHistoryPoint } from '../api';
-import { Holding } from '../types';
+import { Holding, EquityAllocation } from '../types';
 import MonthlyAssetRatioChart from './MonthlyAssetRatioChart';
+import EquityAllocationChart from './EquityAllocationChart';
 
 interface PortfolioAnalyticsProps {
   holdings: Holding[];
   cashBalance: number;
   historyData: PortfolioHistoryPoint[];
+  equityAllocation: EquityAllocation[];
 }
 
 const COLORS = [
@@ -46,7 +48,7 @@ const renderCustomLabel = ({ cx, percent, x, y }: CustomLabelProps) => {
   );
 };
 
-const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashBalance, historyData }) => {
+const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashBalance, historyData, equityAllocation }) => {
   
   const assetData = useMemo(() => {
     const data = holdings.map(h => ({
@@ -137,11 +139,16 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <ChartSection title="Struktura Aktywów" data={assetData} />
         <ChartSection title="Ekspozycja na Sektory" data={sectorData} />
         <ChartSection title="Ekspozycja na Branże" data={industryData} />
+      </div>
+
+      <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+        <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Alokacja Akcji (Tabela % portfela equity)</h3>
+        <EquityAllocationChart data={equityAllocation} />
       </div>
 
       <MonthlyAssetRatioChart data={historyData} />
