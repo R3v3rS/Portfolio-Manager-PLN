@@ -346,6 +346,16 @@ const normalizePpkTransaction = (value: unknown): PPKTransaction => {
   };
 };
 
+const normalizeEquityAllocation = (value: unknown): EquityAllocation => {
+  const source = isRecord(value) ? value : {};
+  return {
+    ticker: toString(source.ticker),
+    name: toString(source.name),
+    value: toNumber(source.value),
+    percentage: toNumber(source.percentage),
+  };
+};
+
 const normalizePpkSummary = (value: unknown): PPKSummary | null => {
   if (!isRecord(value)) return null;
   return {
@@ -410,6 +420,11 @@ export const portfolioApi = {
     const response = await portfolioHttp.get<unknown>(`/holdings/${portfolioId}`, { params });
     const holdings = isRecord(response) ? response.holdings : undefined;
     return Array.isArray(holdings) ? holdings.map(normalizeHolding) : [];
+  },
+  getEquityAllocation: async (portfolioId: number): Promise<EquityAllocation[]> => {
+    const response = await portfolioHttp.get<unknown>(`/allocation/${portfolioId}`);
+    const allocation = isRecord(response) ? response.allocation : undefined;
+    return Array.isArray(allocation) ? allocation.map(normalizeEquityAllocation) : [];
   },
   getValue: async (portfolioId: number): Promise<PortfolioValue & { live_interest?: number }> => {
     const response = await portfolioHttp.get<unknown>(`/value/${portfolioId}`);

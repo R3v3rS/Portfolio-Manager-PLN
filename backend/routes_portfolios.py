@@ -70,6 +70,12 @@ def get_holdings(portfolio_id):
     return success_response({'holdings': holdings})
 
 
+@portfolio_bp.route('/allocation/<int:portfolio_id>', methods=['GET'])
+def get_equity_allocation(portfolio_id):
+    allocation = PortfolioService.get_equity_allocation(portfolio_id)
+    return success_response({'allocation': allocation})
+
+
 @portfolio_bp.route('/<int:portfolio_id>/clear', methods=['POST'])
 def clear_portfolio(portfolio_id):
     try:

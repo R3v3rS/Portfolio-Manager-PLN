@@ -21,6 +21,33 @@ class PortfolioValuationService(PortfolioCoreService):
         return enriched
 
     @staticmethod
+    def get_equity_allocation(portfolio_id):
+        holdings = PortfolioValuationService.get_holdings(portfolio_id)
+        if not holdings:
+            return []
+        
+        # Calculate total value of equities (excluding cash/bonds which are not in 'holdings' table)
+        total_equity_value = sum(float(h.get('current_value', 0.0) or 0.0) for h in holdings)
+        
+        if total_equity_value <= 0:
+            return []
+            
+        allocation = []
+        for h in holdings:
+            val = float(h.get('current_value', 0.0) or 0.0)
+            percentage = (val / total_equity_value) * 100
+            allocation.append({
+                'ticker': h['ticker'],
+                'name': h.get('company_name') or h['ticker'],
+                'value': round(val, 2),
+                'percentage': round(percentage, 2)
+            })
+            
+        # Sort by percentage descending
+        allocation.sort(key=lambda x: x['percentage'], reverse=True)
+        return allocation
+
+    @staticmethod
     def get_holdings(portfolio_id, force_price_refresh=False):
         db = get_db()
         holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
@@ -36,6 +63,8 @@ class PortfolioValuationService(PortfolioCoreService):
         holdings_value = 0.0
 
         for h in holdings:
+            if h['quantity'] < 0.000001:
+                continue
             h_dict = {key: h[key] for key in h.keys()}
             if not h_dict.get('company_name') or not h_dict.get('sector'):
                 meta = PriceService.fetch_metadata(h_dict['ticker'])

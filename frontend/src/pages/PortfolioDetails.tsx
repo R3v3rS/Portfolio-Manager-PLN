@@ -8,7 +8,7 @@ import {
   type PortfolioAuditResult,
 } from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
-import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle } from '../types';
+import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle, EquityAllocation } from '../types';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
@@ -334,6 +334,7 @@ const PortfolioDetails: React.FC = () => {
   // Portfolio History (Monthly)
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; label: string; value: number; benchmark_value?: number }[]>([]);
   const [portfolioProfitHistory, setPortfolioProfitHistory] = useState<{ date: string; label: string; value: number }[]>([]);
+  const [equityAllocation, setEquityAllocation] = useState<EquityAllocation[]>([]);
   const [portfolioProfit30dHistory, setPortfolioProfit30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [portfolioValue30dHistory, setPortfolioValue30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
@@ -394,7 +395,7 @@ const PortfolioDetails: React.FC = () => {
     if (Number.isNaN(portfolioId)) return;
     setLoading(true);
     try {
-      const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes] = await Promise.all([
+      const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes, aRes] = await Promise.all([
         portfolioApi.listNormalized(),
         portfolioApi.getHoldings(portfolioId),
         portfolioApi.getValue(portfolioId),
@@ -402,7 +403,8 @@ const PortfolioDetails: React.FC = () => {
         portfolioApi.getTransactions(portfolioId),
         portfolioApi.getClosedPositions(portfolioId),
         portfolioApi.getClosedPositionCycles(portfolioId),
-        budgetApi.getSummary()
+        budgetApi.getSummary(),
+        portfolioApi.getEquityAllocation(portfolioId)
       ]);
       
       const found = pRes.find((p: Portfolio) => p.id === portfolioId) ?? null;
@@ -416,6 +418,7 @@ const PortfolioDetails: React.FC = () => {
       setClosedPositionCycles(ccRes.positions || []);
       setTotalClosedCyclesProfit(ccRes.total_historical_profit || 0);
       setBudgetAccounts(bAccRes.accounts || []);
+      setEquityAllocation(aRes ?? []);
 
       if (found?.account_type === 'BONDS') {
         const bRes = await portfolioApi.getBonds(portfolioId);
@@ -486,13 +489,15 @@ const PortfolioDetails: React.FC = () => {
 
     setRefreshingPrices(true);
     try {
-      const [holdingsResponse, valueResponse] = await Promise.all([
+      const [holdingsResponse, valueResponse, allocationResponse] = await Promise.all([
         portfolioApi.getHoldings(portfolioId, { refresh: 1 }),
         portfolioApi.getValue(portfolioId),
+        portfolioApi.getEquityAllocation(portfolioId)
       ]);
 
       setHoldings(holdingsResponse ?? []);
       setValueData(valueResponse);
+      setEquityAllocation(allocationResponse ?? []);
     } catch (err) {
       console.error('Failed to refresh stock prices', err);
       alert('Nie udało się odświeżyć cen akcji. Spróbuj ponownie.');
@@ -930,7 +935,7 @@ const PortfolioDetails: React.FC = () => {
 
         <div className="p-6">
           {activeTab === 'analytics' && (
-            <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} />
+            <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} equityAllocation={equityAllocation} />
           )}
 
           {activeTab === 'results' && (

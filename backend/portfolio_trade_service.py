@@ -143,7 +143,7 @@ class PortfolioTradeService(PortfolioCoreService):
                    (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission) 
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit, sell_date, 0.0))
             new_quantity = holding['quantity'] - quantity
-            if new_quantity > 0:
+            if new_quantity > 0.000001:
                 new_total_cost = holding['total_cost'] - cost_basis
                 db.execute('''UPDATE holdings 
                        SET quantity = ?, total_cost = ?

@@ -115,6 +115,13 @@ export interface ClosedPositionCycle {
   remaining_quantity?: number;
 }
 
+export interface EquityAllocation {
+  ticker: string;
+  name: string;
+  value: number;
+  percentage: number;
+}
+
 export interface RadarItem {
   ticker: string;
   price: number | null;
