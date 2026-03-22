@@ -55,16 +55,52 @@ const normalizeRadarItem = (value: unknown): RadarItem => {
 
 const normalizeAnalysisData = (value: unknown): StockAnalysisData => {
   const source = isRecord(value) ? value : {};
+  const details = isRecord(source.details) ? source.details : {};
   const fundamentals = isRecord(source.fundamentals) ? source.fundamentals : {};
+  const growth = isRecord(source.growth) ? source.growth : {};
+  const risk = isRecord(source.risk) ? source.risk : {};
+  const market = isRecord(source.market) ? source.market : {};
   const analyst = isRecord(source.analyst) ? source.analyst : {};
   const technicals = isRecord(source.technicals) ? source.technicals : {};
 
   return {
+    score: toNumber(source.score),
+    details: {
+      quality: toNumber(details.quality),
+      growth: toNumber(details.growth),
+      risk: toNumber(details.risk),
+    },
     fundamentals: {
       trailingPE: toNumber(fundamentals.trailingPE),
       priceToBook: toNumber(fundamentals.priceToBook),
       returnOnEquity: toNumber(fundamentals.returnOnEquity),
       payoutRatio: toNumber(fundamentals.payoutRatio),
+      operatingMargins: toNumber(fundamentals.operatingMargins),
+      profitMargins: toNumber(fundamentals.profitMargins),
+      returnOnAssets: toNumber(fundamentals.returnOnAssets),
+      freeCashflow: toNumber(fundamentals.freeCashflow),
+      operatingCashflow: toNumber(fundamentals.operatingCashflow),
+    },
+    growth: {
+      revenueGrowth: toNumber(growth.revenueGrowth),
+      earningsGrowth: toNumber(growth.earningsGrowth),
+      earningsQuarterlyGrowth: toNumber(growth.earningsQuarterlyGrowth),
+    },
+    risk: {
+      debtToEquity: toNumber(risk.debtToEquity),
+      currentRatio: toNumber(risk.currentRatio),
+      quickRatio: toNumber(risk.quickRatio),
+      beta: toNumber(risk.beta),
+    },
+    market: {
+      heldPercentInstitutions: toNumber(market.heldPercentInstitutions),
+      heldPercentInsiders: toNumber(market.heldPercentInsiders),
+      shortPercentOfFloat: toNumber(market.shortPercentOfFloat),
+      shortRatio: toNumber(market.shortRatio),
+      averageVolume: toNumber(market.averageVolume),
+      volume: toNumber(market.volume),
+      fiftyTwoWeekLow: toNumber(market.fiftyTwoWeekLow),
+      fiftyTwoWeekHigh: toNumber(market.fiftyTwoWeekHigh),
     },
     analyst: {
       targetMeanPrice: toNumber(analyst.targetMeanPrice),
