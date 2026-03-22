@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import api from '../../api';
+import { portfolioApi } from '../../api';
 import { Holding } from '../../types';
 import { cn } from '../../lib/utils.ts';
 
@@ -38,10 +38,10 @@ const SellModal: React.FC<SellModalProps> = ({
     
     setLoading(true);
     try {
-      await api.post('/sell', {
+      await portfolioApi.sell({
         portfolio_id: portfolioId,
         ticker: holding.ticker,
-        quantity: parseFloat(quantity),
+        quantity: holding.quantity,
         price: parseFloat(price),
         date
       });

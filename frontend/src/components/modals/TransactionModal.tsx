@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import api from '../../api';
+import { portfolioApi } from '../../api';
 import { Holding } from '../../types';
 import { cn } from '../../lib/utils.ts';
 
@@ -71,35 +71,44 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
     e.preventDefault();
     setLoading(true);
     try {
-      let endpoint = '';
-      let payload: any = { portfolio_id: portfolioId };
-
       if (type === 'BUY') {
-        endpoint = '/buy';
-        payload = { 
-            ...payload, 
-            ticker, 
-            quantity: parseFloat(quantity), 
-            price: parseFloat(price), 
-            date,
-            commission: parseFloat(commission) || 0,
-            auto_fx_fees: autoFxFees
-        };
+        await portfolioApi.buy({
+          portfolio_id: portfolioId,
+          ticker,
+          quantity: parseFloat(quantity),
+          price: parseFloat(price),
+          date,
+          commission: parseFloat(commission) || 0,
+          auto_fx_fees: autoFxFees
+        });
       } else if (type === 'DIVIDEND') {
-        endpoint = '/dividend';
-        payload = { ...payload, ticker, amount: parseFloat(amount), date };
+        await portfolioApi.addDividend({
+          portfolio_id: portfolioId,
+          ticker,
+          amount: parseFloat(amount),
+          date
+        });
       } else if (type === 'BONDS') {
-        endpoint = '/bonds';
-        payload = { ...payload, name: bondName, principal: parseFloat(amount), interest_rate: parseFloat(interestRate), purchase_date: date };
+        await portfolioApi.addBond({
+          portfolio_id: portfolioId,
+          name: bondName,
+          principal: parseFloat(amount),
+          interest_rate: parseFloat(interestRate),
+          purchase_date: date
+        });
       } else if (type === 'SAVINGS_RATE') {
-        endpoint = '/savings/rate';
-        payload = { ...payload, rate: parseFloat(interestRate) };
+        await portfolioApi.updateSavingsRate({
+          portfolio_id: portfolioId,
+          rate: parseFloat(interestRate)
+        });
       } else if (type === 'SAVINGS_INTEREST') {
-        endpoint = '/savings/interest/manual';
-        payload = { ...payload, amount: parseFloat(amount), date };
+        await portfolioApi.addSavingsInterest({
+          portfolio_id: portfolioId,
+          amount: parseFloat(amount),
+          date
+        });
       }
 
-      await api.post(endpoint, payload);
       onSuccess();
       onClose();
     } catch (err) {

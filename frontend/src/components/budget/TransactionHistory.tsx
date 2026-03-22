@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { budgetApi, Envelope, EnvelopeCategory } from '../../api_budget';
 import { ArrowDownRight, ArrowUpRight, ArrowRight, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 
@@ -26,13 +26,7 @@ export default function TransactionHistory({ selectedAccountId, categories, enve
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (selectedAccountId) {
-      fetchTransactions();
-    }
-  }, [selectedAccountId, selectedCategoryId, selectedEnvelopeId]);
-
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     if (!selectedAccountId) return;
     setLoading(true);
     try {
@@ -43,7 +37,13 @@ export default function TransactionHistory({ selectedAccountId, categories, enve
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedAccountId, selectedEnvelopeId, selectedCategoryId]);
+
+  useEffect(() => {
+    if (selectedAccountId) {
+      fetchTransactions();
+    }
+  }, [selectedAccountId, fetchTransactions]);
 
   // Filter envelopes based on selected category if any
   const filteredEnvelopes = selectedCategoryId

@@ -14,7 +14,18 @@ const COLORS = [
   '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#8dd1e1', '#a4de6c', '#d0ed57', '#ff6b6b'
 ];
 
-const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, x, y }: any) => {
+interface CustomLabelProps {
+  cx: number;
+  cy: number;
+  midAngle: number;
+  innerRadius: number;
+  outerRadius: number;
+  percent: number;
+  x: number;
+  y: number;
+}
+
+const renderCustomLabel = ({ cx, percent, x, y }: CustomLabelProps) => {
   if (percent < 0.02) return null;
 
   // Add a small offset to move text away from the line
@@ -85,7 +96,7 @@ const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashB
 
   const formatTooltip = (value: number) => `${value.toFixed(2)} PLN`;
 
-  const ChartSection = ({ title, data }: { title: string, data: any[] }) => (
+  const ChartSection = ({ title, data }: { title: string, data: { name: string, value: number }[] }) => (
     <div className="bg-white p-6 rounded-lg shadow border border-gray-200 flex flex-col items-center min-h-[400px]">
       <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">{title}</h3>
       <div className="w-full h-80">
