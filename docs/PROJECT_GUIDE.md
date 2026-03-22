@@ -70,95 +70,45 @@ Najważniejszy plik infrastrukturalny backendu. Odpowiada za:
 - inicjalizację tabel,
 - część pomocniczych operacji administracyjnych, np. reset danych budżetu.
 
-Jeżeli trzeba zrozumieć, jakie dane istnieją w systemie, to ten plik jest pierwszym miejscem do otwarcia.
+### 4.3 Podział routerów (routes_*.py)
+Logika HTTP została podzielona na mniejsze, tematyczne blueprinty:
 
-### 4.3 `backend/routes.py`
-Największy moduł HTTP dla inwestycji. Zawiera endpointy m.in. dla:
-
-- portfeli,
-- historii,
-- kupna i sprzedaży,
-- depozytów i wypłat,
-- obligacji,
-- oszczędności,
-- PPK,
-- importu transakcji,
-- operacji administracyjnych na portfelu.
-
-### 4.4 `backend/routes_budget.py`
-Obsługuje budżet domowy:
-
-- summary,
-- transakcje,
-- analytics,
-- income / expense,
-- alokacje do kopert,
-- transfery kont,
-- transfery do i z portfela inwestycyjnego,
-- pożyczki między kopertami,
-- CRUD kategorii i kopert.
-
-### 4.5 `backend/routes_loans.py`
-Obsługuje kredyty:
-
-- tworzenie,
-- listowanie,
-- usuwanie,
-- dodawanie stóp,
-- dodawanie nadpłat,
-- generowanie harmonogramów,
-- prostą symulację przez query params.
-
-### 4.6 `backend/routes_dashboard.py`
-Agreguje dane z wielu modułów. To ważny punkt architektoniczny, bo łączy:
-
-- wolne środki z budżetu,
-- wyceny portfeli,
-- stan kredytów,
-- wynikowy majątek netto.
-
-Przy optymalizacji wydajności ten plik warto analizować jako jeden z pierwszych.
-
-### 4.7 `backend/routes_radar.py`
-Obsługuje radar inwestycyjny i watchlistę:
-
-- pobieranie danych radaru,
-- odświeżanie danych,
-- dodawanie i usuwanie tickerów,
-- analizę pojedynczego waloru.
-
-### 4.8 `backend/routes_symbol_map.py`
-Obsługuje mapowanie symboli z importów zewnętrznych na tickery używane w aplikacji.
-
-To istotny moduł dla importu CSV z XTB.
+- **`routes_portfolios.py`** – CRUD portfeli i lista portfeli.
+- **`routes_transactions.py`** – operacje na transakcjach (BUY, SELL, DEPOSIT, WITHDRAW, DIVIDEND).
+- **`routes_history.py`** – endpointy dla wykresów i danych historycznych.
+- **`routes_imports.py`** – importy danych (np. XTB CSV).
+- **`routes_ppk.py`** – operacje i podsumowania dla portfeli PPK.
+- **`routes_budget.py`** – pełna obsługa budżetu domowego (koperty, konta, transfery).
+- **`routes_dashboard.py`** – agregacja danych dla głównego dashboardu (net worth).
+- **`routes_loans.py`** – obsługa kredytów, harmonogramów i nadpłat.
+- **`routes_radar.py`** – watchlisty, ceny rynkowe i radar inwestycyjny.
+- **`routes_symbol_map.py`** – mapowanie symboli zewnętrznych na tickery.
+- **`routes_admin.py`** – operacje administracyjne (czyszczenie, audyt, przebudowa).
 
 ## 5. Moduły serwisowe backendu
 
-### `portfolio_service.py`
-Centralna logika inwestycyjna. Tu trafiają najważniejsze operacje związane z portfelami, transakcjami, importem i wyceną.
+Logika biznesowa została wydzielona z routerów do dedykowanych serwisów:
 
-### `price_service.py`
-Zarządza cenami rynkowymi, cachem cen i danymi dla radaru.
+### Inwestycje (Portfolio services)
+- **`portfolio_core_service.py`** – podstawowe operacje na portfelach (CRUD).
+- **`portfolio_trade_service.py`** – logika kupna/sprzedaży i transakcji.
+- **`portfolio_valuation_service.py`** – wycena portfeli i instrumentów.
+- **`portfolio_history_service.py`** – rekonstrukcja danych historycznych i wykresów.
+- **`portfolio_import_service.py`** – parsowanie i przetwarzanie importów CSV (XTB).
+- **`portfolio_audit_service.py`** – weryfikacja integralności danych (transakcje vs stan).
+- **`portfolio_service.py`** – fasada łącząca powyższe serwisy dla prostszego dostępu.
 
-### `watchlist_service.py`
-Pomocnicza logika watchlisty.
-
-### `bond_service.py`
-Logika związana z obligacjami.
-
-### `budget_service.py`
-Serwis budżetowy odpowiedzialny za wolne środki, koperty, wydatki, przychody, transfery i analitykę.
-
-### `loan_service.py`
-Logika harmonogramów kredytów, stóp procentowych i nadpłat.
+### Pozostałe serwisy
+- **`price_service.py`** – zarządzanie cenami rynkowymi, cachem i radarem.
+- **`watchlist_service.py`** – logika watchlisty.
+- **`bond_service.py`** – logika związana z obligacjami.
+- **`budget_service.py`** – serwis budżetowy odpowiedzialny za wolne środki, koperty i analitykę.
+- **`loan_service.py`** – silnik harmonogramów kredytów i nadpłat.
+- **`inflation_service.py`** – pobieranie i serwowanie danych o inflacji.
 
 ### `modules/ppk/*`
 Wydzielony moduł domenowy PPK:
-
-- DTO,
-- kalkulacje,
-- podatki,
-- serwis.
+- DTO, kalkulacje, podatki, serwis.
 
 ## 6. Frontend — mapa katalogów
 
@@ -697,8 +647,8 @@ To bardzo ważne przy wprowadzaniu zmian:
 Otwórz w tej kolejności:
 1. `frontend/src/pages/PortfolioDetails.tsx`,
 2. `frontend/src/api.ts`,
-3. `backend/routes.py`,
-4. `backend/portfolio_service.py`,
+3. `backend/routes_portfolios.py` lub `routes_transactions.py`,
+4. `backend/portfolio_core_service.py` lub `portfolio_trade_service.py`,
 5. `backend/database.py`.
 
 ### Gdy problem dotyczy budżetu
@@ -717,13 +667,13 @@ Otwórz w tej kolejności:
 ### Gdy problem dotyczy dashboardu głównego
 1. `frontend/src/pages/MainDashboard.tsx`,
 2. `backend/routes_dashboard.py`,
-3. zależne serwisy: `BudgetService`, `PortfolioService`, `LoanService`.
+3. zależne serwisy: `BudgetService`, `PortfolioValuationService`, `LoanService`.
 
 ### Gdy problem dotyczy importów XTB lub symboli
 1. `frontend/src/pages/SymbolMappingPanel.tsx`,
 2. `frontend/src/api_symbol_map.ts`,
-3. `backend/routes_symbol_map.py`,
-4. `backend/portfolio_service.py`,
+3. `backend/routes_imports.py` lub `routes_symbol_map.py`,
+4. `backend/portfolio_import_service.py`,
 5. `backend/database.py`.
 
 ### Gdy problem dotyczy radaru lub danych rynkowych
@@ -740,22 +690,19 @@ Przed większymi zmianami warto pamiętać o tych miejscach:
 - dashboard globalny,
 - harmonogramy kredytów,
 - transfery budżet ↔ inwestycje,
-- import CSV,
+- import CSV i rekonstrukcja historii,
 - odświeżanie cen i radar,
-- operacje kupna / sprzedaży i aktualizacja holdings,
-- historia portfela liczona rekonstrukcyjnie z transakcji.
+- operacje kupna / sprzedaży i aktualizacja holdings.
 
 ## 12. Dług techniczny, który warto znać
 
 Najważniejsze obserwacje dla nowej osoby lub AI:
 
-1. warstwa API na frontendzie jest niespójna (`axios` i `fetch` mieszają się),
+1. warstwa API na frontendzie jest ujednolicona, ale typowanie DTO wymaga dalszego dopracowania (unikanie `any`),
 2. backend korzysta z bezpośrednich zapytań SQL bez ORM,
-3. duża część logiki inwestycyjnej skupia się w `portfolio_service.py`,
-4. `routes.py` jest szerokim modułem i zawiera dużo endpointów domeny inwestycyjnej,
-5. dashboard agreguje kilka obszarów naraz, więc bywa kosztowny obliczeniowo,
-6. repo nie ma pełnego, rozbudowanego zestawu testów automatycznych,
-7. historia i radar zależą od jakości danych zewnętrznych oraz synchronizacji cache.
+3. logika inwestycyjna jest modularna, ale dashboard agreguje wiele obszarów naraz,
+4. repo posiada smoke testy i testy kontraktu API, ale brakuje pełnych testów jednostkowych logiki biznesowej,
+5. historia i radar zależą od jakości danych zewnętrznych (yfinance) oraz synchronizacji cache.
 
 ## 13. Jak pracować z repo jako AI
 
@@ -763,16 +710,15 @@ Jeśli celem jest szybkie poruszanie się po projekcie, trzymaj się tej procedu
 
 1. najpierw ustal, którego modułu dotyczy zadanie,
 2. znajdź odpowiadający widok React,
-3. sprawdź, przez który plik `api*.ts` albo inline request dochodzi do backendu,
-4. otwórz odpowiedni `routes*.py`,
-5. znajdź serwis domenowy,
+3. sprawdź, przez który plik `api*.ts` dochodzi do backendu,
+4. otwórz odpowiedni `routes_*.py`,
+5. znajdź serwis domenowy (`portfolio_*_service.py`, `budget_service.py` itd.),
 6. jeśli sprawa dotyczy danych lub błędów w zapisie, sprawdź `database.py`,
-7. jeśli sprawa dotyczy cen, radaru lub wycen, przejdź do `price_service.py`,
-8. jeśli sprawa dotyczy historii lub wykresów portfela, sprawdź też skąd frontend pobiera konkretne serie (`monthly`, `profit`, `value`, `history/{ticker}`).
+7. jeśli sprawa dotyczy historii lub wykresów portfela, sprawdź `portfolio_history_service.py`.
 
 Minimalna ścieżka diagnostyczna to zwykle:
 
-`widok frontendu -> warstwa API -> route Flask -> service -> database.py`
+`widok frontendu -> moduł API -> route Flask -> service -> database.py`
 
 A dla wykresów inwestycyjnych najczęściej:
 
