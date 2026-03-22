@@ -36,6 +36,8 @@ class PortfolioValuationService(PortfolioCoreService):
         holdings_value = 0.0
 
         for h in holdings:
+            if h['quantity'] < 0.000001:
+                continue
             h_dict = {key: h[key] for key in h.keys()}
             if not h_dict.get('company_name') or not h_dict.get('sector'):
                 meta = PriceService.fetch_metadata(h_dict['ticker'])

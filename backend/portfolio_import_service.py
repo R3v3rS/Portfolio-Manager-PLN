@@ -187,7 +187,7 @@ class PortfolioImportService(PortfolioCoreService):
                         realized_profit = sell_total - (holding['average_buy_price'] * qty)
                         new_qty = holding['quantity'] - qty
                         new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
-                        if new_qty > 0:
+                        if new_qty > 0.000001:
                             cursor.execute(
                                 '''UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?''',
                                 (new_qty, new_total_cost, holding['id'])

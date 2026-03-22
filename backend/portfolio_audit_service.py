@@ -93,7 +93,9 @@ class PortfolioAuditService(PortfolioCoreService):
         for ticker, position in holdings.items():
             quantity = PortfolioAuditService._quantize_accounting(position['quantity'])
             total_cost = PortfolioAuditService._quantize_accounting(position['total_cost'])
-            if quantity <= 0:
+            
+            # Skip positions with near-zero quantity (less than 1e-6)
+            if quantity < Decimal('0.000001'):
                 continue
             avg_price = PortfolioAuditService._quantize_accounting(total_cost / quantity) if quantity else Decimal('0')
             rebuilt_holdings[ticker] = {
@@ -135,12 +137,16 @@ class PortfolioAuditService(PortfolioCoreService):
 
             rebuilt_quantity = PortfolioAuditService._to_decimal(rebuilt_holding['quantity'] if rebuilt_holding else 0)
             stored_quantity = PortfolioAuditService._to_decimal(stored_holding['quantity'] if stored_holding else 0)
-            if PortfolioAuditService._quantize_accounting(rebuilt_quantity) != PortfolioAuditService._quantize_accounting(stored_quantity):
+            
+            # Use a small epsilon for quantity comparison (1e-6)
+            if abs(rebuilt_quantity - stored_quantity) > Decimal('0.000001'):
                 differences.append({'type': 'quantity_mismatch', 'ticker': ticker, 'expected': PortfolioAuditService._serialize_decimal(rebuilt_quantity, '0.00000001'), 'actual': PortfolioAuditService._serialize_decimal(stored_quantity, '0.00000001')})
 
             rebuilt_total_cost = PortfolioAuditService._to_decimal(rebuilt_holding['total_cost'] if rebuilt_holding else 0)
             stored_total_cost = PortfolioAuditService._to_decimal(stored_holding['total_cost'] if stored_holding else 0)
-            if PortfolioAuditService._quantize_accounting(rebuilt_total_cost) != PortfolioAuditService._quantize_accounting(stored_total_cost):
+            
+            # Use 0.01 as epsilon for cost comparison (currency)
+            if abs(rebuilt_total_cost - stored_total_cost) > Decimal('0.01'):
                 differences.append({'type': 'total_cost_mismatch', 'ticker': ticker, 'expected': PortfolioAuditService._serialize_decimal(rebuilt_total_cost), 'actual': PortfolioAuditService._serialize_decimal(stored_total_cost)})
 
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
@@ -148,7 +154,9 @@ class PortfolioAuditService(PortfolioCoreService):
             raise ValueError('Portfolio not found')
         stored_cash = PortfolioAuditService._to_decimal(portfolio['current_cash'])
         rebuilt_cash = PortfolioAuditService._to_decimal(rebuilt['cash'])
-        if PortfolioAuditService._quantize_accounting(stored_cash) != PortfolioAuditService._quantize_accounting(rebuilt_cash):
+        
+        # Use 0.01 as epsilon for cash comparison (currency)
+        if abs(stored_cash - rebuilt_cash) > Decimal('0.01'):
             differences.append({'type': 'cash_mismatch', 'expected': PortfolioAuditService._serialize_decimal(rebuilt_cash), 'actual': PortfolioAuditService._serialize_decimal(stored_cash)})
 
         if differences:
