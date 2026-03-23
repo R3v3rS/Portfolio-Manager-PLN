@@ -341,13 +341,14 @@ class PriceService:
         db = get_db()
         placeholders = ','.join('?' for _ in normalized)
         rows = db.execute(
-            f'''SELECT ticker, MAX(date) as max_date
+            f'''SELECT ticker, MIN(date) as min_date, MAX(date) as max_date
                 FROM stock_prices
                 WHERE ticker IN ({placeholders})
                 GROUP BY ticker''',
             tuple(normalized)
         ).fetchall()
-        latest_by_ticker = {row['ticker']: row['max_date'] for row in rows}
+        
+        db_ranges = {row['ticker']: (row['min_date'], row['max_date']) for row in rows}
 
         expected_latest_day = cls._latest_expected_market_day()
 
@@ -357,16 +358,21 @@ class PriceService:
 
         needs_sync = []
         for ticker in normalized:
-            max_date = latest_by_ticker.get(ticker)
-            if not max_date:
+            db_range = db_ranges.get(ticker)
+            if not db_range:
                 needs_sync.append(ticker)
                 continue
 
+            min_date, max_date = db_range
+            min_dt = datetime.strptime(min_date, '%Y-%m-%d').date() if isinstance(min_date, str) else min_date
             max_dt = datetime.strptime(max_date, '%Y-%m-%d').date() if isinstance(max_date, str) else max_date
-            if required_start and max_dt < required_start:
+
+            # If we need earlier data than what we have
+            if required_start and min_dt > required_start:
                 needs_sync.append(ticker)
                 continue
 
+            # If we need newer data than what we have
             if max_dt < expected_latest_day:
                 needs_sync.append(ticker)
 
@@ -380,19 +386,28 @@ class PriceService:
         logger = logging.getLogger(__name__)
         db = get_db()
         
-        # 1. Find the latest date available in DB
+        # 1. Find the date range available in DB
         result = db.execute(
-            'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
+            'SELECT MIN(date) as min_date, MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
             (ticker,)
         ).fetchone()
         
         max_date_str = result['max_date']
+        min_date_str = result['min_date']
         max_date = None
+        min_date = None
+        
         if max_date_str:
             if isinstance(max_date_str, str):
                 max_date = datetime.strptime(max_date_str, '%Y-%m-%d').date()
             else:
-                max_date = max_date_str # Handle if sqlite returns date object
+                max_date = max_date_str
+        
+        if min_date_str:
+            if isinstance(min_date_str, str):
+                min_date = datetime.strptime(min_date_str, '%Y-%m-%d').date()
+            else:
+                min_date = min_date_str
 
         today = date.today()
         expected_latest_day = cls._latest_expected_market_day(today)
@@ -403,10 +418,16 @@ class PriceService:
             required_start = datetime.strptime(required_start_date, '%Y-%m-%d').date() if isinstance(required_start_date, str) else required_start_date
 
         if max_date:
-            if max_date >= expected_latest_day:
+            # If we need earlier data than what we have
+            if required_start and (min_date is None or required_start < min_date):
+                fetch_start = required_start
+            # If we are already up to date and don't need earlier data
+            elif max_date >= expected_latest_day:
                 logger.info("%s history already up to date (last_date=%s)", ticker, max_date.isoformat())
                 return max_date_str
-            fetch_start = max_date + timedelta(days=1)
+            # Otherwise, fetch from where we left off
+            else:
+                fetch_start = max_date + timedelta(days=1)
         else:
             fetch_start = required_start or cls._default_history_start
 
