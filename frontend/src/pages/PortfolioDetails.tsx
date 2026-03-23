@@ -950,13 +950,23 @@ const PortfolioDetails: React.FC = () => {
               </div>
 
               <div className="space-y-3">
-                <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (30D)</h4>
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (30D vs pierwszy dzień)</h4>
                 <Profit30dMatrix data={portfolioProfit30dHistory} rowLabel="% zmiany zysku" />
               </div>
 
               <div className="space-y-3">
-                <h4 className="text-base font-medium text-gray-900">Macierz zmiany wartości portfela % (30D)</h4>
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (Dzień do Dnia)</h4>
+                <Profit30dMatrix data={portfolioProfit30dHistory} rowLabel="% zmiany zysku" mode="day_over_day" />
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany wartości portfela % (30D vs pierwszy dzień)</h4>
                 <Profit30dMatrix data={portfolioValue30dHistory} rowLabel="% zmiany wartości" />
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-base font-medium text-gray-900">Macierz zmiany wartości portfela % (Dzień do Dnia)</h4>
+                <Profit30dMatrix data={portfolioValue30dHistory} rowLabel="% zmiany wartości" mode="day_over_day" />
               </div>
             </div>
           )}
