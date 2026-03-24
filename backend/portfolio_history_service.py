@@ -3,6 +3,7 @@ from database import get_db
 from datetime import datetime, timedelta, date
 from portfolio_core_service import PortfolioCoreService
 from portfolio_trade_service import PortfolioTradeService
+from portfolio_valuation_service import PortfolioValuationService
 from inflation_service import InflationService
 
 
@@ -172,6 +173,17 @@ class PortfolioHistoryService(PortfolioCoreService):
 
             total_value = current_cash + holdings_value
             profit = total_value - invested_capital
+
+            # Keep the latest monthly point fully aligned with the live valuation endpoint.
+            # This avoids overstating/understating "today" versus the current portfolio value.
+            if end_date == today:
+                live_value = PortfolioValuationService.get_portfolio_value(portfolio_id)
+                if live_value:
+                    total_value = float(live_value.get('portfolio_value', total_value))
+                    current_cash = float(live_value.get('cash_value', current_cash))
+                    holdings_value = float(live_value.get('holdings_value', holdings_value))
+                    profit = total_value - invested_capital
+
             metrics = {
                 "total_value": total_value,
                 "profit": profit,
@@ -341,6 +353,11 @@ class PortfolioHistoryService(PortfolioCoreService):
                         gross_value_pln = qty * native_price * fx_rate
                         net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
                         total_value += net_value_pln
+
+            if point_date == end_date:
+                live_value = PortfolioValuationService.get_portfolio_value(portfolio_id)
+                if live_value:
+                    total_value = float(live_value.get('portfolio_value', total_value))
 
             value = total_value if metric == 'value' else total_value - invested_capital
             result.append({'date': point_date.strftime('%Y-%m-%d'), 'label': point_date.strftime('%d %b'), 'value': round(value, 2)})
