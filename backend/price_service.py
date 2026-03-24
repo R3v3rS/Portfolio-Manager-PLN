@@ -418,16 +418,19 @@ class PriceService:
             required_start = datetime.strptime(required_start_date, '%Y-%m-%d').date() if isinstance(required_start_date, str) else required_start_date
 
         if max_date:
-            # If we need earlier data than what we have
+            # Refresh a short recent window even when history looks up to date.
+            # This heals occasional bad rows caused by vendor corrections/data glitches.
+            recent_refresh_start = max_date - timedelta(days=7)
+
+            # If we need earlier data than what we have, start from the required date.
             if required_start and (min_date is None or required_start < min_date):
                 fetch_start = required_start
-            # If we are already up to date and don't need earlier data
+            # If we are up to date, still refresh the latest days using UPSERT.
             elif max_date >= expected_latest_day:
-                logger.info("%s history already up to date (last_date=%s)", ticker, max_date.isoformat())
-                return max_date_str
-            # Otherwise, fetch from where we left off
+                fetch_start = recent_refresh_start
+            # Otherwise fetch from where we left off, but include a short overlap to self-heal.
             else:
-                fetch_start = max_date + timedelta(days=1)
+                fetch_start = max(max_date + timedelta(days=1), recent_refresh_start)
         else:
             fetch_start = required_start or cls._default_history_start
 
@@ -467,8 +470,10 @@ class PriceService:
                     continue
 
                 cursor.execute(
-                    '''INSERT OR IGNORE INTO stock_prices (ticker, date, close_price)
-                       VALUES (?, ?, ?)''',
+                    '''INSERT INTO stock_prices (ticker, date, close_price)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(ticker, date)
+                       DO UPDATE SET close_price = excluded.close_price''',
                     (ticker, price_date.isoformat(), round(price, 2))
                 )
                 inserted_rows += cursor.rowcount
@@ -1018,3 +1023,88 @@ class PriceService:
         except Exception as e:
             print(f"Analysis failed for {ticker}: {e}")
             return None
+
+    @classmethod
+    def audit_price_history_quality(cls, days=30, jump_threshold_percent=25.0, refresh_flagged=False):
+        """
+        Checks recent price history quality and flags suspicious day-over-day jumps.
+        Optionally refreshes flagged tickers from the provider and re-evaluates.
+        """
+        db = get_db()
+        days = max(2, min(int(days), 365))
+        jump_threshold_percent = max(1.0, float(jump_threshold_percent))
+
+        active_tickers = [
+            row['ticker']
+            for row in db.execute(
+                "SELECT DISTINCT ticker FROM holdings WHERE ticker IS NOT NULL AND ticker != 'CASH'"
+            ).fetchall()
+        ]
+        if not active_tickers:
+            return {
+                'days': days,
+                'jump_threshold_percent': jump_threshold_percent,
+                'flagged_count': 0,
+                'flagged_tickers': [],
+                'issues': [],
+                'refreshed_tickers': [],
+            }
+
+        def _scan_once():
+            issues = []
+            flagged = set()
+            for ticker in active_tickers:
+                rows = db.execute(
+                    '''SELECT date, close_price
+                       FROM stock_prices
+                       WHERE ticker = ?
+                       ORDER BY date DESC
+                       LIMIT ?''',
+                    (ticker, days + 1)
+                ).fetchall()
+                if len(rows) < 2:
+                    continue
+
+                # Iterate from oldest to newest for stable comparisons.
+                ordered = list(reversed(rows))
+                for idx in range(1, len(ordered)):
+                    previous = float(ordered[idx - 1]['close_price'] or 0.0)
+                    current = float(ordered[idx]['close_price'] or 0.0)
+                    if previous <= 0:
+                        continue
+                    change_percent = ((current - previous) / previous) * 100.0
+                    if abs(change_percent) >= jump_threshold_percent:
+                        issue = {
+                            'ticker': ticker,
+                            'date': str(ordered[idx]['date']),
+                            'previous_date': str(ordered[idx - 1]['date']),
+                            'previous_close': round(previous, 4),
+                            'close': round(current, 4),
+                            'change_percent': round(change_percent, 2),
+                        }
+                        issues.append(issue)
+                        flagged.add(ticker)
+            issues.sort(key=lambda item: abs(item['change_percent']), reverse=True)
+            return issues, sorted(flagged)
+
+        issues, flagged_tickers = _scan_once()
+        refreshed_tickers = []
+
+        if refresh_flagged and flagged_tickers:
+            for ticker in flagged_tickers:
+                try:
+                    cls.sync_stock_history(ticker)
+                    refreshed_tickers.append(ticker)
+                except Exception as exc:
+                    logging.warning("Failed to refresh flagged ticker %s: %s", ticker, exc)
+            # Re-run scan after refresh.
+            issues, flagged_tickers = _scan_once()
+
+        return {
+            'days': days,
+            'jump_threshold_percent': jump_threshold_percent,
+            'flagged_count': len(flagged_tickers),
+            'flagged_tickers': flagged_tickers,
+            'issues': issues,
+            'refreshed_tickers': refreshed_tickers,
+        }
