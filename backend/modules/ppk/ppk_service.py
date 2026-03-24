@@ -19,6 +19,12 @@ def _q(value: Decimal, places: str = '0.01') -> float:
 
 class PPKService:
     @staticmethod
+    def _iso_week_key(date_str: str) -> tuple:
+        dt = date.fromisoformat(date_str)
+        iso_year, iso_week, _ = dt.isocalendar()
+        return (iso_year, iso_week)
+
+    @staticmethod
     def fetch_current_price() -> Dict[str, Any]:
         request = Request(
             PPK_PRICE_URL,
@@ -146,13 +152,16 @@ class PPKService:
         ).fetchone()
 
         daily_history = PPKService.fetch_daily_history(fund_id)
+        latest_price = daily_history[-1]['price'] if daily_history else 0
+        
         if not daily_history:
             if cached:
                 return {
                     'data': json.loads(cached['data']),
-                    'last_week': cached['last_week']
+                    'last_week': cached['last_week'],
+                    'latest_price': 0
                 }
-            return {'data': [], 'last_week': None}
+            return {'data': [], 'last_week': None, 'latest_price': 0}
 
         if cached:
             cached_data = json.loads(cached['data'])
@@ -163,9 +172,9 @@ class PPKService:
             if new_daily:
                 new_weekly = PPKService.aggregate_weekly(new_daily)
                 
-                # Filter out duplicates and append
-                existing_dates = {w['week'] for w in cached_data}
-                filtered_new_weekly = [w for w in new_weekly if w['week'] not in existing_dates]
+                # Filter out duplicates (by ISO week) and append
+                existing_weeks = {PPKService._iso_week_key(w['week']) for w in cached_data}
+                filtered_new_weekly = [w for w in new_weekly if PPKService._iso_week_key(w['week']) not in existing_weeks]
                 
                 if filtered_new_weekly:
                     cached_data.extend(filtered_new_weekly)
@@ -177,7 +186,7 @@ class PPKService:
                     )
                     db.commit()
             
-            return {'data': cached_data, 'last_week': last_week}
+            return {'data': cached_data, 'last_week': last_week, 'latest_price': latest_price}
         else:
             # Full compute from first_contribution_date
             filtered_daily = [d for d in daily_history if d['date'] >= first_contribution_date]
@@ -192,9 +201,9 @@ class PPKService:
                     (fund_id, json.dumps(weekly_data), last_week)
                 )
                 db.commit()
-                return {'data': weekly_data, 'last_week': last_week}
+                return {'data': weekly_data, 'last_week': last_week, 'latest_price': latest_price}
             
-            return {'data': [], 'last_week': None}
+            return {'data': [], 'last_week': None, 'latest_price': latest_price}
 
     @staticmethod
     def compute_performance(portfolio_id: int, fund_id: str) -> dict:
@@ -219,10 +228,7 @@ class PPKService:
         # Incremental update
         cache_result = PPKService.update_cache(fund_id, first_date)
         weekly_data = cache_result['data']
-        
-        # Latest available DAILY price
-        daily_history = PPKService.fetch_daily_history(fund_id)
-        current_price = daily_history[-1]['price'] if daily_history else 0
+        current_price = cache_result['latest_price']
         
         if not weekly_data:
              return {
@@ -327,3 +333,4 @@ class PPKService:
                VALUES (?, ?, ?)''',
             (portfolio_id, name, created_at)
         )
+        db.commit()
