@@ -1,0 +1,54 @@
+[1mdiff --git a/backend/portfolio_history_service.py b/backend/portfolio_history_service.py[m
+[1mindex a9bacb5..e31d8c4 100644[m
+[1m--- a/backend/portfolio_history_service.py[m
+[1m+++ b/backend/portfolio_history_service.py[m
+[36m@@ -39,11 +39,23 @@[m [mclass PortfolioHistoryService(PortfolioCoreService):[m
+             curr_m, curr_y = next_m, next_y[m
+ [m
+         ticker_currency: dict[str, str] = {}[m
+[32m+[m[32m                # Fetch current holdings to get currencies[m
+         holding_rows = db.execute('SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL', (portfolio_id,)).fetchall()[m
+         for row in holding_rows:[m
+             if row['ticker'] and row['ticker'] != 'CASH':[m
+[31m-                ticker_currency[row['ticker']] = (row['currency'] or 'PLN').upper()[m
+[32m+[m[32m                ticker = row['ticker'][m
+[32m+[m[32m                currency = (row['currency'] or 'PLN').upper()[m
+[32m+[m[32m                # Double check with metadata if currency is PLN, as it might be an incorrect default[m
+[32m+[m[32m                if currency == 'PLN':[m
+[32m+[m[32m                    try:[m
+[32m+[m[32m                        meta = PriceService.fetch_metadata(ticker)[m
+[32m+[m[32m                        if meta and meta.get('currency') and meta['currency'].upper() != 'PLN':[m
+[32m+[m[32m                            currency = meta['currency'].upper()[m
+[32m+[m[32m                    except Exception:[m
+[32m+[m[32m                        pass[m
+[32m+[m[32m                ticker_currency[ticker] = currency[m
+ [m
+[32m+[m[32m        # Ensure all tickers in transactions have a currency assigned[m
+         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}[m
+         for ticker in tickers:[m
+             if ticker not in ticker_currency:[m
+[36m@@ -237,10 +249,23 @@[m [mclass PortfolioHistoryService(PortfolioCoreService):[m
+         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}[m
+ [m
+         ticker_currency = {}[m
+[32m+[m[32m        # Fetch current holdings to get currencies[m
+         holding_rows = db.execute('SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL', (portfolio_id,)).fetchall()[m
+         for row in holding_rows:[m
+             if row['ticker'] and row['ticker'] != 'CASH':[m
+[31m-                ticker_currency[row['ticker']] = (row['currency'] or 'PLN').upper()[m
+[32m+[m[32m                ticker = row['ticker'][m
+[32m+[m[32m                currency = (row['currency'] or 'PLN').upper()[m
+[32m+[m[32m                # Double check with metadata if currency is PLN[m
+[32m+[m[32m                if currency == 'PLN':[m
+[32m+[m[32m                    try:[m
+[32m+[m[32m                        meta = PriceService.fetch_metadata(ticker)[m
+[32m+[m[32m                        if meta and meta.get('currency') and meta['currency'].upper() != 'PLN':[m
+[32m+[m[32m                            currency = meta['currency'].upper()[m
+[32m+[m[32m                    except Exception:[m
+[32m+[m[32m                        pass[m
+[32m+[m[32m                ticker_currency[ticker] = currency[m
+[32m+[m
+[32m+[m[32m        # Ensure all tickers in transactions have a currency assigned[m
+         for ticker in tickers:[m
+             if ticker not in ticker_currency:[m
+                 try:[m

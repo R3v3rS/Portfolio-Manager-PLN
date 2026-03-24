@@ -45,6 +45,15 @@ def init_db(app):
             );
         ''')
 
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS ppk_weekly_history (
+                fund_id VARCHAR(20) PRIMARY KEY,
+                data TEXT NOT NULL,
+                last_week TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+
         # PPK portfolios table
         db.execute('''
             CREATE TABLE IF NOT EXISTS ppk_portfolios (

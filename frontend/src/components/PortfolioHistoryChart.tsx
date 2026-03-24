@@ -15,6 +15,7 @@ interface PortfolioHistoryChartProps {
     date: string;
     label: string;
     value: number;
+    net_value?: number;
     net_contributions?: number;
     benchmark_value?: number;
     benchmark_inflation?: number;
@@ -30,6 +31,7 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
   const [showInflation, setShowInflation] = useState(false);
   
   const hasContributionsLine = data.some((point) => point.net_contributions !== undefined);
+  const hasNetValueLine = data.some((point) => point.net_value !== undefined);
   const hasBenchmarkLine = data.some((point) => point.benchmark_value !== undefined);
   const hasInflationData = data.some((point) => point.benchmark_inflation !== undefined);
 
@@ -88,9 +90,11 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
                     ? benchmarkName
                     : name === 'net_contributions'
                       ? 'Wpłaty netto'
-                      : name === 'value'
-                        ? 'Wartość Portfela'
-                        : name
+                      : name === 'net_value'
+                        ? 'Wartość netto (po podatku)'
+                        : name === 'value'
+                          ? 'Wartość Portfela'
+                          : name
                 ];
               }}
               labelStyle={{ color: '#374151', fontWeight: 'bold', marginBottom: '4px' }}
@@ -105,6 +109,17 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
               dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
               activeDot={{ r: 6, strokeWidth: 0 }}
             />
+            {hasNetValueLine && (
+              <Line
+                type="monotone"
+                dataKey="net_value"
+                name="Wartość netto (po podatku)"
+                stroke="#8b5cf6"
+                strokeWidth={2}
+                dot={{ r: 3, fill: '#8b5cf6', strokeWidth: 2, stroke: '#fff' }}
+                activeDot={{ r: 6, strokeWidth: 0 }}
+              />
+            )}
             {hasContributionsLine && (
               <Line
                 type="monotone"

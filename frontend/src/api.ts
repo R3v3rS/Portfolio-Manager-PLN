@@ -1,7 +1,7 @@
 import { HttpError, type QueryParams } from './http';
 import type { ApiErrorEnvelope, XtbImportErrorDetailsDto, XtbImportSuccessDto } from './api-contract';
 import { createApiClient } from './apiConfig';
-import type { Bond, ClosedPosition, ClosedPositionCycle, Holding, Portfolio, PortfolioValue, Transaction } from './types';
+import type { Bond, ClosedPosition, ClosedPositionCycle, EquityAllocation, Holding, Portfolio, PortfolioValue, Transaction } from './types';
 import type { PPKSummary, PPKTransaction } from './services/ppkCalculator';
 
 const portfolioHttp = createApiClient('/portfolio');
@@ -74,6 +74,21 @@ export interface PortfolioAuditResult {
     realized_profit_total: number;
     holdings: Record<string, { quantity: number; total_cost: number; avg_price: number }>;
   } | null;
+}
+
+export interface PPKPerformanceResponse {
+  start_week: string | null;
+  start_price: number;
+  current_price: number;
+  return_pln: number;
+  return_pct: number;
+  chart: { 
+    week: string; 
+    price: number; 
+    value?: number; 
+    net_value?: number;
+    net_contributions?: number;
+  }[];
 }
 
 export interface PPKTransactionsResponse {
@@ -541,6 +556,29 @@ export const portfolioApi = {
     employerUnits: number;
     pricePerUnit: number;
   }) => portfolioHttp.post('/ppk/transactions', payload),
+  getPpkPerformance: async (portfolioId: number): Promise<PPKPerformanceResponse> => {
+    const response = await portfolioHttp.get<unknown>(`/ppk/performance/${portfolioId}`);
+    const source = isRecord(response) ? response : {};
+    return {
+      start_week: toOptionalString(source.start_week),
+      start_price: toNumber(source.start_price),
+      current_price: toNumber(source.current_price),
+      return_pln: toNumber(source.return_pln),
+      return_pct: toNumber(source.return_pct),
+      chart: Array.isArray(source.chart)
+        ? source.chart.map((point) => {
+            const p = isRecord(point) ? point : {};
+            return { 
+              week: toString(p.week), 
+              price: toNumber(p.price),
+              value: p.value !== undefined ? toNumber(p.value) : undefined,
+              net_value: p.net_value !== undefined ? toNumber(p.net_value) : undefined,
+              net_contributions: p.net_contributions !== undefined ? toNumber(p.net_contributions) : undefined
+            };
+          })
+        : [],
+    };
+  },
   getPpkTransactions: async (portfolioId: number): Promise<PPKTransactionsResponse> => {
     const response = await portfolioHttp.get<unknown>(`/ppk/transactions/${portfolioId}`);
     const source = isRecord(response) ? response : {};
