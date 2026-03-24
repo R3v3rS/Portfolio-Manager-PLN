@@ -42,3 +42,11 @@ def add_ppk_transaction():
         require_number(data, 'pricePerUnit', positive=True),
     )
     return success_response({'message': 'PPK transaction added successfully'}, status=201)
+
+
+@portfolio_bp.route('/ppk/performance/<int:portfolio_id>', methods=['GET'])
+def get_ppk_performance(portfolio_id):
+    # Default fund ID for NN PPK 2055
+    fund_id = request.args.get('fund_id', '61777738')
+    performance = PPKService.compute_performance(portfolio_id, fund_id)
+    return success_response(performance)

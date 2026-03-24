@@ -6,6 +6,7 @@ import {
   normalizeXtbImportError,
   normalizeXtbImportResult,
   type PortfolioAuditResult,
+  type PPKPerformanceResponse,
 } from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle, EquityAllocation } from '../types';
@@ -299,6 +300,7 @@ const PortfolioDetails: React.FC = () => {
   const [ppkTransactions, setPpkTransactions] = useState<PPKTx[]>([]);
   const [ppkSummary, setPpkSummary] = useState<PPKSummary | null>(null);
   const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string } | null>(null);
+  const [ppkPerformance, setPpkPerformance] = useState<PPKPerformanceResponse | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('holdings');
@@ -434,14 +436,19 @@ const PortfolioDetails: React.FC = () => {
         setPortfolioHistory([]);
       }
       if (found?.account_type === 'PPK') {
-        const ppkRes = await portfolioApi.getPpkTransactions(portfolioId);
+        const [ppkRes, perfRes] = await Promise.all([
+          portfolioApi.getPpkTransactions(portfolioId),
+          portfolioApi.getPpkPerformance(portfolioId)
+        ]);
         setPpkTransactions(ppkRes.transactions ?? []);
         setPpkSummary(ppkRes.summary ?? null);
         setPpkCurrentPrice(ppkRes.currentPrice ?? null);
+        setPpkPerformance(perfRes);
       } else {
         setPpkTransactions([]);
         setPpkSummary(null);
         setPpkCurrentPrice(null);
+        setPpkPerformance(null);
       }
       
       // Only set active tab if it's the first load (to preserve tab on refresh)
@@ -1290,28 +1297,70 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'ppk' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Total units</p>
+                  <p className="text-sm text-purple-700">Liczba jednostek</p>
                   <p className="text-2xl font-bold text-purple-900">{(ppkSummary?.totalUnits ?? 0).toFixed(4)}</p>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Average price</p>
+                  <p className="text-sm text-purple-700">Średnia cena zakupu</p>
                   <p className="text-2xl font-bold text-purple-900">{(ppkSummary?.averagePrice ?? 0).toFixed(2)} PLN</p>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Aktualna cena pakietu PPK</p>
+                  <p className="text-sm text-purple-700">Aktualna cena jednostki</p>
                   <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice ? `${ppkCurrentPrice.price.toFixed(2)} PLN` : '-'}</p>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
                   <p className="text-sm text-purple-700">Ostatnia aktualizacja ceny</p>
                   <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice?.date || '-'}</p>
                 </div>
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100 md:col-span-2">
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
                   <p className="text-sm text-purple-700">Wartość możliwa do wypłaty (po podatku)</p>
                   <p className="text-2xl font-bold text-purple-900">{ppkSummary ? `${ppkSummary.totalNetValue.toFixed(2)} PLN` : '-'}</p>
                 </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                  <p className="text-sm text-purple-700">Stopa zwrotu (fundusz)</p>
+                  <p className={cn(
+                    "text-2xl font-bold",
+                    (ppkPerformance?.return_pct ?? 0) >= 0 ? "text-green-700" : "text-red-700"
+                  )}>
+                    {ppkPerformance ? `${ppkPerformance.return_pct.toFixed(2)}%` : '-'}
+                  </p>
+                </div>
               </div>
+
+              {/* PPK Performance Chart */}
+              {ppkPerformance && ppkPerformance.chart.length > 0 && (
+                <div className="mt-8 border-t pt-8 space-y-8">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Wykres wartości portfela</h3>
+                    <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                      <PortfolioHistoryChart 
+                        data={ppkPerformance.chart.map(p => ({
+                          date: p.week,
+                          label: p.week,
+                          value: p.value ?? 0,
+                          net_value: p.net_value,
+                          net_contributions: p.net_contributions
+                        }))} 
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Wykres wyceny jednostki funduszu</h3>
+                    <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+                      <PortfolioHistoryChart 
+                        data={ppkPerformance.chart.map(p => ({
+                          date: p.week,
+                          label: p.week,
+                          value: p.price
+                        }))} 
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <PPKContributionForm portfolioId={portfolio.id} onSuccess={fetchData} />
 
