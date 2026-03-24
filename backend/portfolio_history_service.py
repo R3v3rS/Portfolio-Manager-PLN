@@ -8,8 +8,65 @@ from inflation_service import InflationService
 
 
 class PortfolioHistoryService(PortfolioCoreService):
+    _metrics_cache = {}
+
+    @staticmethod
+    def _build_price_context(portfolio_id, tickers, start_date, account_type, benchmark_ticker=None):
+        db = get_db()
+        ticker_currency: dict[str, str] = {}
+        # Fetch current holdings to get currencies
+        holding_rows = db.execute('SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL', (portfolio_id,)).fetchall()
+        for row in holding_rows:
+            if row['ticker'] and row['ticker'] != 'CASH':
+                ticker = row['ticker']
+                currency = (row['currency'] or 'PLN').upper()
+                # Double check with metadata if currency is PLN, as it might be an incorrect default
+                if currency == 'PLN':
+                    try:
+                        meta = PriceService.fetch_metadata(ticker)
+                        if meta and meta.get('currency') and meta['currency'].upper() != 'PLN':
+                            currency = meta['currency'].upper()
+                    except Exception:
+                        pass
+                ticker_currency[ticker] = currency
+
+        # Ensure all tickers in transactions have a currency assigned
+        for ticker in tickers:
+            if ticker not in ticker_currency:
+                try:
+                    meta = PriceService.fetch_metadata(ticker)
+                    ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
+                except Exception:
+                    ticker_currency[ticker] = 'PLN'
+
+        fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
+        sync_tickers = set(tickers)
+        sync_tickers.update(fx_tickers)
+        if benchmark_ticker and benchmark_ticker != '__INFLATION__':
+            sync_tickers.add(benchmark_ticker)
+
+        if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
+            tickers_to_sync = PriceService.get_tickers_requiring_history_sync(sync_tickers, start_date)
+            for ticker in tickers_to_sync:
+                try:
+                    PriceService.sync_stock_history(ticker, start_date)
+                except Exception as e:
+                    print(f"Failed to sync history for {ticker}: {e}")
+
+        price_history = {}
+        if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
+            for ticker in sync_tickers:
+                rows = db.execute('SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC', (ticker,)).fetchall()
+                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
+        
+        return ticker_currency, price_history
+
     @staticmethod
     def _calculate_historical_metrics(portfolio_id, benchmark_ticker=None):
+        cache_key = (portfolio_id, benchmark_ticker)
+        if cache_key in PortfolioHistoryService._metrics_cache:
+            return PortfolioHistoryService._metrics_cache[cache_key]
+
         db = get_db()
         transactions = db.execute('SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC', (portfolio_id,)).fetchall()
         if not transactions:
@@ -39,57 +96,15 @@ class PortfolioHistoryService(PortfolioCoreService):
                 break
             curr_m, curr_y = next_m, next_y
 
-        ticker_currency: dict[str, str] = {}
-                # Fetch current holdings to get currencies
-        holding_rows = db.execute('SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL', (portfolio_id,)).fetchall()
-        for row in holding_rows:
-            if row['ticker'] and row['ticker'] != 'CASH':
-                ticker = row['ticker']
-                currency = (row['currency'] or 'PLN').upper()
-                # Double check with metadata if currency is PLN, as it might be an incorrect default
-                if currency == 'PLN':
-                    try:
-                        meta = PriceService.fetch_metadata(ticker)
-                        if meta and meta.get('currency') and meta['currency'].upper() != 'PLN':
-                            currency = meta['currency'].upper()
-                    except Exception:
-                        pass
-                ticker_currency[ticker] = currency
-
-        # Ensure all tickers in transactions have a currency assigned
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
-        for ticker in tickers:
-            if ticker not in ticker_currency:
-                try:
-                    meta = PriceService.fetch_metadata(ticker)
-                    ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
-                except Exception:
-                    ticker_currency[ticker] = 'PLN'
+        ticker_currency, price_history = PortfolioHistoryService._build_price_context(
+            portfolio_id, tickers, start_date, account_type, benchmark_ticker
+        )
 
-        fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
-        sync_tickers = set(tickers)
-        sync_tickers.update(fx_tickers)
-        if benchmark_ticker and benchmark_ticker != '__INFLATION__':
-            sync_tickers.add(benchmark_ticker)
-
-        if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
-            tickers_to_sync = PriceService.get_tickers_requiring_history_sync(sync_tickers, start_date)
-            for ticker in tickers_to_sync:
-                try:
-                    PriceService.sync_stock_history(ticker, start_date)
-                except Exception as e:
-                    print(f"Failed to sync history for {ticker}: {e}")
-
-        price_history = {}
         inflation_map = {}
         # Always fetch inflation data to support the "benchmark_inflation" field in history
         inf_series = InflationService.get_inflation_series(start_date.strftime('%Y-%m'), today.strftime('%Y-%m'))
         inflation_map = {item['date']: item['index_value'] for item in inf_series}
-
-        if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
-            for ticker in sync_tickers:
-                rows = db.execute('SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC', (ticker,)).fetchall()
-                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
 
         def get_price_at_date(ticker, target_date):
             if ticker == '__INFLATION__':
@@ -199,6 +214,8 @@ class PortfolioHistoryService(PortfolioCoreService):
             metrics["benchmark_inflation_value"] = round(inflation_shares * ip_end, 2)
             
             monthly_data[end_date.strftime('%Y-%m')] = metrics
+        
+        PortfolioHistoryService._metrics_cache[cache_key] = monthly_data
         return monthly_data
 
     @staticmethod
@@ -260,48 +277,9 @@ class PortfolioHistoryService(PortfolioCoreService):
         date_points = [start_date + timedelta(days=offset) for offset in range(days)]
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
 
-        ticker_currency = {}
-        # Fetch current holdings to get currencies
-        holding_rows = db.execute('SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL', (portfolio_id,)).fetchall()
-        for row in holding_rows:
-            if row['ticker'] and row['ticker'] != 'CASH':
-                ticker = row['ticker']
-                currency = (row['currency'] or 'PLN').upper()
-                # Double check with metadata if currency is PLN
-                if currency == 'PLN':
-                    try:
-                        meta = PriceService.fetch_metadata(ticker)
-                        if meta and meta.get('currency') and meta['currency'].upper() != 'PLN':
-                            currency = meta['currency'].upper()
-                    except Exception:
-                        pass
-                ticker_currency[ticker] = currency
-
-        # Ensure all tickers in transactions have a currency assigned
-        for ticker in tickers:
-            if ticker not in ticker_currency:
-                try:
-                    meta = PriceService.fetch_metadata(ticker)
-                    ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
-                except Exception:
-                    ticker_currency[ticker] = 'PLN'
-
-        fx_tickers = {f"{currency}PLN=X" for currency in set(ticker_currency.values()) if currency != 'PLN'}
-        sync_tickers = set(tickers)
-        sync_tickers.update(fx_tickers)
-        if account_type not in ['SAVINGS', 'BONDS']:
-            tickers_to_sync = PriceService.get_tickers_requiring_history_sync(sync_tickers, start_date)
-            for ticker in tickers_to_sync:
-                try:
-                    PriceService.sync_stock_history(ticker, start_date)
-                except Exception as e:
-                    print(f"Failed to sync history for {ticker}: {e}")
-
-        price_history = {}
-        if account_type not in ['SAVINGS', 'BONDS']:
-            for ticker in sync_tickers:
-                rows = db.execute('SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC', (ticker,)).fetchall()
-                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
+        ticker_currency, price_history = PortfolioHistoryService._build_price_context(
+            portfolio_id, tickers, start_date, account_type
+        )
 
         def get_price_at_date(ticker, target_date):
             if ticker not in price_history or not price_history[ticker]:
@@ -358,6 +336,10 @@ class PortfolioHistoryService(PortfolioCoreService):
                 live_value = PortfolioValuationService.get_portfolio_value(portfolio_id)
                 if live_value:
                     total_value = float(live_value.get('portfolio_value', total_value))
+                    # Sync invested_capital from live_value if available
+                    live_invested = live_value.get('invested_capital') or live_value.get('net_contributions')
+                    if live_invested is not None:
+                        invested_capital = float(live_invested)
 
             value = total_value if metric == 'value' else total_value - invested_capital
             result.append({'date': point_date.strftime('%Y-%m-%d'), 'label': point_date.strftime('%d %b'), 'value': round(value, 2)})
@@ -400,9 +382,15 @@ class PortfolioHistoryService(PortfolioCoreService):
             start_value = previous_end_value
             profit = end_value - start_value - net_flows
             denominator = start_value + (net_flows / 2.0)
-            monthly_return = 0.0 if denominator <= 0 else profit / denominator
-            results[year_key][month_int] = round(monthly_return * 100, 2)
-            yearly_compounding[year_key] *= (1.0 + monthly_return)
+            
+            if denominator <= 0:
+                monthly_return = None
+                results[year_key][month_int] = None
+            else:
+                monthly_return = profit / denominator
+                results[year_key][month_int] = round(monthly_return * 100, 2)
+                yearly_compounding[year_key] *= (1.0 + monthly_return)
+            
             results[year_key]['YTD'] = round((yearly_compounding[year_key] - 1.0) * 100, 2)
             previous_end_value = end_value
         return results
