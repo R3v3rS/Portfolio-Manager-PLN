@@ -97,10 +97,32 @@ export interface PPKTransactionsResponse {
   currentPrice: { price: number; date: string } | null;
 }
 
+export interface XtbImportConflict {
+  row_hash: string;
+  conflict_type: 'database_duplicate' | 'file_internal_duplicate';
+  import_data: {
+    date: string;
+    ticker: string;
+    amount: number;
+    type: string;
+    quantity: number;
+  };
+  existing_match: {
+    id: number | null;
+    date: string;
+    amount: number;
+    type: string;
+    quantity: number;
+    source: string;
+  };
+}
+
 export interface XtbImportResult {
   ok: boolean;
   message: string | null;
+  status?: 'success' | 'warning';
   missingSymbols: string[];
+  potentialConflicts?: XtbImportConflict[];
 }
 
 export interface PortfolioLimitsResponse {
@@ -390,12 +412,14 @@ const normalizePpkSummary = (value: unknown): PPKSummary | null => {
 };
 
 export const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
-  const source = isRecord(value) ? (value as Partial<XtbImportSuccessDto> & Record<string, unknown>) : {};
+  const source = isRecord(value) ? (value as any) : {};
 
   return {
     ok: true,
     message: toOptionalString(source.message),
+    status: source.status === 'warning' ? 'warning' : 'success',
     missingSymbols: toStringArray(source.missing_symbols),
+    potentialConflicts: Array.isArray(source.potential_conflicts) ? source.potential_conflicts : undefined,
   };
 };
 
@@ -409,14 +433,15 @@ export const normalizeXtbImportError = (error: unknown): XtbImportResult => {
       ok: false,
       message: errorEnvelope?.error.message ?? error.message ?? 'Import failed.',
       missingSymbols: toStringArray(errorEnvelope?.error.details?.missing_symbols),
+      potentialConflicts: [],
     };
   }
 
   if (error instanceof Error) {
-    return { ok: false, message: error.message, missingSymbols: [] };
+    return { ok: false, message: error.message, missingSymbols: [], potentialConflicts: [] };
   }
 
-  return { ok: false, message: 'Unknown error', missingSymbols: [] };
+  return { ok: false, message: 'Unknown error', missingSymbols: [], potentialConflicts: [] };
 };
 
 export const portfolioApi = {
@@ -498,7 +523,7 @@ export const portfolioApi = {
     };
   },
   getClosedPositionCycles: async (portfolioId: number): Promise<{ positions: ClosedPositionCycle[]; total_historical_profit: number }> => {
-    const response = await portfolioHttp.get<unknown>(`/${portfolioId}/closed-position-cycles`);
+    const response = await portfolioHttp.get<unknown>(`` + `/${portfolioId}/closed-position-cycles`);
     const source = isRecord(response) ? response : {};
     return {
       positions: Array.isArray(source.positions) ? source.positions.map(normalizeClosedPositionCycle) : [],
@@ -519,9 +544,12 @@ export const portfolioApi = {
     const source = isRecord(response) ? response : {};
     return { message: toOptionalString(source.message) };
   },
-  importXtbCsv: async (portfolio_id: number, file: File): Promise<XtbImportResult> => {
+  importXtbCsv: async (portfolio_id: number, file: File, confirmedHashes?: string[]): Promise<XtbImportResult> => {
     const formData = new FormData();
     formData.append('file', file);
+    if (confirmedHashes) {
+      formData.append('confirmed_hashes', JSON.stringify(confirmedHashes));
+    }
     const response = await portfolioHttp.post<unknown>(`/${portfolio_id}/import/xtb`, formData);
     return normalizeXtbImportResult(response);
   },

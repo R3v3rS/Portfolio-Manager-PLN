@@ -7,12 +7,14 @@ import {
   normalizeXtbImportResult,
   type PortfolioAuditResult,
   type PPKPerformanceResponse,
+  type XtbImportConflict,
 } from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
 import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle, EquityAllocation } from '../types';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
+import DuplicateConfirmationModal from '../components/modals/DuplicateConfirmationModal';
 import { cn } from '../lib/utils.ts';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
@@ -38,6 +40,7 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, { ticker: string; currency: MappingCurrency }>>({});
   const [savingMappings, setSavingMappings] = useState(false);
+  const [conflicts, setConflicts] = useState<XtbImportConflict[]>([]);
 
   const openMissingSymbolsModal = (symbols: string[], file: File) => {
     setMissingSymbols(symbols);
@@ -45,12 +48,18 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
     setMappingDrafts(createMissingSymbolDrafts(symbols));
   };
 
-  const importFile = async (file: File) => {
+  const importFile = async (file: File, confirmedHashes?: string[]) => {
     try {
-      const result = normalizeXtbImportResult(await portfolioApi.importXtbCsv(portfolioId, file));
+      const result = await portfolioApi.importXtbCsv(portfolioId, file, confirmedHashes);
 
       if (result.missingSymbols.length > 0) {
         openMissingSymbolsModal(result.missingSymbols, file);
+        return;
+      }
+
+      if (result.status === 'warning' && result.potentialConflicts && result.potentialConflicts.length > 0) {
+        setConflicts(result.potentialConflicts);
+        setPendingFile(file);
         return;
       }
 
@@ -61,6 +70,8 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
 
       alert('Import successful!');
       onSuccess();
+      setConflicts([]);
+      setPendingFile(null);
     } catch (err: unknown) {
       const result = normalizeXtbImportError(err);
 
@@ -118,6 +129,11 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
     }
   };
 
+  const handleConfirmDuplicates = async (hashes: string[]) => {
+    if (!pendingFile) return;
+    await importFile(pendingFile, hashes);
+  };
+
   return (
     <>
       <button
@@ -133,6 +149,17 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
         style={{ display: 'none' }}
         onChange={handleFileChange}
       />
+
+      {conflicts.length > 0 && (
+        <DuplicateConfirmationModal 
+          conflicts={conflicts} 
+          onConfirm={handleConfirmDuplicates}
+          onCancel={() => {
+            setConflicts([]);
+            setPendingFile(null);
+          }}
+        />
+      )}
 
       {missingSymbols.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
