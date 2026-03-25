@@ -17,17 +17,17 @@ const COLORS = [
 ];
 
 interface CustomLabelProps {
-  cx: number;
-  cy: number;
-  midAngle: number;
-  innerRadius: number;
-  outerRadius: number;
-  percent: number;
-  x: number;
-  y: number;
+  cx?: number;
+  cy?: number;
+  midAngle?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  percent?: number;
+  x?: number;
+  y?: number;
 }
 
-const renderCustomLabel = ({ cx, percent, x, y }: CustomLabelProps) => {
+const renderCustomLabel = ({ cx = 0, percent = 0, x = 0, y = 0 }: CustomLabelProps) => {
   if (percent < 0.02) return null;
 
   // Add a small offset to move text away from the line
