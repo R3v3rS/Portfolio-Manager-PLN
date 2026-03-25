@@ -85,6 +85,17 @@ Logika HTTP została podzielona na mniejsze, tematyczne blueprinty:
 - **`routes_symbol_map.py`** – mapowanie symboli zewnętrznych na tickery.
 - **`routes_admin.py`** – operacje administracyjne (czyszczenie, audyt, przebudowa).
 
+### 4.4 Infrastruktura API (`backend/api/`)
+Wprowadzono ustandaryzowaną warstwę komunikacji i obsługi błędów:
+
+- **`backend/api/response.py`** – zawiera helpery `success_response` i `error_response`, które pilnują struktury envelope `{ payload, error }`.
+- **`backend/api/exceptions.py`** – definiuje hierarchię wyjątków biznesowych:
+    - `ApiError`: bazowy wyjątek dla błędów API z kodem i statusem HTTP.
+    - `ValidationError`: rzucany przy błędach walidacji wejścia (status 400).
+    - `NotFoundError`: rzucany, gdy zasób nie istnieje (status 404).
+
+Wszystkie te wyjątki są automatycznie przechwytywane przez globalne handlery w `app.py` i zamieniane na poprawne odpowiedzi JSON.
+
 ## 5. Moduły serwisowe backendu
 
 Logika biznesowa została wydzielona z routerów do dedykowanych serwisów:
@@ -95,7 +106,7 @@ Logika biznesowa została wydzielona z routerów do dedykowanych serwisów:
 - **`portfolio_valuation_service.py`** – wycena portfeli i instrumentów.
 - **`portfolio_history_service.py`** – rekonstrukcja danych historycznych i wykresów.
 - **`portfolio_import_service.py`** – parsowanie i przetwarzanie importów CSV (XTB).
-- **`portfolio_audit_service.py`** – weryfikacja integralności danych (transakcje vs stan).
+- **`portfolio_audit_service.py`** – weryfikacja integralności danych i **deterministyczna rekonstrukcja stanu** (holdings/cash) na podstawie historii transakcji. Służy do audytu i naprawy niespójności.
 - **`portfolio_service.py`** – fasada łącząca powyższe serwisy dla prostszego dostępu.
 
 ### Pozostałe serwisy
@@ -712,13 +723,18 @@ Jeśli celem jest szybkie poruszanie się po projekcie, trzymaj się tej procedu
 2. znajdź odpowiadający widok React,
 3. sprawdź, przez który plik `api*.ts` dochodzi do backendu,
 4. otwórz odpowiedni `routes_*.py`,
-5. znajdź serwis domenowy (`portfolio_*_service.py`, `budget_service.py` itd.),
-6. jeśli sprawa dotyczy danych lub błędów w zapisie, sprawdź `database.py`,
-7. jeśli sprawa dotyczy historii lub wykresów portfela, sprawdź `portfolio_history_service.py`.
+5. sprawdź czy request jest walidowany i czy rzuca `ValidationError` przy błędach,
+6. znajdź serwis domenowy (`portfolio_*_service.py`, `budget_service.py` itd.),
+7. jeśli sprawa dotyczy danych lub błędów w zapisie, sprawdź `database.py`,
+8. jeśli sprawa dotyczy historii lub wykresów portfela, sprawdź `portfolio_history_service.py`.
 
 Minimalna ścieżka diagnostyczna to zwykle:
 
 `widok frontendu -> moduł API -> route Flask -> service -> database.py`
+
+A przy błędach walidacji lub wyjątkach:
+
+`backend/api/exceptions.py -> global_handler (app.py) -> frontend/src/http.ts`
 
 A dla wykresów inwestycyjnych najczęściej:
 
