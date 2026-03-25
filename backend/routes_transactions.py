@@ -1,3 +1,4 @@
+from flask import request
 from portfolio_service import PortfolioService
 from api.response import success_response
 from routes_portfolio_base import (
@@ -77,13 +78,15 @@ def sell():
 
 @portfolio_bp.route('/transactions/<int:portfolio_id>', methods=['GET'])
 def get_transactions(portfolio_id):
-    transactions = PortfolioService.get_transactions(portfolio_id)
+    ticker = request.args.get('ticker')
+    transactions = PortfolioService.get_transactions(portfolio_id, ticker=ticker)
     return success_response({'transactions': transactions})
 
 
 @portfolio_bp.route('/transactions/all', methods=['GET'])
 def get_all_transactions():
-    transactions = PortfolioService.get_all_transactions()
+    ticker = request.args.get('ticker')
+    transactions = PortfolioService.get_all_transactions(ticker=ticker)
     return success_response({'transactions': transactions})
 
 
