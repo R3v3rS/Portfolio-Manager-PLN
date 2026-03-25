@@ -14,6 +14,7 @@ const Transactions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [filterPortfolio, setFilterPortfolio] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
+  const [filterTicker, setFilterTicker] = useState<string>('all');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -33,9 +34,12 @@ const Transactions: React.FC = () => {
     fetchData();
   }, []);
 
+  const uniqueTickers = Array.from(new Set(transactions.map(t => t.ticker).filter(t => t && t !== 'CASH'))).sort();
+
   const filteredTransactions = transactions.filter(t => {
     if (filterPortfolio !== 'all' && t.portfolio_id !== parseInt(filterPortfolio)) return false;
     if (filterType !== 'all' && t.type !== filterType) return false;
+    if (filterTicker !== 'all' && t.ticker !== filterTicker) return false;
     return true;
   });
 
@@ -76,6 +80,20 @@ const Transactions: React.FC = () => {
             <option value="WITHDRAW">Withdraw</option>
             <option value="DIVIDEND">Dividend</option>
             <option value="INTEREST">Interest</option>
+          </select>
+        </div>
+        <div className="flex-1">
+          <label htmlFor="ticker" className="block text-sm font-medium text-gray-700">Ticker</label>
+          <select
+            id="ticker"
+            value={filterTicker}
+            onChange={(e) => setFilterTicker(e.target.value)}
+            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border"
+          >
+            <option value="all">All Tickers</option>
+            {uniqueTickers.map(ticker => (
+              <option key={ticker} value={ticker}>{ticker}</option>
+            ))}
           </select>
         </div>
       </div>

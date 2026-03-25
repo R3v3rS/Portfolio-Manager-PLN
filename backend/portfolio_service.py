@@ -16,20 +16,29 @@ class PortfolioService(
     PortfolioCoreService,
 ):
     @staticmethod
-    def get_transactions(portfolio_id):
+    def get_transactions(portfolio_id, ticker=None):
         db = get_db()
-        transactions = db.execute('SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date DESC', (portfolio_id,)).fetchall()
+        query = 'SELECT * FROM transactions WHERE portfolio_id = ?'
+        params = [portfolio_id]
+        if ticker:
+            query += ' AND ticker = ?'
+            params.append(ticker)
+        query += ' ORDER BY date DESC'
+        transactions = db.execute(query, params).fetchall()
         return [{key: t[key] for key in t.keys()} for t in transactions]
 
     @staticmethod
-    def get_all_transactions():
+    def get_all_transactions(ticker=None):
         db = get_db()
-        transactions = db.execute(
-            '''SELECT t.*, p.name as portfolio_name
+        query = '''SELECT t.*, p.name as portfolio_name
                FROM transactions t
-               JOIN portfolios p ON t.portfolio_id = p.id
-               ORDER BY t.date DESC'''
-        ).fetchall()
+               JOIN portfolios p ON t.portfolio_id = p.id'''
+        params = []
+        if ticker:
+            query += ' WHERE t.ticker = ?'
+            params.append(ticker)
+        query += ' ORDER BY t.date DESC'
+        transactions = db.execute(query, params).fetchall()
         return [{key: t[key] for key in t.keys()} for t in transactions]
 
     @staticmethod

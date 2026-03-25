@@ -427,7 +427,7 @@ export const portfolioApi = {
   limits: () => portfolioHttp.get<PortfolioLimitsResponse>('/limits'),
   create: (payload: CreatePortfolioPayload) => portfolioHttp.post('/create', payload),
   remove: (portfolioId: number) => portfolioHttp.delete(`/${portfolioId}`),
-  listTransactions: () => portfolioHttp.get<TransactionsListResponse>('/transactions/all'),
+  listTransactions: (ticker?: string) => portfolioHttp.get<TransactionsListResponse>('/transactions/all', { params: ticker ? { ticker } : undefined }),
   listNormalized: async (): Promise<Portfolio[]> => {
     return (await portfolioApi.list()).portfolios;
   },
