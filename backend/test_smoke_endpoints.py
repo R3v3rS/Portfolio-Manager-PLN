@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import pandas as pd
 
 BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
@@ -12,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from database import get_db, init_db  # noqa: E402
+from portfolio_service import PortfolioService  # noqa: E402
 
 
 class BackendSmokeEndpointsTestCase(unittest.TestCase):
@@ -369,6 +371,93 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(error['code'], 'xtb_import_invalid_csv')
         self.assertEqual(error['message'], 'Invalid CSV format')
         self.assertEqual(error['details'], {})
+
+    def test_xtb_import_conflicts_return_warning_without_confirmations(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "INSERT INTO symbol_mappings (symbol_input, ticker, currency) VALUES (?, ?, ?)",
+                ('AAPL.US', 'AAPL', 'USD'),
+            )
+            db.execute(
+                '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, 'AAPL', 'BUY', 1.0, 100.0, 100.0, '2026-03-10 10:00:00'),
+            )
+            db.commit()
+
+            df = pd.DataFrame([
+                {
+                    'Time': '2026-03-10 10:00:00',
+                    'Type': 'Stock purchase',
+                    'Symbol': 'AAPL.US',
+                    'Amount': '-100.0',
+                    'Comment': 'OPEN BUY 1 @ 100',
+                },
+            ])
+
+            result = PortfolioService.import_xtb_csv(portfolio_id, df)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'warning')
+        self.assertEqual(len(result['potential_conflicts']), 1)
+        self.assertEqual(result['potential_conflicts'][0]['conflict_type'], 'database_duplicate')
+
+    def test_xtb_import_mixed_conflict_confirmation_imports_only_confirmed_duplicates(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "INSERT INTO symbol_mappings (symbol_input, ticker, currency) VALUES (?, ?, ?)",
+                ('AAPL.US', 'AAPL', 'USD'),
+            )
+            db.execute(
+                '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (portfolio_id, 'AAPL', 'BUY', 1.0, 100.0, 100.0, '2026-03-10 10:00:00'),
+            )
+            db.commit()
+
+            df = pd.DataFrame([
+                {
+                    'Time': '2026-03-10 10:00:00',
+                    'Type': 'Stock purchase',
+                    'Symbol': 'AAPL.US',
+                    'Amount': '-100.0',
+                    'Comment': 'OPEN BUY 1 @ 100',
+                },
+                {
+                    'Time': '2026-03-10 10:00:00',
+                    'Type': 'Stock purchase',
+                    'Symbol': 'AAPL.US',
+                    'Amount': '-100.0',
+                    'Comment': 'OPEN BUY 1 @ 100',
+                },
+            ])
+
+            warning = PortfolioService.import_xtb_csv(portfolio_id, df)
+            row_hash = warning['potential_conflicts'][0]['row_hash']
+            result = PortfolioService.import_xtb_csv(portfolio_id, df, confirmed_hashes=[row_hash])
+
+            count_after_import = db.execute(
+                "SELECT COUNT(*) AS cnt FROM transactions WHERE portfolio_id = ? AND ticker = ? AND type = ?",
+                (portfolio_id, 'AAPL', 'BUY'),
+            ).fetchone()['cnt']
+            holdings_qty = db.execute(
+                "SELECT quantity FROM holdings WHERE portfolio_id = ? AND ticker = ?",
+                (portfolio_id, 'AAPL'),
+            ).fetchone()['quantity']
+
+        self.assertTrue(warning['success'])
+        self.assertEqual(warning['status'], 'warning')
+        self.assertEqual(len(warning['potential_conflicts']), 2)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(count_after_import, 2)
+        self.assertEqual(float(holdings_qty), 1.0)
 
 
     def test_global_error_handlers_preserve_contract_and_status_codes(self):
