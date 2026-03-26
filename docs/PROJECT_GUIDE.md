@@ -189,7 +189,7 @@ To ważne: sam frontend nie przelicza biznesowej logiki majątku netto — on ty
 Flow:
 1. użytkownik przechodzi na `/portfolios` albo `/portfolio/:id`,
 2. frontend pobiera dane portfela, pozycji, transakcji, dywidend i historii,
-3. backend korzysta głównie z `routes.py` oraz `portfolio_service.py`,
+3. backend korzysta z rozdzielonych routerów (`routes_portfolios.py`, `routes_transactions.py`, `routes_history.py`) oraz fasady `portfolio_service.py`,
 4. ceny i historia mogą wykorzystywać `PriceService` i zapisany cache.
 
 #### Jak działa `fetchData()` w `PortfolioDetails.tsx`
@@ -235,9 +235,11 @@ To obszar, o który najłatwiej pytać przy rozwoju aplikacji, bo łączy rekons
 - `date` w formacie `YYYY-MM`,
 - `label` do osi X,
 - `value` jako wartość portfela na koniec miesiąca,
+- `net_contributions`, `cash_value` i `holdings_value` do dokładniejszej analizy źródeł zmiany wartości,
 - opcjonalnie `benchmark_value` gdy użytkownik wybrał benchmark.
 
 Ta funkcja nie czyta gotowej tabeli historii portfela. Ona **odtwarza stan na podstawie transakcji**, a potem grupuje wynik miesiącami.
+Dodatkowo ostatni punkt (bieżący dzień/miesiąc) jest synchronizowany z live wyceną z `get_portfolio_value(...)`, żeby nie było rozjazdu między kartami KPI a wykresem.
 
 #### Historia zysku miesięczna
 `PortfolioService.get_portfolio_profit_history(...)` używa tego samego mechanizmu bazowego, ale zamiast wartości portfela zwraca pole `profit`.
@@ -404,6 +406,19 @@ Na podstawie obecnej logiki import obsługuje m.in.:
 - aktualizację średniego kosztu zakupu przy kolejnych dokupieniach,
 - rollback całego importu, jeśli wystąpi błąd.
 
+#### Walidacja duplikatów (aktualny przepływ)
+Import działa w dwóch krokach:
+
+1. **Dry-run walidacyjny** — backend parsuje plik i zwraca `status=warning`, jeśli wykryje potencjalne konflikty:
+   - `database_duplicate` (duplikat względem istniejącej transakcji),
+   - `file_internal_duplicate` (duplikat wewnątrz tego samego pliku).
+2. **Zapis finalny** — frontend wysyła ponownie plik + `confirmed_hashes` (hashy konfliktowych wierszy, które użytkownik zatwierdził).
+
+Klucz techniczny:
+- każdy wiersz importu dostaje stabilny hash (`date + ticker + amount + type + quantity` po normalizacji),
+- backend może rozróżnić wiele konfliktów z takim samym hashem przez liczenie wystąpień,
+- konflikt bez potwierdzenia jest pomijany, a import kontynuuje dla pozostałych wierszy.
+
 #### Co się dzieje przy brakujących symbolach
 Jeżeli choć jeden symbol nie ma mapowania:
 
@@ -413,6 +428,7 @@ Jeżeli choć jeden symbol nie ma mapowania:
 - użytkownik może dopisać mapowania i spróbować ponownie.
 
 To bardzo ważne: import jest traktowany jako operacja atomowa, żeby nie zostawić portfela w stanie „zaimportowane połowicznie”.
+Wyjątek od tej zasady dotyczy świadomych pominięć konfliktów: po potwierdzeniu użytkownika zapisywane są tylko transakcje zaakceptowane i bezkonfliktowe.
 
 ### 7.6 Radar inwestycyjny
 Radar nie jest tylko watchlistą. To ekran łączący obserwowane tickery z realnie posiadanymi pozycjami i cachem danych rynkowych.
