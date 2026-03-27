@@ -36,16 +36,31 @@ class PriceService:
     _default_history_start = date(2000, 1, 1)
 
     @staticmethod
-    def _classify_provider_error(error):
-        if error is None:
-            return None
-        error_name = error.__class__.__name__.lower()
-        if "timeout" in error_name:
+    def _classify_error(exc):
+        if exc is None:
+            return "unknown"
+
+        exc_name = exc.__class__.__name__.lower()
+        exc_message = str(exc).lower()
+        combined = f"{exc_name} {exc_message}"
+
+        if "timeout" in combined:
             return "network_timeout"
-        if "connection" in error_name:
-            return "network_connection"
-        if "valueerror" in error_name:
-            return "invalid_data"
+        if "rate" in combined and "limit" in combined:
+            return "rate_limit"
+        if "too many requests" in combined or "http 429" in combined:
+            return "rate_limit"
+        if "empty" in combined and ("data" in combined or "frame" in combined):
+            return "empty_data"
+        if "no data" in combined or "possibly delisted" in combined:
+            return "empty_data"
+        if "invalid ticker" in combined or "not found" in combined:
+            return "invalid_ticker"
+        if "parser" in combined or "parse" in combined:
+            return "parsing_error"
+        if "jsondecodeerror" in combined:
+            return "parsing_error"
+
         return "unknown"
 
     @classmethod
@@ -74,8 +89,8 @@ class PriceService:
             "attempt": attempt,
             "max_attempts": max_attempts,
             "duration_ms": duration_ms,
-            "error_type": cls._classify_provider_error(error),
-            "error_message": (str(error)[:240] if error else None),
+            "error_type": (cls._classify_error(error) if error else None),
+            "error_message": (str(error)[:300] if error else None),
             "request_id": request_id,
             "trace_id": trace_id,
             "message": message,
