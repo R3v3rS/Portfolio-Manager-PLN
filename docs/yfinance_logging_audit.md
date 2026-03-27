@@ -57,3 +57,18 @@ W praktyce cała bezpośrednia integracja jest skupiona w `backend/price_service
 - **Integracja z `yfinance` jest scentralizowana w `backend/price_service.py`**; inne moduły korzystają z niej pośrednio przez `PriceService`.  
 - **Największa luka**: niespójne logowanie (`print` vs `logging`) oraz brak kontekstu diagnostycznego (ticker, parametry zapytania, typ wyjątku, stacktrace, wynik fallbacku, wpływ na odpowiedź API).  
 - **Retry/fallback istnieją**, ale nie są w pełni obserwowalne (brak metryk i jednolitego, strukturalnego logowania ścieżek degradacji).
+
+---
+
+## CHECKPOINT — przykładowy log do akceptacji formatu (Zadanie 3)
+
+Przykładowy wpis emitowany przez `logger = logging.getLogger("integrations.yfinance")`:
+
+```json
+{"provider":"yfinance","operation":"get_prices.bulk_download","status":"retry","tickers_count":4,"attempt":2,"max_attempts":3,"duration_ms":1523.41,"error_type":"network_timeout","error_message":"ReadTimeout: HTTPSConnectionPool(...)","request_id":"req-abc123"}
+```
+
+Statusy i poziomy:
+- `status=success|start` → `INFO`
+- `status=retry|partial` → `WARNING`
+- `status=failed` → `ERROR`
