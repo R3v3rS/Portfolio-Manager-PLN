@@ -13,6 +13,7 @@ class PortfolioHistoryService(PortfolioCoreService):
     @staticmethod
     def _build_price_context(portfolio_id, tickers, start_date, account_type, benchmark_ticker=None):
         db = get_db()
+        context = PriceService.build_context()
         ticker_currency: dict[str, str] = {}
         # Fetch current holdings to get currencies
         holding_rows = db.execute('SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL', (portfolio_id,)).fetchall()
@@ -23,7 +24,7 @@ class PortfolioHistoryService(PortfolioCoreService):
                 # Double check with metadata if currency is PLN, as it might be an incorrect default
                 if currency == 'PLN':
                     try:
-                        meta = PriceService.fetch_metadata(ticker)
+                        meta = PriceService.fetch_metadata(ticker, context=context)
                         if meta and meta.get('currency') and meta['currency'].upper() != 'PLN':
                             currency = meta['currency'].upper()
                     except Exception:
@@ -34,7 +35,7 @@ class PortfolioHistoryService(PortfolioCoreService):
         for ticker in tickers:
             if ticker not in ticker_currency:
                 try:
-                    meta = PriceService.fetch_metadata(ticker)
+                    meta = PriceService.fetch_metadata(ticker, context=context)
                     ticker_currency[ticker] = ((meta or {}).get('currency') or 'PLN').upper()
                 except Exception:
                     ticker_currency[ticker] = 'PLN'
@@ -49,7 +50,7 @@ class PortfolioHistoryService(PortfolioCoreService):
             tickers_to_sync = PriceService.get_tickers_requiring_history_sync(sync_tickers, start_date)
             for ticker in tickers_to_sync:
                 try:
-                    PriceService.sync_stock_history(ticker, start_date)
+                    PriceService.sync_stock_history(ticker, start_date, context=context)
                 except Exception as e:
                     print(f"Failed to sync history for {ticker}: {e}")
 

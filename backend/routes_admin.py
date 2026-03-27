@@ -46,5 +46,9 @@ def audit_price_history():
         days=days,
         jump_threshold_percent=threshold,
         refresh_flagged=refresh_flagged,
+        context=PriceService.build_context(
+            request.headers.get('X-Request-ID'),
+            request.headers.get('X-Correlation-ID'),
+        ),
     )
     return success_response(result)

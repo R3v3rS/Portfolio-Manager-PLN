@@ -43,7 +43,11 @@ def get_portfolio_value_history(portfolio_id):
 @portfolio_bp.route('/history/<string:ticker>', methods=['GET'])
 def get_stock_history(ticker):
     db = get_db()
-    PriceService.sync_stock_history(ticker)
+    context = PriceService.build_context(
+        request.headers.get('X-Request-ID'),
+        request.headers.get('X-Correlation-ID'),
+    )
+    PriceService.sync_stock_history(ticker, context=context)
 
     prices = db.execute(
         'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',

@@ -50,14 +50,15 @@ class PortfolioValuationService(PortfolioCoreService):
     @staticmethod
     def get_holdings(portfolio_id, force_price_refresh=False):
         db = get_db()
+        context = PriceService.build_context()
         holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
         results = []
         if not holdings:
             return results
 
         tickers = [h['ticker'] for h in holdings]
-        current_prices = PriceService.get_prices(tickers, force_refresh=force_price_refresh)
-        price_updates = PriceService.get_price_updates(tickers)
+        current_prices = PriceService.get_prices(tickers, force_refresh=force_price_refresh, context=context)
+        price_updates = PriceService.get_price_updates(tickers, context=context)
         fx_rates = PortfolioTradeService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
         updates_needed = False
         holdings_value = 0.0
@@ -67,7 +68,7 @@ class PortfolioValuationService(PortfolioCoreService):
                 continue
             h_dict = {key: h[key] for key in h.keys()}
             if not h_dict.get('company_name') or not h_dict.get('sector'):
-                meta = PriceService.fetch_metadata(h_dict['ticker'])
+                meta = PriceService.fetch_metadata(h_dict['ticker'], context=context)
                 if meta:
                     db.execute('UPDATE holdings SET company_name = ?, sector = ?, industry = ? WHERE id = ?', (meta['company_name'], meta['sector'], meta['industry'], h_dict['id']))
                     h_dict.update(meta)
@@ -151,12 +152,13 @@ class PortfolioValuationService(PortfolioCoreService):
 
             # Calculate 1D and 7D changes for STANDARD/IKE portfolios
             if account_type in ['STANDARD', 'IKE'] and holdings:
+                context = PriceService.build_context()
                 tickers = [h['ticker'] for h in holdings]
                 currencies = {h.get('currency') or 'PLN' for h in holdings}
                 fx_tickers = [f"{c.upper()}PLN=X" for c in currencies if c.upper() != 'PLN']
                 
                 all_needed_tickers = tickers + fx_tickers
-                quotes = PriceService.get_quotes(all_needed_tickers)
+                quotes = PriceService.get_quotes(all_needed_tickers, context=context)
                 
                 holdings_value_now = 0.0
                 holdings_value_1d = 0.0

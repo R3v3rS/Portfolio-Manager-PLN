@@ -85,10 +85,11 @@ class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
     def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
         db = get_db()
+        context = PriceService.build_context()
         existing_holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?', (portfolio_id, ticker)).fetchone()
         currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
         if not currency:
-            meta = PriceService.fetch_metadata(ticker)
+            meta = PriceService.fetch_metadata(ticker, context=context)
             currency = (meta.get('currency') if meta else None) or 'PLN'
         currency = currency.upper()
         unit_price_pln = float(price)
@@ -102,7 +103,7 @@ class PortfolioTradeService(PortfolioCoreService):
         if not portfolio or portfolio['current_cash'] < total_cost:
             raise ValueError("Insufficient funds")
         try:
-            PriceService.sync_stock_history(ticker, purchase_date)
+            PriceService.sync_stock_history(ticker, purchase_date, context=context)
             db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (total_cost, portfolio_id))
             db.execute('''INSERT INTO transactions 
                    (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
@@ -194,7 +195,8 @@ class PortfolioTradeService(PortfolioCoreService):
         if not normalized:
             return {'PLN': 1.0}
         fx_ticker_map = {currency: f"{currency}PLN=X" for currency in normalized}
-        fx_prices = PriceService.get_prices(list(fx_ticker_map.values()))
+        context = PriceService.build_context()
+        fx_prices = PriceService.get_prices(list(fx_ticker_map.values()), context=context)
         rates = {'PLN': 1.0}
         for currency, fx_ticker in fx_ticker_map.items():
             rate = fx_prices.get(fx_ticker)

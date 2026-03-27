@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, date
 import time
 import random
 import logging
+import json
+import uuid
 
 # Force yfinance to use a persistent cache directory to reuse cookies/crumbs
 cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_portfel')
@@ -24,12 +26,73 @@ os.environ['YFINANCE_CACHE_DIR'] = cache_dir
 print(f"Using yfinance cache at: {cache_dir}")
 
 class PriceService:
+    _logger = logging.getLogger(__name__)
+    _provider_name = "yfinance"
     _price_cache = {}
     _price_cache_updated_at = {}
     _metadata_cache = {}
     _metadata_cache_updated_at = {}
     _metadata_ttl = timedelta(days=30)
     _default_history_start = date(2000, 1, 1)
+
+    @classmethod
+    def _resolve_context(cls, context=None):
+        context = context.copy() if isinstance(context, dict) else {}
+        request_id = context.get('request_id') or context.get('correlation_id') or str(uuid.uuid4())
+        correlation_id = context.get('correlation_id') or request_id
+        context['request_id'] = request_id
+        context['correlation_id'] = correlation_id
+        return context
+
+    @classmethod
+    def build_context(cls, request_id=None, correlation_id=None):
+        return cls._resolve_context({
+            "request_id": request_id,
+            "correlation_id": correlation_id,
+        })
+
+    @classmethod
+    def _log_integration_error(
+        cls,
+        *,
+        operation,
+        symbols=None,
+        period=None,
+        start=None,
+        end=None,
+        interval=None,
+        context=None,
+        error_code="YF_UNKNOWN_ERROR",
+        retry_count=0,
+        latency_ms=None,
+        error=None
+    ):
+        resolved_context = cls._resolve_context(context)
+        normalized_symbols = []
+        if isinstance(symbols, (list, tuple, set)):
+            normalized_symbols = [str(symbol).strip().upper() for symbol in symbols if symbol]
+        elif symbols:
+            normalized_symbols = [str(symbols).strip().upper()]
+
+        payload = {
+            "provider": cls._provider_name,
+            "operation": operation,
+            "symbol": normalized_symbols[0] if len(normalized_symbols) == 1 else None,
+            "symbols": normalized_symbols,
+            "period": period,
+            "start": str(start) if start is not None else None,
+            "end": str(end) if end is not None else None,
+            "interval": interval,
+            "request_id": resolved_context.get("request_id"),
+            "correlation_id": resolved_context.get("correlation_id"),
+            "error_code": error_code,
+            "retry_count": retry_count,
+            "latency_ms": latency_ms,
+        }
+        if error is not None:
+            payload["error"] = str(error)
+
+        cls._logger.error(json.dumps(payload, ensure_ascii=False))
 
     @staticmethod
     def _normalize_yf_dataframe(df):
@@ -118,17 +181,46 @@ class PriceService:
         cls._metadata_cache_updated_at[ticker] = datetime.fromisoformat(now_iso)
 
     @classmethod
-    def _download_with_retry(cls, *args, **kwargs):
+    def _download_with_retry(
+        cls,
+        *args,
+        operation="download_history",
+        symbols=None,
+        period=None,
+        start=None,
+        end=None,
+        interval=None,
+        context=None,
+        **kwargs
+    ):
         """Download wrapper with simple retry + exponential backoff."""
+        resolved_context = cls._resolve_context(context)
+        effective_period = period if period is not None else kwargs.get("period")
+        effective_start = start if start is not None else kwargs.get("start")
+        effective_end = end if end is not None else kwargs.get("end")
+        effective_interval = interval if interval is not None else kwargs.get("interval")
         attempts = 3
         delay = 1
+        call_started = time.time()
         for attempt in range(1, attempts + 1):
             try:
                 return yf.download(*args, **kwargs)
             except Exception as e:
-                logging.warning(f"yfinance download failed (attempt {attempt}/{attempts}): {e}")
+                latency_ms = int((time.time() - call_started) * 1000)
+                cls._log_integration_error(
+                    operation=operation,
+                    symbols=symbols,
+                    period=effective_period,
+                    start=effective_start,
+                    end=effective_end,
+                    interval=effective_interval,
+                    context=resolved_context,
+                    error_code="YF_DOWNLOAD_FAILED",
+                    retry_count=attempt - 1,
+                    latency_ms=latency_ms,
+                    error=e,
+                )
                 if attempt == attempts:
-                    logging.error("yfinance download failed after retries")
                     raise
                 sleep_time = delay + random.uniform(0, 0.5)
                 time.sleep(sleep_time)
@@ -192,7 +284,8 @@ class PriceService:
         return parsed.date() == datetime.now().date()
 
     @classmethod
-    def get_prices(cls, tickers, force_refresh=False):
+    def get_prices(cls, tickers, force_refresh=False, context=None):
+        context = cls._resolve_context(context)
         if not tickers:
             return {}
 
@@ -218,10 +311,29 @@ class PriceService:
             # Attempt 1: Bulk Download
             try:
                 # Fetch 5 days of data to handle weekends/holidays/gaps (with retry)
-                data = cls._download_with_retry(missing_tickers, period="5d", group_by='ticker', threads=False)
+                data = cls._download_with_retry(
+                    missing_tickers,
+                    period="5d",
+                    group_by='ticker',
+                    threads=False,
+                    operation="download_history",
+                    symbols=missing_tickers,
+                    interval="1d",
+                    context=context,
+                )
 
                 if data.empty:
-                    print("[WARNING] Bulk download returned empty data. Trying individual fetch.")
+                    cls._log_integration_error(
+                        operation="download_history",
+                        symbols=missing_tickers,
+                        period="5d",
+                        interval="1d",
+                        context=context,
+                        error_code="YF_EMPTY_RESPONSE",
+                        retry_count=0,
+                        latency_ms=0,
+                        error="Bulk download returned empty data",
+                    )
                     raise ValueError("Empty Data")
 
                 # Process bulk data
@@ -247,8 +359,17 @@ class PriceService:
                                     cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
                         
                     except Exception as e:
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Error processing yfinance data for {ticker}: {e}")
+                        cls._log_integration_error(
+                            operation="download_history",
+                            symbols=ticker,
+                            period="5d",
+                            interval="1d",
+                            context=context,
+                            error_code="YF_DATA_PROCESSING_ERROR",
+                            retry_count=0,
+                            latency_ms=0,
+                            error=e,
+                        )
 
             except Exception as e:
                 print(f"[WARNING] Bulk fetch failed ({e}). Switching to individual fallback.")
@@ -259,6 +380,7 @@ class PriceService:
                 print(f"Fallback fetching for: {remaining_tickers}")
                 for ticker in remaining_tickers:
                     try:
+                        ticker_call_start = time.time()
                         t = yf.Ticker(ticker)
                         # Try history first
                         hist = cls._normalize_yf_dataframe(t.history(period="5d"))
@@ -283,10 +405,29 @@ class PriceService:
                                     cls._price_cache_updated_at[ticker] = now_iso
                                     cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
                             except:
-                                print(f"[WARNING] No data for {ticker}")
+                                cls._log_integration_error(
+                                    operation="get_quote",
+                                    symbols=ticker,
+                                    period="5d",
+                                    interval="1d",
+                                    context=context,
+                                    error_code="YF_EMPTY_RESPONSE",
+                                    retry_count=0,
+                                    latency_ms=int((time.time() - ticker_call_start) * 1000),
+                                    error="No history and no fast_info.last_price",
+                                )
                     except Exception as e:
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Error processing yfinance data for {ticker}: {e}")
+                        cls._log_integration_error(
+                            operation="get_quote",
+                            symbols=ticker,
+                            period="5d",
+                            interval="1d",
+                            context=context,
+                            error_code="YF_GET_QUOTE_FAILED",
+                            retry_count=0,
+                            latency_ms=int((time.time() - ticker_call_start) * 1000),
+                            error=e,
+                        )
 
             # Final safety step: remember refresh attempt (prevents repeated retries during market close)
             for ticker in missing_tickers:
@@ -298,22 +439,22 @@ class PriceService:
         return {ticker: cls._price_cache.get(ticker) for ticker in normalized_tickers}
 
     @classmethod
-    def get_price_updates(cls, tickers):
+    def get_price_updates(cls, tickers, context=None):
         if not tickers:
             return {}
 
-        cls.get_prices(tickers)
+        cls.get_prices(tickers, context=context)
         return {ticker: cls._price_cache_updated_at.get(ticker) for ticker in tickers}
 
     @classmethod
-    def warmup_cache(cls):
+    def warmup_cache(cls, context=None):
         db = get_db()
         try:
             holdings = db.execute('SELECT DISTINCT ticker FROM holdings').fetchall()
             tickers = [h['ticker'] for h in holdings]
             if tickers:
                 print(f"Warming up price cache for: {tickers}")
-                cls.get_prices(tickers)
+                cls.get_prices(tickers, context=context)
         except Exception as e:
             print(f"Cache warmup failed: {e}")
 
@@ -379,11 +520,12 @@ class PriceService:
         return needs_sync
 
     @classmethod
-    def sync_stock_history(cls, ticker, required_start_date=None):
+    def sync_stock_history(cls, ticker, required_start_date=None, context=None):
         """
         Incremental sync of stock prices from yfinance to local DB.
         """
         logger = logging.getLogger(__name__)
+        context = cls._resolve_context(context)
         db = get_db()
         
         # 1. Find the date range available in DB
@@ -444,7 +586,15 @@ class PriceService:
             # 3. Fetch from yfinance (with retry)
             # Use fetch_start to today
             data = cls._normalize_yf_dataframe(
-                cls._download_with_retry(ticker, start=fetch_start, interval="1d", threads=False)
+                cls._download_with_retry(
+                    ticker,
+                    start=fetch_start,
+                    interval="1d",
+                    threads=False,
+                    operation="download_history",
+                    symbols=ticker,
+                    context=context,
+                )
             )
 
             if data is None or data.empty:
@@ -486,7 +636,17 @@ class PriceService:
                 logger.info("Inserted %s new history rows for %s", inserted_rows, ticker)
 
         except Exception as e:
-            logger.error(f"Error processing yfinance data for {ticker}: {e}")
+            cls._log_integration_error(
+                operation="download_history",
+                symbols=ticker,
+                start=fetch_start,
+                interval="1d",
+                context=context,
+                error_code="YF_HISTORY_SYNC_FAILED",
+                retry_count=0,
+                latency_ms=0,
+                error=e,
+            )
             db.rollback()
 
         # Return latest date in DB
@@ -497,13 +657,14 @@ class PriceService:
         return new_max['max_date']
 
     @classmethod
-    def fetch_metadata(cls, ticker, force_refresh=False):
+    def fetch_metadata(cls, ticker, force_refresh=False, context=None):
         """
         Fetches company name, sector, and industry from yfinance.
         """
         if not ticker:
             return None
 
+        context = cls._resolve_context(context)
         ticker = ticker.strip().upper()
         now = datetime.now()
 
@@ -523,6 +684,7 @@ class PriceService:
 
             stale_db_cached = cls._load_metadata_from_db(ticker, allow_stale=True)
 
+        started_at = time.time()
         try:
             logging.info("Fetching metadata from Yahoo for %s", ticker)
             t = yf.Ticker(ticker)
@@ -553,7 +715,19 @@ class PriceService:
                 logging.info("Metadata fetched from Yahoo for %s", ticker)
             return metadata
         except Exception as e:
-            logging.warning("Metadata fetch error for %s: %s", ticker, e)
+            cls._log_integration_error(
+                operation="get_quote",
+                symbols=ticker,
+                period=None,
+                start=None,
+                end=None,
+                interval=None,
+                context=context,
+                error_code="YF_METADATA_FETCH_FAILED",
+                retry_count=0,
+                latency_ms=int((time.time() - started_at) * 1000),
+                error=e,
+            )
             # Fallback to stale in-memory cache if available.
             stale_cached = cls._metadata_cache.get(ticker)
             if stale_cached:
@@ -566,12 +740,13 @@ class PriceService:
             return None
 
     @classmethod
-    def get_quotes(cls, tickers):
+    def get_quotes(cls, tickers, context=None):
         """
         Fetches current price and multi-timeframe momentum (1D, 7D, 1M, 1Y) for a list of tickers.
         Returns: { 'AAPL': {'price': 150.0, 'change_1d': 1.5, 'change_7d': ..., 'change_1m': ..., 'change_1y': ...}, ... }
         """
         quotes = {}
+        context = cls._resolve_context(context)
         if not tickers:
             return quotes
             
@@ -580,7 +755,16 @@ class PriceService:
         # Try bulk download first for efficiency
         try:
             # Fetch 1 year of history for all tickers at once
-            data = cls._download_with_retry(normalized_tickers, period="1y", group_by='ticker', threads=False)
+            data = cls._download_with_retry(
+                normalized_tickers,
+                period="1y",
+                group_by='ticker',
+                threads=False,
+                operation="get_quote",
+                symbols=normalized_tickers,
+                interval="1d",
+                context=context,
+            )
             
             for ticker in normalized_tickers:
                 try:
@@ -671,7 +855,17 @@ class PriceService:
                     cls._price_cache[ticker] = round(float(current_price), 2)
                     cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
                 except Exception as e:
-                    logging.error(f"Error processing bulk quote for {ticker}: {e}")
+                    cls._log_integration_error(
+                        operation="get_quote",
+                        symbols=ticker,
+                        period="1y",
+                        interval="1d",
+                        context=context,
+                        error_code="YF_DATA_PROCESSING_ERROR",
+                        retry_count=0,
+                        latency_ms=0,
+                        error=e,
+                    )
                     quotes[ticker] = {
                         'price': 0.0,
                         'change_1d': None,
@@ -683,7 +877,17 @@ class PriceService:
                     }
 
         except Exception as e:
-            logging.error(f"Bulk fetch for quotes failed: {e}")
+            cls._log_integration_error(
+                operation="get_quote",
+                symbols=normalized_tickers,
+                period="1y",
+                interval="1d",
+                context=context,
+                error_code="YF_BULK_FETCH_FAILED",
+                retry_count=0,
+                latency_ms=0,
+                error=e,
+            )
             # Fallback to individual if bulk fails
             for ticker in normalized_tickers:
                 if ticker not in quotes:
@@ -724,12 +928,13 @@ class PriceService:
         }
 
     @classmethod
-    def refresh_radar_data(cls, tickers):
+    def refresh_radar_data(cls, tickers, context=None):
         if not tickers:
             return {}
 
-        quotes = cls.get_quotes(tickers)
-        events = cls.fetch_market_events(tickers)
+        context = cls._resolve_context(context)
+        quotes = cls.get_quotes(tickers, context=context)
+        events = cls.fetch_market_events(tickers, context=context)
 
         db = get_db()
         now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
@@ -739,7 +944,7 @@ class PriceService:
             event = events.get(ticker, {})
             
             # Fetch score if not already present or needs refresh
-            analysis = cls.get_stock_analysis(ticker)
+            analysis = cls.get_stock_analysis(ticker, context=context)
             score = analysis.get('score') if analysis else None
 
             db.execute(
@@ -777,12 +982,14 @@ class PriceService:
         return cls.get_cached_radar_data(tickers)
 
     @classmethod
-    def fetch_market_events(cls, tickers):
+    def fetch_market_events(cls, tickers, context=None):
         """
         Fetches upcoming earnings and dividend info.
         """
+        context = cls._resolve_context(context)
         events = {}
         for ticker in tickers:
+            ticker_started_at = time.time()
             try:
                 t = yf.Ticker(ticker)
                 
@@ -806,7 +1013,15 @@ class PriceService:
                         # DataFrame or similar?
                         pass 
                 except Exception as e:
-                    print(f"Calendar fetch error {ticker}: {e}")
+                    cls._log_integration_error(
+                        operation="get_quote",
+                        symbols=ticker,
+                        context=context,
+                        error_code="YF_EVENTS_CALENDAR_FAILED",
+                        retry_count=0,
+                        latency_ms=int((time.time() - ticker_started_at) * 1000),
+                        error=e,
+                    )
 
                 # 2. Try Info for everything else (and fallback for earnings)
                 try:
@@ -821,7 +1036,15 @@ class PriceService:
                     dividend_yield = info.get('dividendYield')
                     
                 except Exception as e:
-                    print(f"Info fetch error {ticker}: {e}")
+                    cls._log_integration_error(
+                        operation="get_quote",
+                        symbols=ticker,
+                        context=context,
+                        error_code="YF_EVENTS_INFO_FAILED",
+                        retry_count=0,
+                        latency_ms=int((time.time() - ticker_started_at) * 1000),
+                        error=e,
+                    )
 
                 events[ticker] = {
                     "next_earnings": next_earnings,
@@ -829,7 +1052,15 @@ class PriceService:
                     "dividend_yield": dividend_yield
                 }
             except Exception as e:
-                print(f"Error fetching events for {ticker}: {e}")
+                cls._log_integration_error(
+                    operation="get_quote",
+                    symbols=ticker,
+                    context=context,
+                    error_code="YF_EVENTS_FETCH_FAILED",
+                    retry_count=0,
+                    latency_ms=int((time.time() - ticker_started_at) * 1000),
+                    error=e,
+                )
                 events[ticker] = {
                     "next_earnings": None,
                     "ex_dividend_date": None,
@@ -838,10 +1069,12 @@ class PriceService:
         return events
 
     @classmethod
-    def get_stock_analysis(cls, ticker):
+    def get_stock_analysis(cls, ticker, context=None):
         """
         Fetches deep fundamental, analyst, and technical data for a single ticker.
         """
+        context = cls._resolve_context(context)
+        started_at = time.time()
         try:
             print(f"Analyzing {ticker}...")
             t = yf.Ticker(ticker)
@@ -1007,7 +1240,17 @@ class PriceService:
                     if pd.isna(technicals["sma200"]): technicals["sma200"] = None
 
             except Exception as e:
-                print(f"Technical analysis failed for {ticker}: {e}")
+                cls._log_integration_error(
+                    operation="download_history",
+                    symbols=ticker,
+                    period="1y",
+                    interval="1d",
+                    context=context,
+                    error_code="YF_TECHNICAL_ANALYSIS_FAILED",
+                    retry_count=0,
+                    latency_ms=int((time.time() - started_at) * 1000),
+                    error=e,
+                )
 
             return {
                 "score": total_score,
@@ -1021,16 +1264,25 @@ class PriceService:
             }
 
         except Exception as e:
-            print(f"Analysis failed for {ticker}: {e}")
+            cls._log_integration_error(
+                operation="get_quote",
+                symbols=ticker,
+                context=context,
+                error_code="YF_ANALYSIS_FETCH_FAILED",
+                retry_count=0,
+                latency_ms=int((time.time() - started_at) * 1000),
+                error=e,
+            )
             return None
 
     @classmethod
-    def audit_price_history_quality(cls, days=30, jump_threshold_percent=25.0, refresh_flagged=False):
+    def audit_price_history_quality(cls, days=30, jump_threshold_percent=25.0, refresh_flagged=False, context=None):
         """
         Checks recent price history quality and flags suspicious day-over-day jumps.
         Optionally refreshes flagged tickers from the provider and re-evaluates.
         """
         db = get_db()
+        context = cls._resolve_context(context)
         days = max(2, min(int(days), 365))
         jump_threshold_percent = max(1.0, float(jump_threshold_percent))
 
@@ -1093,7 +1345,7 @@ class PriceService:
         if refresh_flagged and flagged_tickers:
             for ticker in flagged_tickers:
                 try:
-                    cls.sync_stock_history(ticker)
+                    cls.sync_stock_history(ticker, context=context)
                     refreshed_tickers.append(ticker)
                 except Exception as exc:
                     logging.warning("Failed to refresh flagged ticker %s: %s", ticker, exc)

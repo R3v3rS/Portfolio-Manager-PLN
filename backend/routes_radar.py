@@ -21,6 +21,10 @@ def optional_json_body() -> dict:
 
 @radar_bp.route('/', methods=['GET'])
 def get_radar():
+    context = PriceService.build_context(
+        request.headers.get('X-Request-ID'),
+        request.headers.get('X-Correlation-ID'),
+    )
     tickers = WatchlistService.get_radar_tickers()
 
     if not tickers:
@@ -28,7 +32,7 @@ def get_radar():
 
     should_refresh = request.args.get('refresh') == '1'
     radar_data_map = (
-        PriceService.refresh_radar_data(tickers)
+        PriceService.refresh_radar_data(tickers, context=context)
         if should_refresh
         else PriceService.get_cached_radar_data(tickers)
     )
@@ -68,6 +72,10 @@ def get_radar():
 
 @radar_bp.route('/refresh', methods=['POST'])
 def refresh_radar_tickers():
+    context = PriceService.build_context(
+        request.headers.get('X-Request-ID'),
+        request.headers.get('X-Correlation-ID'),
+    )
     data = optional_json_body()
     requested_tickers = data.get('tickers') or []
 
@@ -79,7 +87,7 @@ def refresh_radar_tickers():
     if not tickers:
         return success_response({'message': 'No tickers to refresh', 'tickers': []})
 
-    refreshed = PriceService.refresh_radar_data(tickers)
+    refreshed = PriceService.refresh_radar_data(tickers, context=context)
     return success_response({
         'message': 'Radar data refreshed',
         'tickers': list(refreshed.keys()),
@@ -102,7 +110,11 @@ def remove_watchlist(ticker):
 
 @radar_bp.route('/analysis/<ticker>', methods=['GET'])
 def get_stock_analysis(ticker):
-    analysis = PriceService.get_stock_analysis(ticker)
+    context = PriceService.build_context(
+        request.headers.get('X-Request-ID'),
+        request.headers.get('X-Correlation-ID'),
+    )
+    analysis = PriceService.get_stock_analysis(ticker, context=context)
     if not analysis:
         raise NotFoundError('Analysis failed or no data found')
     return success_response(analysis)
