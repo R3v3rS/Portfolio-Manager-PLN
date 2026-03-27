@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from heapq import heappop, heappush
@@ -66,7 +67,8 @@ def calculate_monitoring_stats(
     requests_last_1h = 0
     requests_last_10m = 0
     errors_by_type = defaultdict(int)
-    slowest_heap: list[tuple[float, dict[str, Any]]] = []
+    slowest_heap: list[tuple[float, int, dict[str, Any]]] = []
+    counter = 0
     last_errors = deque(maxlen=10)
 
     with open(log_file_path, "r", encoding="utf-8") as log_file:
@@ -108,7 +110,8 @@ def calculate_monitoring_stats(
                     "ticker": entry.get("ticker"),
                     "duration_ms": round(duration_value, 2),
                 }
-                heappush(slowest_heap, (duration_value, operation_item))
+                heappush(slowest_heap, (duration_value, counter, operation_item))
+                counter += 1
                 if len(slowest_heap) > 5:
                     heappop(slowest_heap)
 
@@ -135,7 +138,7 @@ def calculate_monitoring_stats(
     metrics["error_rate_percent"] = round((errors_last_1h / requests_last_1h) * 100.0, 2) if requests_last_1h else 0.0
     metrics["errors_by_type"] = dict(sorted(errors_by_type.items(), key=lambda item: item[1], reverse=True))
     metrics["slowest_operations"] = [
-        payload for _duration, payload in sorted(slowest_heap, key=lambda row: row[0], reverse=True)
+        payload for _duration, _counter, payload in sorted(slowest_heap, key=lambda row: row[0], reverse=True)
     ]
     metrics["last_errors"] = list(reversed(last_errors))
     return metrics
@@ -276,8 +279,18 @@ def monitoring_dashboard():
 
 @monitoring_bp.route("/stats", methods=["GET"])
 def monitoring_stats():
-    log_file_path = current_app.config.get("BACKEND_LOG_PATH") or os.path.join(
-        os.path.dirname(__file__), "..", "logs", "backend.log"
-    )
+    default_log_path = Path(__file__).resolve().parent.parent / "logs" / "backend.log"
+    configured_log_path = current_app.config.get("BACKEND_LOG_PATH")
+    log_file_path = Path(configured_log_path) if configured_log_path else default_log_path
+
     app_started_at = current_app.config.get("APP_STARTED_AT")
-    return jsonify(calculate_monitoring_stats(log_file_path, app_started_at=app_started_at))
+    if app_started_at is None:
+        app_started_at = datetime.now(timezone.utc)
+
+    current_app.logger.info(
+        "log_file_path=%s, exists=%s",
+        log_file_path,
+        log_file_path.exists(),
+    )
+
+    return jsonify(calculate_monitoring_stats(str(log_file_path), app_started_at=app_started_at))

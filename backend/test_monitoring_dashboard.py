@@ -147,6 +147,33 @@ class MonitoringDashboardParserTestCase(unittest.TestCase):
         self.assertEqual(stats["slowest_operations"], [])
         self.assertEqual(len(stats["last_errors"]), 1)
 
+    def test_identical_durations_do_not_crash_heap_sorting(self):
+        now = datetime(2026, 3, 27, 12, 0, tzinfo=timezone.utc)
+        start = now - timedelta(hours=1)
+        recent = now - timedelta(minutes=2)
+
+        rows = [
+            {
+                "timestamp": (recent + timedelta(seconds=idx)).isoformat(),
+                "provider": "yfinance",
+                "operation": "bulk_download",
+                "status": "failed",
+                "error_type": "timeout",
+                "duration_ms": 500,
+                "ticker": f"TICK{idx}",
+            }
+            for idx in range(6)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_path = os.path.join(tmp_dir, "backend.log")
+            self.write_lines(log_path, rows)
+            stats = calculate_monitoring_stats(log_path, now=now, app_started_at=start)
+
+        self.assertEqual(len(stats["slowest_operations"]), 5)
+        self.assertTrue(all(item["duration_ms"] == 500.0 for item in stats["slowest_operations"]))
+
+
 
 if __name__ == "__main__":
     unittest.main()
