@@ -181,6 +181,17 @@ class PriceService:
         tickers_count = len(ticker) if isinstance(ticker, (list, tuple, set)) else None
         for attempt in range(1, attempts + 1):
             started_at = time.perf_counter()
+            cls._log_provider_event(
+                level=logging.INFO,
+                operation=operation,
+                status="start",
+                ticker=ticker if isinstance(ticker, str) else None,
+                tickers_count=tickers_count,
+                attempt=attempt,
+                max_attempts=attempts,
+                duration_ms=0.0,
+                message="Starting download attempt",
+            )
             try:
                 result = yf.download(*args, **kwargs)
                 cls._log_provider_event(
@@ -291,6 +302,7 @@ class PriceService:
                 missing_tickers.append(ticker)
         
         if missing_tickers:
+            fallback_reason = None
             cls._log_provider_event(
                 level=logging.INFO,
                 operation="get_prices.bulk",
@@ -318,6 +330,7 @@ class PriceService:
                         tickers_count=len(missing_tickers),
                         message="Bulk download returned empty data; falling back to per-ticker",
                     )
+                    fallback_reason = "bulk_empty_data"
                     raise ValueError("Empty Data")
 
                 # Process bulk data
@@ -352,6 +365,7 @@ class PriceService:
                         )
 
             except Exception as e:
+                fallback_reason = fallback_reason or "bulk_exception"
                 cls._log_provider_event(
                     level=logging.WARNING,
                     operation="get_prices.bulk",
@@ -364,16 +378,19 @@ class PriceService:
             # Attempt 2: Individual Fetch (Fallback for any still missing)
             remaining_tickers = [t for t in missing_tickers if t not in cls._price_cache]
             if remaining_tickers:
-                # TODO: verbose-only
+                fallback_reason = fallback_reason or "bulk_partial_result"
+                fallback_started_at = time.perf_counter()
                 cls._log_provider_event(
-                    level=logging.INFO,
+                    level=logging.WARNING,
                     operation="get_prices.fallback",
                     status="start",
                     tickers_count=len(remaining_tickers),
-                    message="Starting per-ticker fallback fetch",
+                    message=f"Switching from bulk to per-ticker fallback; reason={fallback_reason}",
                 )
+                fallback_success_count = 0
                 for ticker in remaining_tickers:
                     try:
+                        fallback_ticker_succeeded = False
                         t = yf.Ticker(ticker)
                         # Try history first
                         hist = cls._normalize_yf_dataframe(t.history(period="5d"))
@@ -387,6 +404,7 @@ class PriceService:
                                 cls._price_cache[ticker] = normalized_price
                                 cls._price_cache_updated_at[ticker] = now_iso
                                 cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
+                                fallback_ticker_succeeded = True
                         else:
                             # Try fast_info as last resort
                             try:
@@ -397,6 +415,7 @@ class PriceService:
                                     cls._price_cache[ticker] = normalized_price
                                     cls._price_cache_updated_at[ticker] = now_iso
                                     cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
+                                    fallback_ticker_succeeded = True
                             except Exception as fast_info_error:
                                 cls._log_provider_event(
                                     level=logging.WARNING,
@@ -406,6 +425,8 @@ class PriceService:
                                     error=fast_info_error,
                                     message="No data from history and fast_info fallback",
                                 )
+                        if fallback_ticker_succeeded:
+                            fallback_success_count += 1
                     except Exception as e:
                         cls._log_provider_event(
                             level=logging.ERROR,
@@ -414,6 +435,25 @@ class PriceService:
                             ticker=ticker,
                             error=e,
                         )
+                fallback_failed_count = len(remaining_tickers) - fallback_success_count
+                fallback_duration_ms = round((time.perf_counter() - fallback_started_at) * 1000, 2)
+                fallback_status = (
+                    "success"
+                    if fallback_failed_count == 0
+                    else ("failed" if fallback_success_count == 0 else "partial")
+                )
+                cls._log_provider_event(
+                    level=logging.INFO if fallback_status == "success" else logging.WARNING,
+                    operation="get_prices.fallback",
+                    status=fallback_status,
+                    tickers_count=len(remaining_tickers),
+                    duration_ms=fallback_duration_ms,
+                    message=(
+                        "Per-ticker fallback completed: "
+                        f"success={fallback_success_count}, failed={fallback_failed_count}, "
+                        f"reason={fallback_reason}"
+                    ),
+                )
 
             # Final safety step: remember refresh attempt (prevents repeated retries during market close)
             for ticker in missing_tickers:
