@@ -1,0 +1,128 @@
+Rekomendacje przed wdrożeniem sub-portfeli
+Data: 2026-03-26
+Cel: zminimalizować ryzyko regresji i uprościć implementację sub-portfeli.
+
+1) Najważniejsze usprawnienia „przed"
+1.1 Kontrakt danych sub-portfela (MVP spec)
+Zanim ruszy kodowanie, warto spisać mini-spec z poniższymi rozstrzygniętymi decyzjami:
+Struktura i głębokość drzewa:
+
+relacja: portfolio (parent) → sub_portfolios (children);
+tylko jeden poziom — child nie może mieć własnych dzieci; ograniczenie twarde na poziomie walidacji backendowej i bazy;
+zakaz cykli egzekwowany przez constraint DB (child nie może być parentem swojego parenta).
+
+Waluta:
+
+aplikacja operuje wyłącznie na PLN — brak przeliczeń kursowych, agregacja parenta to prosta suma arytmetyczna childów.
+
+Transakcje:
+
+transakcja należy wyłącznie do childa albo do parenta — nigdy do obu jednocześnie;
+parent agreguje transakcje childów wirtualnie (read-path), nigdy nie przejmuje ich na własność.
+
+Usuwanie portfela:
+
+usunięcie childa: dozwolone bez ograniczeń;
+usunięcie parenta: dzieci stają się samodzielnymi portfelami (orfan → przeniesienie do głównej listy); kaskadowe usunięcie niedozwolone; operacja wymaga jawnego potwierdzenia w UI.
+
+Agregacja wyników:
+
+parent = suma(children) + ewentualna gotówka własna parenta;
+historia miesięczna parenta wyliczana jako agregat historii childów.
+
+Dlaczego teraz: rozstrzygnięcie tych kwestii ogranicza „przepisywanie" endpointów i typów po stronie frontendu i eliminuje niejednoznaczności przy implementacji agregatora.
+
+1.2 Idempotentna migracja bazy + rollback plan
+Dodać migrację, która:
+
+tworzy tabele/kolumny pod sub-portfele (parent_portfolio_id, status orfana, itp.);
+uzupełnia wartości domyślne dla istniejących portfeli (parent_portfolio_id = NULL);
+ma prosty plan rollback (snapshot lub migracja odwrotna);
+działa w trybie dry-run — raportuje co zrobi, bez wykonania (szczególnie ważne przy danych produkcyjnych);
+zawiera skrypt walidacji po migracji sprawdzający, że żadna istniejąca transakcja nie ma niespójnego parent_portfolio_id.
+
+Snapshot przed migracją powinien być automatycznym krokiem CI/CD — rollback musi być realny, nie tylko teoretyczny.
+Dlaczego teraz: sub-portfele dotkną kluczowych tabel i wycen, więc bezpieczna migracja to podstawa.
+
+1.3 Rozszerzenie testów kontraktu API
+Przed wdrożeniem nowych endpointów dopisać testy „guard rails" dla obecnych, podzielone na trzy warstwy:
+Kontrakty struktury — czy odpowiedź zawiera wymagane pola i typy? Najlepiej generowane ze schematu OpenAPI/Zod. Pokrycie:
+
+listowanie portfeli,
+szczegóły portfela,
+historia wartości/zysku,
+import i transakcje.
+
+Kontrakty wartości — testy domenowe:
+
+suma childów = parent z tolerancją ε,
+historia miesięczna bez luk,
+brak duplikatów transakcji przy przenoszeniu między portfelami.
+
+Kontrakty regresji — snapshoty payloadów dla konkretnych fixture'ów. Jeśli payload się zmieni, test wymusi świadomą decyzję, nie ciche złamanie.
+Dlaczego teraz: szybciej wykryjesz niezamierzone zmiany payloadów.
+
+1.4 „Feature flag" dla sub-portfeli
+Wprowadzić prostą flagę backendową/frontendową: SUBPORTFOLIOS_ENABLED.
+Przed włączeniem produkcyjnym — soft launch: flaga aktywna dla 1–2 kont testowych przez tydzień. Łapie problemy z realnymi danymi bez ekspozycji na wszystkich użytkowników.
+Dlaczego teraz: umożliwia bezpieczne mergowanie etapami bez natychmiastowej ekspozycji funkcji.
+
+1.5 Wydzielenie agregatora wyceny (parent/child)
+Dodać osobny serwis/funkcję agregującą z jasnym interfejsem:
+valuate(portfolioId, date) → { value, profit, contributions, breakdown[] }
+Gdzie breakdown[] to lista childów z ich wartością i udziałem procentowym. Parent wywołuje agregator iteracyjnie (jeden poziom głębokości — bez rekurencji). Ten sam agregator obsługuje endpoint /portfolio/:id/value i logikę historii miesięcznej bez duplikacji.
+Warto od razu zaplanować cache'owanie na poziomie childa: jeśli child nie zmienił się od ostatniej wyceny, parent używa cache'owanego wyniku. Dodać metrykę/log „czas liczenia wyceny parenta" — przyda się przy optymalizacji.
+Dlaczego teraz: ułatwi testowanie i ograniczy ryzyko „if-ologii" w wielu miejscach.
+
+1.6 Import CSV — przypisanie do sub-portfeli
+Aplikacja ma jeden zbiorczy import CSV. Przy sub-portfelach pojawiają się dwa podejścia — rekomendacja to podejście hybrydowe:
+Etap 1 (MVP) — przypisanie ręczne po imporcie:
+
+import trafia do parenta lub jako „nieprzypisane";
+w widoku transakcji pojawia się kolumna „portfel" z możliwością przypisania do konkretnego childa z listy rozwijanej;
+batch-select: zaznacz N transakcji → przypisz wszystkie do wybranego sub-portfela.
+
+Etap 2 (rozszerzenie) — reguły automatyczne:
+
+użytkownik definiuje reguły: np. „jeśli ticker = X → przypisz do child Y";
+reguły stosowane przy imporcie, z możliwością ręcznej korekty po fakcie.
+
+Podejście „przepisywanie z listy pozycji" jest ryzykowne — przy dużej liczbie transakcji łatwo o błędy i trudno utrzymać spójność.
+Dlaczego teraz: decyzja o modelu przypisania wpływa na schemat danych (kolumna sub_portfolio_id w tabeli transakcji) i UI importu.
+
+2) Co warto dodać razem z sub-portfelami (small wins)
+FunkcjaKiedyDlaczegoWalidacja cykli (child nie może być parentem swojego parenta)Razem z write-pathBez niej można trwale zepsuć drzewoAgregowane KPI: wynik parenta i udział każdego childa (%)Razem z frontend readGłówna wartość biznesowa sub-portfeliAudyt spójności: endpoint sprawdzający suma(child) = parentRazem z write-pathTanie narzędzie debugowaniaAlerty na poziomie childa i parenta (oba)Razem z write-pathBrak symetrii prowadzi do pominiętych sygnałówTagi / etykiety celu (np. „emerytura", „dywidendy")Osobny etap po MVPNie blokuje niczego krytycznegoFiltry i grupowanie UI (zwijanie/rozwijanie parent→child)Osobny etap po MVPZależy od dojrzałości komponentówReguły automatycznego przypisania CSVOsobny etap po MVPEtap 1 (ręczne) wystarczy do startu
+
+3) Minimalna kolejność wdrożenia (bezpieczny rollout)
+
+Schema + migracje (bez zmian UI) — z dry-run i walidacją po migracji.
+Fixture'y testowe — drzewo 1 parent + 2–3 children z mieszanką BUY/SELL/DIVIDEND/DEPOSIT; bez nich backend jest nieweryfikowalny.
+Backend read-path — endpointy zwracają strukturę parent/child z agregowanymi KPI.
+Backend write-path — tworzenie/edycja/przenoszenie sub-portfela + walidacja cykli + reguła orfana przy usunięciu parenta.
+Frontend read-only — prezentacja hierarchii, KPI agregowanych, udział childów.
+Frontend akcje — pełne CRUD, przypisywanie transakcji (ręczne po imporcie CSV).
+Alerty — rozszerzenie istniejącego systemu alertów o poziom childa i parenta.
+Soft launch (feature flag dla kont testowych na produkcji).
+Włączenie feature flag produkcyjnie.
+
+
+4) Kryteria „Definition of Done" dla etapu sub-portfeli
+
+ Brak regresji w obecnych endpointach (testy kontraktu zielone).
+ Poprawna agregacja wartości, zysku i udziałów parent/child (tylko PLN, prosta suma).
+ Historia miesięczna działa dla parenta i childa.
+ Import CSV umożliwia ręczne przypisanie transakcji do sub-portfela po imporcie.
+ Usunięcie parenta przenosi dzieci do głównej listy (orfan), nie kasuje ich.
+ Zakaz tworzenia childów głębiej niż jeden poziom — walidacja backendowa i DB constraint.
+ Walidacja cykli aktywna na write-path.
+ Alerty działają symetrycznie na poziomie childa i parenta.
+ UI jasno rozróżnia parent i child, bez niejednoznacznych akcji.
+
+
+5) Szybkie rekomendacje techniczne (konkret)
+
+Ujednolicić identyfikatory i DTO już teraz — unikać mieszania portfolio_id i parent_portfolio_id w różnych formatach w różnych endpointach.
+Dodać constraint DB blokujący głębokość > 1 poziomu oraz cykle.
+Dodać kolumnę sub_portfolio_id (nullable) w tabeli transakcji — kluczowa dla przypisania CSV.
+Przygotować krótką notkę UX: jakie akcje dostępne są na parent vs child (np. „parent nie ma własnych transakcji, tylko agregat").
+Dodać metrykę/log „czas liczenia wyceny parenta" od razu przy agrегatorze.
