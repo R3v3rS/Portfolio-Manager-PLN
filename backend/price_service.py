@@ -9,6 +9,11 @@ import time
 import random
 import logging
 
+from integrations.yfinance_error_mapping import (
+    UpstreamErrorContext,
+    build_yfinance_error,
+)
+
 # Force yfinance to use a persistent cache directory to reuse cookies/crumbs
 cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_portfel')
 if not os.path.exists(cache_dir):
@@ -134,6 +139,17 @@ class PriceService:
                 time.sleep(sleep_time)
                 delay *= 2
 
+    @staticmethod
+    def _log_upstream_error(exception, context):
+        logger = logging.getLogger(__name__)
+        classified = build_yfinance_error(exception, context)
+        logger.error(classified.technical_message)
+        return {
+            'code': classified.code.value,
+            'user_message': classified.user_message,
+            'technical_message': classified.technical_message,
+        }
+
     @classmethod
     def _load_price_cache_from_db(cls, tickers):
         db = get_db()
@@ -247,11 +263,27 @@ class PriceService:
                                     cls._save_price_cache_to_db(ticker, normalized_price, now_iso)
                         
                     except Exception as e:
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Error processing yfinance data for {ticker}: {e}")
+                        cls._log_upstream_error(
+                            e,
+                            UpstreamErrorContext(
+                                provider='yfinance',
+                                symbol=ticker,
+                                interval='5d',
+                                operation='bulk_download_process',
+                            ),
+                        )
 
             except Exception as e:
-                print(f"[WARNING] Bulk fetch failed ({e}). Switching to individual fallback.")
+                classified_error = cls._log_upstream_error(
+                    e,
+                    UpstreamErrorContext(
+                        provider='yfinance',
+                        symbol=','.join(missing_tickers),
+                        interval='5d',
+                        operation='bulk_download',
+                    ),
+                )
+                print(f"[WARNING] Bulk fetch failed ({classified_error['user_message']}). Switching to individual fallback.")
             
             # Attempt 2: Individual Fetch (Fallback for any still missing)
             remaining_tickers = [t for t in missing_tickers if t not in cls._price_cache]
@@ -285,8 +317,15 @@ class PriceService:
                             except:
                                 print(f"[WARNING] No data for {ticker}")
                     except Exception as e:
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Error processing yfinance data for {ticker}: {e}")
+                        cls._log_upstream_error(
+                            e,
+                            UpstreamErrorContext(
+                                provider='yfinance',
+                                symbol=ticker,
+                                interval='5d',
+                                operation='individual_fetch',
+                            ),
+                        )
 
             # Final safety step: remember refresh attempt (prevents repeated retries during market close)
             for ticker in missing_tickers:
@@ -486,7 +525,15 @@ class PriceService:
                 logger.info("Inserted %s new history rows for %s", inserted_rows, ticker)
 
         except Exception as e:
-            logger.error(f"Error processing yfinance data for {ticker}: {e}")
+            cls._log_upstream_error(
+                e,
+                UpstreamErrorContext(
+                    provider='yfinance',
+                    symbol=ticker,
+                    interval='1d',
+                    operation='sync_stock_history',
+                ),
+            )
             db.rollback()
 
         # Return latest date in DB
@@ -553,7 +600,16 @@ class PriceService:
                 logging.info("Metadata fetched from Yahoo for %s", ticker)
             return metadata
         except Exception as e:
-            logging.warning("Metadata fetch error for %s: %s", ticker, e)
+            classified_error = cls._log_upstream_error(
+                e,
+                UpstreamErrorContext(
+                    provider='yfinance',
+                    symbol=ticker,
+                    interval='metadata',
+                    operation='fetch_metadata',
+                ),
+            )
+            logging.warning("Metadata fetch fallback for %s: %s", ticker, classified_error['user_message'])
             # Fallback to stale in-memory cache if available.
             stale_cached = cls._metadata_cache.get(ticker)
             if stale_cached:
