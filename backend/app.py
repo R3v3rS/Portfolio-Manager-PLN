@@ -1,5 +1,6 @@
 from flask import Flask
 import logging
+import sys
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 from database import init_db
@@ -18,10 +19,12 @@ def create_app():
     app = Flask(__name__)
     CORS(app)  # Enable CORS for all routes
 
-    # Configure simple logging
+    # Configure backend logging so provider logs always go to stdout/stderr.
     logging.basicConfig(
         level=logging.INFO,
-        format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
+        format='%(asctime)s %(levelname)s %(name)s %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)],
+        force=True,
     )
 
     # Database configuration
