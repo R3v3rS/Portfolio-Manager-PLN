@@ -1,7 +1,7 @@
 # Audit & Plan Usprawnień – API / Frontend / Backend Integration
 
-**Data aktualizacji:** 2026-03-25  
-**Status:** W trakcie realizacji (Etap 4)
+**Data aktualizacji:** 2026-03-26  
+**Status:** W trakcie realizacji (Etap 4, aktualizacja po zmianach historii i importu)
 
 Ten dokument łączy wcześniejszy audyt integracji oraz plan usprawnień, stanowiąc jedyne źródło prawdy o stanie technicznym i kierunkach rozwoju projektu.
 
@@ -15,6 +15,8 @@ Ten dokument łączy wcześniejszy audyt integracji oraz plan usprawnień, stano
 - **Integracja:** Frontend korzysta z ujednoliconej warstwy API (`api.ts`, `api_budget.ts`, itd.) z normalizacją typów.
 - **Obsługa Błędów:** Wprowadzono ujednolicony system wyjątków (`ApiError`, `ValidationError`, `NotFoundError`) z globalnym handlerem.
 - **Testy:** Istnieją smoke testy krytycznych endpointów oraz testy kontraktu API (envelope `payload/error`).
+- **Historia wartości i zysku:** Końcowy punkt bieżącego miesiąca jest wyrównywany do live wyceny portfela, aby wykres historii był spójny z aktualnym KPI.
+- **Import XTB:** Działa dwuetapowa walidacja duplikatów (w bazie + wewnątrz pliku) z potwierdzaniem konfliktów przez `confirmed_hashes`.
 
 ### 1.2 Wyniki Quality Gate
 - **Lint (Frontend):** PASS (0 błędów).
@@ -64,6 +66,7 @@ Ten dokument łączy wcześniejszy audyt integracji oraz plan usprawnień, stano
 - [x] **Moduł PPK:** Pełna implementacja (backend/frontend) obsługi transakcji, wyników i wyceny PPK.
 - [x] **Optymalizacja Historii:** Wprowadzenie cache'owania metryk historycznych (`_metrics_cache` w `PortfolioHistoryService`).
 - [x] **Walidacja Requestów:** Wprowadzenie `ValidationError` i wstępna walidacja schematów wejściowych w routerach.
+- [x] **Import / Duplikaty:** Dwuetapowy przepływ importu XTB (`warning` -> potwierdzenie konfliktów -> finalny zapis), hashowanie wierszy i detekcja duplikatów (`database_duplicate`, `file_internal_duplicate`).
 - [ ] **Testy Regresji:** Rozszerzenie testów o scenariusze biznesowe (np. skomplikowane cykle kupna/sprzedaży, nadpłaty kredytów).
 - [ ] **E2E Smoke Test:** Automatyczny test przejścia przez główne ścieżki użytkownika.
 
@@ -78,6 +81,7 @@ Ten dokument łączy wcześniejszy audyt integracji oraz plan usprawnień, stano
 ### P1: Jakość Danych i Walidacja
 - Pełna migracja walidacji wejścia na backendzie na dedykowane schematy lub pomocniki rzucające `ValidationError`.
 - Rozszerzenie testów kontraktu na 100% endpointów API.
+- Dodanie testów automatycznych dla importu z konfliktami (w tym przypadków mieszanych: część konfliktów potwierdzona, część odrzucona).
 
 ### P2: Typowanie i DTO
 - Usunięcie `any` z modułów API na frontendzie (pozostały nieliczne wystąpienia).
@@ -93,3 +97,4 @@ Ten dokument łączy wcześniejszy audyt integracji oraz plan usprawnień, stano
 - **Wielkość Chunków:** Build frontendu ostrzega o dużych plikach (potrzebny code splitting).
 - **Zależność od yfinance:** Ryzyko zmian w nieoficjalnym API, wymagany solidny fallback na dane historyczne z bazy.
 - **Brak ORM:** Bezpośrednie zapytania SQL wymagają dużej dyscypliny przy zmianach schematu bazy.
+- **Import CSV i format czasu:** Detekcja duplikatów opiera się na dokładnej zgodności `date/time`; potrzebna ostrożność przy zmianie formatu daty lub strefy czasowej w źródłowych plikach CSV.
