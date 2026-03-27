@@ -9,6 +9,8 @@ import time
 import random
 import logging
 import json
+from collections import defaultdict, deque
+from threading import Lock
 
 
 logger = logging.getLogger("integrations.yfinance")
@@ -42,6 +44,57 @@ class PriceService:
         "parsing_error",
         "unknown",
     }
+    _error_aggregation_window_seconds = 60
+    _error_aggregation_threshold = 10
+    _error_aggregation_summary_interval_seconds = 10
+    _error_occurrences = defaultdict(deque)
+    _error_aggregation_last_summary = {}
+    _error_aggregation_lock = Lock()
+
+    @staticmethod
+    def _is_env_flag_enabled(value):
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _verbose_provider_logs_enabled(cls):
+        return cls._is_env_flag_enabled(os.getenv("VERBOSE_PROVIDER_LOGS", "false"))
+
+    @classmethod
+    def _log_verbose_provider_event(cls, **kwargs):
+        if not cls._verbose_provider_logs_enabled():
+            return
+        payload = dict(kwargs)
+        payload["level"] = payload.get("level", logging.DEBUG)
+        cls._log_provider_event(**payload)
+
+    @classmethod
+    def _build_aggregated_error_payload(cls, error_type):
+        now = time.monotonic()
+        with cls._error_aggregation_lock:
+            bucket = cls._error_occurrences[error_type]
+            bucket.append(now)
+            window_start = now - cls._error_aggregation_window_seconds
+            while bucket and bucket[0] < window_start:
+                bucket.popleft()
+
+            count = len(bucket)
+            if count <= cls._error_aggregation_threshold:
+                return None
+
+            last_summary_at = cls._error_aggregation_last_summary.get(error_type)
+            should_emit = (
+                last_summary_at is None
+                or (now - last_summary_at) >= cls._error_aggregation_summary_interval_seconds
+            )
+            if not should_emit:
+                return {"suppress": True}
+
+            cls._error_aggregation_last_summary[error_type] = now
+            return {
+                "suppress": True,
+                "count": count,
+                "window_seconds": cls._error_aggregation_window_seconds,
+            }
 
     @staticmethod
     def _safe_error_message(exc, max_len=300):
@@ -119,6 +172,27 @@ class PriceService:
         }
         if payload.get("error_type") and payload["error_type"] not in cls._supported_error_types:
             payload["error_type"] = "unknown"
+        error_type = payload.get("error_type")
+        should_aggregate = (
+            not cls._verbose_provider_logs_enabled()
+            and level >= logging.WARNING
+            and error_type is not None
+        )
+        if should_aggregate:
+            aggregated = cls._build_aggregated_error_payload(error_type)
+            if aggregated is not None:
+                if aggregated.get("count") is not None:
+                    summary_payload = {
+                        "provider": "yfinance",
+                        "operation": "provider_errors.aggregate",
+                        "status": "warning",
+                        "error_type": error_type,
+                        "tickers_count": tickers_count,
+                        "message": f"{error_type} x{aggregated['count']} in last {aggregated['window_seconds']}s",
+                    }
+                    logger.warning(json.dumps(summary_payload, ensure_ascii=False))
+                if aggregated.get("suppress"):
+                    return
         cleaned_payload = {k: v for k, v in payload.items() if v is not None}
         logger.log(level, json.dumps(cleaned_payload, ensure_ascii=False))
 
@@ -430,6 +504,12 @@ class PriceService:
                 for ticker in remaining_tickers:
                     try:
                         fallback_ticker_succeeded = False
+                        cls._log_verbose_provider_event(
+                            operation="get_prices.fallback_ticker",
+                            status="start",
+                            ticker=ticker,
+                            message="Per-ticker fallback started",
+                        )
                         t = yf.Ticker(ticker)
                         # Try history first
                         hist = cls._normalize_yf_dataframe(t.history(period="5d"))
@@ -466,6 +546,19 @@ class PriceService:
                                 )
                         if fallback_ticker_succeeded:
                             fallback_success_count += 1
+                            cls._log_verbose_provider_event(
+                                operation="get_prices.fallback_ticker",
+                                status="success",
+                                ticker=ticker,
+                                message="Per-ticker fallback succeeded",
+                            )
+                        else:
+                            cls._log_verbose_provider_event(
+                                operation="get_prices.fallback_ticker",
+                                status="failed",
+                                ticker=ticker,
+                                message="Per-ticker fallback returned no price",
+                            )
                     except Exception as e:
                         cls._log_provider_event(
                             level=logging.ERROR,
@@ -518,9 +611,7 @@ class PriceService:
             holdings = db.execute('SELECT DISTINCT ticker FROM holdings').fetchall()
             tickers = [h['ticker'] for h in holdings]
             if tickers:
-                # TODO: verbose-only
-                cls._log_provider_event(
-                    level=logging.INFO,
+                cls._log_verbose_provider_event(
                     operation="warmup_cache",
                     status="start",
                     tickers_count=len(tickers),
@@ -784,9 +875,7 @@ class PriceService:
             cached = cls._metadata_cache.get(ticker)
             updated_at = cls._metadata_cache_updated_at.get(ticker)
             if cached and updated_at and (now - updated_at) <= cls._metadata_ttl:
-                # TODO: verbose-only
-                cls._log_provider_event(
-                    level=logging.INFO,
+                cls._log_verbose_provider_event(
                     operation="fetch_metadata",
                     status="success",
                     ticker=ticker,
@@ -796,9 +885,7 @@ class PriceService:
 
             db_cached = cls._load_metadata_from_db(ticker)
             if db_cached:
-                # TODO: verbose-only
-                cls._log_provider_event(
-                    level=logging.INFO,
+                cls._log_verbose_provider_event(
                     operation="fetch_metadata",
                     status="success",
                     ticker=ticker,
@@ -1015,9 +1102,14 @@ class PriceService:
                 error=e,
             )
             # Fallback to individual if bulk fails
-            # TODO: verbose-only
             for ticker in normalized_tickers:
                 if ticker not in quotes:
+                    cls._log_verbose_provider_event(
+                        operation="get_quotes.fallback_ticker",
+                        status="start",
+                        ticker=ticker,
+                        message="Bulk quotes failed; individual fallback placeholder",
+                    )
                     # ... (rest of individual fetch logic if needed, but bulk usually works or everything fails)
                     pass
         
@@ -1192,9 +1284,7 @@ class PriceService:
         Fetches deep fundamental, analyst, and technical data for a single ticker.
         """
         try:
-            # TODO: verbose-only
-            cls._log_provider_event(
-                level=logging.INFO,
+            cls._log_verbose_provider_event(
                 operation="get_stock_analysis",
                 status="start",
                 ticker=ticker,
