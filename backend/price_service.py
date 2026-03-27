@@ -28,6 +28,21 @@ print(f"Using yfinance cache at: {cache_dir}")
 class PriceService:
     _logger = logging.getLogger(__name__)
     _provider_name = "yfinance"
+    _error_codes = {
+        "download_failed": "YF_DOWNLOAD_FAILED",
+        "empty_response": "YF_EMPTY_RESPONSE",
+        "data_processing_failed": "YF_DATA_PROCESSING_ERROR",
+        "get_quote_failed": "YF_GET_QUOTE_FAILED",
+        "history_sync_failed": "YF_HISTORY_SYNC_FAILED",
+        "metadata_fetch_failed": "YF_METADATA_FETCH_FAILED",
+        "bulk_fetch_failed": "YF_BULK_FETCH_FAILED",
+        "events_calendar_failed": "YF_EVENTS_CALENDAR_FAILED",
+        "events_info_failed": "YF_EVENTS_INFO_FAILED",
+        "events_fetch_failed": "YF_EVENTS_FETCH_FAILED",
+        "technical_analysis_failed": "YF_TECHNICAL_ANALYSIS_FAILED",
+        "analysis_fetch_failed": "YF_ANALYSIS_FETCH_FAILED",
+        "unknown": "YF_UNKNOWN_ERROR",
+    }
     _price_cache = {}
     _price_cache_updated_at = {}
     _metadata_cache = {}
@@ -62,7 +77,7 @@ class PriceService:
         end=None,
         interval=None,
         context=None,
-        error_code="YF_UNKNOWN_ERROR",
+        error_code=None,
         retry_count=0,
         latency_ms=None,
         error=None
@@ -85,7 +100,7 @@ class PriceService:
             "interval": interval,
             "request_id": resolved_context.get("request_id"),
             "correlation_id": resolved_context.get("correlation_id"),
-            "error_code": error_code,
+            "error_code": error_code or cls._error_codes["unknown"],
             "retry_count": retry_count,
             "latency_ms": latency_ms,
         }
@@ -215,8 +230,8 @@ class PriceService:
                     end=effective_end,
                     interval=effective_interval,
                     context=resolved_context,
-                    error_code="YF_DOWNLOAD_FAILED",
-                    retry_count=attempt - 1,
+                    error_code=cls._error_codes["download_failed"],
+                    retry_count=attempt,
                     latency_ms=latency_ms,
                     error=e,
                 )
@@ -307,6 +322,7 @@ class PriceService:
         
         if missing_tickers:
             print(f"Fetching prices for: {missing_tickers}")
+            bulk_started_at = time.time()
             
             # Attempt 1: Bulk Download
             try:
@@ -329,9 +345,9 @@ class PriceService:
                         period="5d",
                         interval="1d",
                         context=context,
-                        error_code="YF_EMPTY_RESPONSE",
+                        error_code=cls._error_codes["empty_response"],
                         retry_count=0,
-                        latency_ms=0,
+                        latency_ms=int((time.time() - bulk_started_at) * 1000),
                         error="Bulk download returned empty data",
                     )
                     raise ValueError("Empty Data")
@@ -339,6 +355,7 @@ class PriceService:
                 # Process bulk data
                 for ticker in missing_tickers:
                     try:
+                        ticker_processing_started_at = time.time()
                         ticker_df = None
                         if isinstance(data.columns, pd.MultiIndex):
                             if ticker in data.columns.levels[0]:
@@ -365,9 +382,9 @@ class PriceService:
                             period="5d",
                             interval="1d",
                             context=context,
-                            error_code="YF_DATA_PROCESSING_ERROR",
+                            error_code=cls._error_codes["data_processing_failed"],
                             retry_count=0,
-                            latency_ms=0,
+                            latency_ms=int((time.time() - ticker_processing_started_at) * 1000),
                             error=e,
                         )
 
@@ -411,7 +428,7 @@ class PriceService:
                                     period="5d",
                                     interval="1d",
                                     context=context,
-                                    error_code="YF_EMPTY_RESPONSE",
+                                    error_code=cls._error_codes["empty_response"],
                                     retry_count=0,
                                     latency_ms=int((time.time() - ticker_call_start) * 1000),
                                     error="No history and no fast_info.last_price",
@@ -423,7 +440,7 @@ class PriceService:
                             period="5d",
                             interval="1d",
                             context=context,
-                            error_code="YF_GET_QUOTE_FAILED",
+                            error_code=cls._error_codes["get_quote_failed"],
                             retry_count=0,
                             latency_ms=int((time.time() - ticker_call_start) * 1000),
                             error=e,
@@ -583,6 +600,7 @@ class PriceService:
         logger.info("Syncing %s history from %s", ticker, fetch_start.isoformat())
 
         try:
+            sync_started_at = time.time()
             # 3. Fetch from yfinance (with retry)
             # Use fetch_start to today
             data = cls._normalize_yf_dataframe(
@@ -642,9 +660,9 @@ class PriceService:
                 start=fetch_start,
                 interval="1d",
                 context=context,
-                error_code="YF_HISTORY_SYNC_FAILED",
+                error_code=cls._error_codes["history_sync_failed"],
                 retry_count=0,
-                latency_ms=0,
+                latency_ms=int((time.time() - sync_started_at) * 1000),
                 error=e,
             )
             db.rollback()
@@ -716,14 +734,14 @@ class PriceService:
             return metadata
         except Exception as e:
             cls._log_integration_error(
-                operation="get_quote",
+                operation="fetch_metadata",
                 symbols=ticker,
                 period=None,
                 start=None,
                 end=None,
                 interval=None,
                 context=context,
-                error_code="YF_METADATA_FETCH_FAILED",
+                error_code=cls._error_codes["metadata_fetch_failed"],
                 retry_count=0,
                 latency_ms=int((time.time() - started_at) * 1000),
                 error=e,
@@ -754,6 +772,7 @@ class PriceService:
         
         # Try bulk download first for efficiency
         try:
+            bulk_quotes_started_at = time.time()
             # Fetch 1 year of history for all tickers at once
             data = cls._download_with_retry(
                 normalized_tickers,
@@ -861,11 +880,11 @@ class PriceService:
                         period="1y",
                         interval="1d",
                         context=context,
-                        error_code="YF_DATA_PROCESSING_ERROR",
-                        retry_count=0,
-                        latency_ms=0,
-                        error=e,
-                    )
+                    error_code=cls._error_codes["data_processing_failed"],
+                    retry_count=0,
+                    latency_ms=int((time.time() - bulk_quotes_started_at) * 1000),
+                    error=e,
+                )
                     quotes[ticker] = {
                         'price': 0.0,
                         'change_1d': None,
@@ -883,9 +902,9 @@ class PriceService:
                 period="1y",
                 interval="1d",
                 context=context,
-                error_code="YF_BULK_FETCH_FAILED",
+                error_code=cls._error_codes["bulk_fetch_failed"],
                 retry_count=0,
-                latency_ms=0,
+                latency_ms=int((time.time() - bulk_quotes_started_at) * 1000),
                 error=e,
             )
             # Fallback to individual if bulk fails
@@ -1014,10 +1033,10 @@ class PriceService:
                         pass 
                 except Exception as e:
                     cls._log_integration_error(
-                        operation="get_quote",
+                        operation="fetch_market_events",
                         symbols=ticker,
                         context=context,
-                        error_code="YF_EVENTS_CALENDAR_FAILED",
+                        error_code=cls._error_codes["events_calendar_failed"],
                         retry_count=0,
                         latency_ms=int((time.time() - ticker_started_at) * 1000),
                         error=e,
@@ -1037,10 +1056,10 @@ class PriceService:
                     
                 except Exception as e:
                     cls._log_integration_error(
-                        operation="get_quote",
+                        operation="fetch_market_events",
                         symbols=ticker,
                         context=context,
-                        error_code="YF_EVENTS_INFO_FAILED",
+                        error_code=cls._error_codes["events_info_failed"],
                         retry_count=0,
                         latency_ms=int((time.time() - ticker_started_at) * 1000),
                         error=e,
@@ -1053,10 +1072,10 @@ class PriceService:
                 }
             except Exception as e:
                 cls._log_integration_error(
-                    operation="get_quote",
+                    operation="fetch_market_events",
                     symbols=ticker,
                     context=context,
-                    error_code="YF_EVENTS_FETCH_FAILED",
+                    error_code=cls._error_codes["events_fetch_failed"],
                     retry_count=0,
                     latency_ms=int((time.time() - ticker_started_at) * 1000),
                     error=e,
@@ -1246,7 +1265,7 @@ class PriceService:
                     period="1y",
                     interval="1d",
                     context=context,
-                    error_code="YF_TECHNICAL_ANALYSIS_FAILED",
+                    error_code=cls._error_codes["technical_analysis_failed"],
                     retry_count=0,
                     latency_ms=int((time.time() - started_at) * 1000),
                     error=e,
@@ -1265,10 +1284,10 @@ class PriceService:
 
         except Exception as e:
             cls._log_integration_error(
-                operation="get_quote",
+                operation="get_stock_analysis",
                 symbols=ticker,
                 context=context,
-                error_code="YF_ANALYSIS_FETCH_FAILED",
+                error_code=cls._error_codes["analysis_fetch_failed"],
                 retry_count=0,
                 latency_ms=int((time.time() - started_at) * 1000),
                 error=e,
