@@ -11,6 +11,11 @@ import logging
 import json
 import uuid
 
+from integrations.yfinance_error_mapping import (
+    UpstreamErrorContext,
+    build_yfinance_error,
+)
+
 # Force yfinance to use a persistent cache directory to reuse cookies/crumbs
 cache_dir = os.path.join(tempfile.gettempdir(), 'yfinance_cache_portfel')
 if not os.path.exists(cache_dir):
@@ -241,6 +246,17 @@ class PriceService:
                 time.sleep(sleep_time)
                 delay *= 2
 
+    @staticmethod
+    def _log_upstream_error(exception, context):
+        logger = logging.getLogger(__name__)
+        classified = build_yfinance_error(exception, context)
+        logger.error(classified.technical_message)
+        return {
+            'code': classified.code.value,
+            'user_message': classified.user_message,
+            'technical_message': classified.technical_message,
+        }
+
     @classmethod
     def _load_price_cache_from_db(cls, tickers):
         db = get_db()
@@ -389,7 +405,16 @@ class PriceService:
                         )
 
             except Exception as e:
-                print(f"[WARNING] Bulk fetch failed ({e}). Switching to individual fallback.")
+                classified_error = cls._log_upstream_error(
+                    e,
+                    UpstreamErrorContext(
+                        provider='yfinance',
+                        symbol=','.join(missing_tickers),
+                        interval='5d',
+                        operation='bulk_download',
+                    ),
+                )
+                print(f"[WARNING] Bulk fetch failed ({classified_error['user_message']}). Switching to individual fallback.")
             
             # Attempt 2: Individual Fetch (Fallback for any still missing)
             remaining_tickers = [t for t in missing_tickers if t not in cls._price_cache]
