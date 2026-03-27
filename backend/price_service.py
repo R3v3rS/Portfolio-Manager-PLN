@@ -34,6 +34,26 @@ class PriceService:
     _metadata_cache_updated_at = {}
     _metadata_ttl = timedelta(days=30)
     _default_history_start = date(2000, 1, 1)
+    _supported_error_types = {
+        "network_timeout",
+        "rate_limit",
+        "empty_data",
+        "invalid_ticker",
+        "parsing_error",
+        "unknown",
+    }
+
+    @staticmethod
+    def _safe_error_message(exc, max_len=300):
+        if exc is None:
+            return None
+        try:
+            message = str(exc)
+        except Exception:
+            message = repr(exc)
+        if not message:
+            return None
+        return message[:max_len]
 
     @staticmethod
     def _classify_error(exc):
@@ -41,7 +61,7 @@ class PriceService:
             return "unknown"
 
         exc_name = exc.__class__.__name__.lower()
-        exc_message = str(exc).lower()
+        exc_message = (PriceService._safe_error_message(exc, max_len=1000) or "").lower()
         combined = f"{exc_name} {exc_message}"
 
         if "timeout" in combined:
@@ -61,6 +81,8 @@ class PriceService:
         if "jsondecodeerror" in combined:
             return "parsing_error"
 
+        # unknown must stay as the last branch so that no exception
+        # can "fall through" outside the controlled classification set.
         return "unknown"
 
     @classmethod
@@ -90,11 +112,13 @@ class PriceService:
             "max_attempts": max_attempts,
             "duration_ms": duration_ms,
             "error_type": (cls._classify_error(error) if error else None),
-            "error_message": (str(error)[:300] if error else None),
+            "error_message": (cls._safe_error_message(error, max_len=300) if error else None),
             "request_id": request_id,
             "trace_id": trace_id,
             "message": message,
         }
+        if payload.get("error_type") and payload["error_type"] not in cls._supported_error_types:
+            payload["error_type"] = "unknown"
         cleaned_payload = {k: v for k, v in payload.items() if v is not None}
         logger.log(level, json.dumps(cleaned_payload, ensure_ascii=False))
 
