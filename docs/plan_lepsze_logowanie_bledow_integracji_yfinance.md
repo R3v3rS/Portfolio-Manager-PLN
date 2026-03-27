@@ -71,6 +71,74 @@ Zdefiniować jednolity schemat logów dla integracji zewnętrznej `yfinance`.
 
 ---
 
+## KONTRAKT LOGÓW
+
+> Dotyczy wszystkich wywołań zewnętrznego providera `yfinance` realizowanych przez `PriceService`.
+
+### 1) Schemat pola logu (wymagany)
+
+| Pole | Typ | Wymagane | Opis / zasada |
+|---|---|---|---|
+| `provider` | `string` | tak | Stała wartość: `yfinance`. |
+| `operation` | `string` | tak | Nazwa operacji biznesowo-technicznej (patrz tabela operacji poniżej). |
+| `ticker` | `string` | warunkowo | Wymagane dla operacji pojedynczego waloru. |
+| `tickers_count` | `int` | warunkowo | Wymagane dla operacji zbiorczych (`bulk`). |
+| `attempt` | `int` | warunkowo | Numer próby dla retry (1..`max_attempts`). |
+| `max_attempts` | `int` | warunkowo | Maksymalna liczba prób dla operacji z retry. |
+| `duration_ms` | `int` | tak | Czas trwania pojedynczej operacji / próby w milisekundach. |
+| `status` | `enum` | tak | Jedna z wartości: `success`, `retry`, `failed`, `partial`. |
+| `error_type` | `string` | warunkowo | Wymagane przy `status=retry|failed|partial` (np. `network_timeout`, `rate_limit`, `empty_data`, `invalid_ticker`, `parsing_error`, `unknown`). |
+| `error_message` | `string` | warunkowo | Skrócony, bezpieczny opis błędu (bez danych wrażliwych). |
+| `request_id` / `trace_id` | `string` | warunkowo | Jeżeli dostępne w kontekście requestu; przynajmniej jedno z pól powinno być przekazane. |
+
+#### Reguły walidacyjne kontraktu
+- Dla zdarzeń `success` pola `error_type` i `error_message` **powinny być puste** (`null`).
+- Dla zdarzeń `retry` pole `attempt` **musi** być `< max_attempts`.
+- Dla zdarzeń `failed` w operacjach z retry pole `attempt` **musi** być równe `max_attempts`.
+- Dla zdarzeń `partial` należy dodać kontekst degradacji (np. fallback użyty, część tickerów bez wyniku).
+
+### 2) Poziomy logowania (severity)
+
+- `DEBUG` — detale techniczne (parametry yfinance, diagnostyka parsowania, informacje pomocnicze dla dewelopera).
+- `INFO` — start oraz pełny sukces operacji.
+- `WARNING` — retry, fallback, degradacja jakości danych (`partial`) lub odzysk po błędzie.
+- `ERROR` — finalna porażka operacji (`failed`) po wyczerpaniu dostępnych mechanizmów.
+
+### 3) Mapa operacji `yfinance` → `operation` + oczekiwane poziomy
+
+| Miejsce integracji | `operation` | Kiedy logować | Oczekiwany poziom |
+|---|---|---|---|
+| `_download_with_retry` (próba pobrania `yf.download`) | `yf_download_retry_attempt` | każda próba i pomiar czasu | `INFO` (start), `WARNING` (retry), `ERROR` (porażka końcowa), `INFO` (sukces) |
+| `get_prices` (bulk `yf.download`) | `yf_get_prices_bulk` | start, sukces, błąd bulk, przejście do fallbacku | `INFO` (start/sukces), `WARNING` (fallback), `ERROR` (brak możliwości odzyskania) |
+| `get_prices` (`Ticker.history` per ticker) | `yf_get_prices_ticker_history` | pobranie ceny dla pojedynczego tickera | `INFO` (sukces), `WARNING` (brak danych / przejście do fast_info), `ERROR` (finalna porażka tickera) |
+| `get_prices` (`fast_info.last_price`) | `yf_get_prices_ticker_fast_info` | awaryjna próba ostatniej ceny | `DEBUG` (detale), `INFO` (sukces), `WARNING` (brak wartości), `ERROR` (wyjątek końcowy) |
+| `sync_stock_history` (`yf.download`) | `yf_sync_stock_history` | synchronizacja historii cen | `INFO` (start/sukces/no-op), `WARNING` (puste dane/close), `ERROR` (porażka finalna) |
+| `fetch_metadata` (`Ticker.info`) | `yf_fetch_metadata` | odczyt metadanych emitenta | `INFO` (cache hit/sukces), `WARNING` (użycie stale cache), `ERROR` (brak danych po fallbackach) |
+| `get_quotes` (`yf.download`) | `yf_get_quotes_bulk` | notowania bieżące dla listy tickerów | `INFO` (start/sukces), `WARNING` (częściowe braki / retry), `ERROR` (porażka końcowa) |
+| `fetch_market_events` (`Ticker.calendar`) | `yf_fetch_market_events_calendar` | odczyt kalendarza zdarzeń | `INFO` (sukces), `WARNING` (fallback do info), `ERROR` (porażka finalna) |
+| `fetch_market_events` (`Ticker.info`) | `yf_fetch_market_events_info` | fallback/dodatkowe źródło eventów | `DEBUG` (detale mapowania), `INFO` (sukces), `WARNING` (częściowy wynik), `ERROR` (porażka finalna) |
+| `get_stock_analysis` (`Ticker.info`) | `yf_stock_analysis_info` | dane fundamentalne do analizy | `INFO` (sukces), `WARNING` (wynik częściowy), `ERROR` (porażka finalna) |
+| `get_stock_analysis` (`Ticker.history(period=\"1y\")`) | `yf_stock_analysis_history` | dane historyczne do wskaźników technicznych | `INFO` (sukces), `WARNING` (braki danych/partial), `ERROR` (porażka finalna) |
+
+### 4) Przykładowy rekord logu (JSON)
+
+```json
+{
+  "provider": "yfinance",
+  "operation": "yf_get_prices_bulk",
+  "tickers_count": 42,
+  "attempt": 1,
+  "max_attempts": 3,
+  "duration_ms": 287,
+  "status": "retry",
+  "error_type": "network_timeout",
+  "error_message": "ReadTimeout while calling yf.download",
+  "trace_id": "0f5f29d0f3a34d53"
+}
+```
+
+---
+
 ## Zadanie 3 — Refaktoryzacja kodu logowania
 
 ### Cel
