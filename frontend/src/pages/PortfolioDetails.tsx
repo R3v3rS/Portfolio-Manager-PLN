@@ -4,9 +4,9 @@ import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench } f
 import {
   portfolioApi,
   normalizeXtbImportError,
-  normalizeXtbImportResult,
   type PortfolioAuditResult,
   type PPKPerformanceResponse,
+  type PriceHistoryAuditResult,
   type XtbImportConflict,
 } from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
@@ -348,6 +348,8 @@ const PortfolioDetails: React.FC = () => {
   const [auditResult, setAuditResult] = useState<PortfolioAuditResult | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [rebuildLoading, setRebuildLoading] = useState(false);
+  const [priceAuditLoading, setPriceAuditLoading] = useState(false);
+  const [priceAuditResult, setPriceAuditResult] = useState<PriceHistoryAuditResult | null>(null);
 
   // Monthly Dividend state
   const [monthlyDividends, setMonthlyDividends] = useState<{ label: string; amount: number }[]>([]);
@@ -580,6 +582,49 @@ const PortfolioDetails: React.FC = () => {
     }
   };
 
+  const runPriceHistoryAudit = async () => {
+    const daysInput = window.prompt('Ile dni sprawdzić w audycie cen?', '30');
+    if (daysInput === null) return;
+    const thresholdInput = window.prompt('Próg skoku (%), np. 25', '25');
+    if (thresholdInput === null) return;
+
+    const days = Number.parseInt(daysInput, 10);
+    const threshold = Number.parseFloat(thresholdInput);
+    if (Number.isNaN(days) || days < 2 || Number.isNaN(threshold) || threshold <= 0) {
+      alert('Niepoprawne parametry audytu. Użyj dni >= 2 i progu > 0.');
+      return;
+    }
+
+    const refreshFlagged = window.confirm('Od razu odświeżyć tickery oznaczone jako podejrzane?');
+    const savedToken = window.localStorage.getItem('portfolio_admin_token') ?? '';
+    const tokenInput = window.prompt(
+      'Admin token (X-Admin-Token). Zostaw puste, jeśli backend działa w debug.',
+      savedToken
+    );
+    if (tokenInput === null) return;
+    const token = tokenInput.trim();
+    if (token) {
+      window.localStorage.setItem('portfolio_admin_token', token);
+    }
+
+    setPriceAuditLoading(true);
+    try {
+      const result = await portfolioApi.runPriceHistoryAudit({
+        days,
+        threshold,
+        refresh_flagged: refreshFlagged,
+        adminToken: token || undefined,
+      });
+      setPriceAuditResult(result);
+      alert(`Audyt cen zakończony. Flagi: ${result.flagged_count}, problemy: ${result.issues.length}.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nie udało się uruchomić audytu historii cen.';
+      alert(message);
+    } finally {
+      setPriceAuditLoading(false);
+    }
+  };
+
   const fetchHistory = async (ticker: string) => {
     setHistoryLoading(true);
     setSelectedTicker(ticker);
@@ -687,6 +732,15 @@ const PortfolioDetails: React.FC = () => {
           >
             <Wrench className="h-4 w-4" />
             {rebuildLoading ? 'Rebuild...' : 'Rebuild from transactions'}
+          </button>
+          <button
+            type="button"
+            onClick={runPriceHistoryAudit}
+            disabled={priceAuditLoading}
+            className="inline-flex items-center gap-2 rounded border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100 disabled:opacity-60"
+          >
+            <ShieldAlert className="h-4 w-4" />
+            {priceAuditLoading ? 'Audyt cen...' : 'Price history audit'}
           </button>
         </div>
       )}
@@ -940,6 +994,46 @@ const PortfolioDetails: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {priceAuditResult && (
+        <div className="rounded-xl border border-fuchsia-200 bg-fuchsia-50 p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-fuchsia-800">Price history audit</h2>
+          <div className="mt-2 grid grid-cols-1 gap-3 text-sm text-fuchsia-900 md:grid-cols-4">
+            <div>Dni: <span className="font-semibold">{priceAuditResult.days}</span></div>
+            <div>Próg: <span className="font-semibold">{priceAuditResult.jump_threshold_percent}%</span></div>
+            <div>Oflagowane: <span className="font-semibold">{priceAuditResult.flagged_count}</span></div>
+            <div>Odświeżone: <span className="font-semibold">{priceAuditResult.refreshed_tickers.length}</span></div>
+          </div>
+          {priceAuditResult.issues.length > 0 ? (
+            <div className="mt-3 max-h-64 overflow-auto rounded border border-fuchsia-200 bg-white">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-fuchsia-100 text-fuchsia-900">
+                  <tr>
+                    <th className="px-2 py-1">Ticker</th>
+                    <th className="px-2 py-1">Data</th>
+                    <th className="px-2 py-1">Poprzednia</th>
+                    <th className="px-2 py-1">Zmiana</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {priceAuditResult.issues.slice(0, 50).map((issue, index) => (
+                    <tr key={`${issue.ticker}-${issue.date}-${index}`} className="border-t border-fuchsia-100">
+                      <td className="px-2 py-1 font-medium">{issue.ticker}</td>
+                      <td className="px-2 py-1">{issue.date}</td>
+                      <td className="px-2 py-1">{issue.previous_close.toFixed(4)} → {issue.close.toFixed(4)}</td>
+                      <td className={cn('px-2 py-1 font-semibold', issue.change_percent >= 0 ? 'text-red-600' : 'text-emerald-600')}>
+                        {issue.change_percent.toFixed(2)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-fuchsia-800">Brak podejrzanych skoków cen dla wybranych parametrów.</p>
+          )}
         </div>
       )}
 

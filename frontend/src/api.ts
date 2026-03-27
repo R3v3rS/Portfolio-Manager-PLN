@@ -76,6 +76,24 @@ export interface PortfolioAuditResult {
   } | null;
 }
 
+export interface PriceHistoryAuditIssue {
+  ticker: string;
+  date: string;
+  previous_date: string;
+  previous_close: number;
+  close: number;
+  change_percent: number;
+}
+
+export interface PriceHistoryAuditResult {
+  days: number;
+  jump_threshold_percent: number;
+  flagged_count: number;
+  flagged_tickers: string[];
+  issues: PriceHistoryAuditIssue[];
+  refreshed_tickers: string[];
+}
+
 export interface PPKPerformanceResponse {
   start_week: string | null;
   start_price: number;
@@ -371,6 +389,32 @@ const normalizeAuditResult = (value: unknown): PortfolioAuditResult => {
   };
 };
 
+const normalizePriceHistoryAuditIssue = (value: unknown): PriceHistoryAuditIssue => {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    ticker: toString(source.ticker),
+    date: toString(source.date),
+    previous_date: toString(source.previous_date),
+    previous_close: toNumber(source.previous_close),
+    close: toNumber(source.close),
+    change_percent: toNumber(source.change_percent),
+  };
+};
+
+const normalizePriceHistoryAuditResult = (value: unknown): PriceHistoryAuditResult => {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    days: toNumber(source.days),
+    jump_threshold_percent: toNumber(source.jump_threshold_percent),
+    flagged_count: toNumber(source.flagged_count),
+    flagged_tickers: toStringArray(source.flagged_tickers),
+    issues: Array.isArray(source.issues) ? source.issues.map(normalizePriceHistoryAuditIssue) : [],
+    refreshed_tickers: toStringArray(source.refreshed_tickers),
+  };
+};
+
 const normalizePpkTransaction = (value: unknown): PPKTransaction => {
   const source = isRecord(value) ? value : {};
   return {
@@ -412,7 +456,7 @@ const normalizePpkSummary = (value: unknown): PPKSummary | null => {
 };
 
 export const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
-  const source = isRecord(value) ? (value as any) : {};
+  const source = isRecord(value) ? value : {};
 
   return {
     ok: true,
@@ -533,6 +577,22 @@ export const portfolioApi = {
   runAudit: async (portfolioId: number): Promise<PortfolioAuditResult> => {
     const response = await portfolioHttp.get<unknown>(`/${portfolioId}/audit`);
     return normalizeAuditResult(response);
+  },
+  runPriceHistoryAudit: async (options?: {
+    days?: number;
+    threshold?: number;
+    refresh_flagged?: boolean;
+    adminToken?: string;
+  }): Promise<PriceHistoryAuditResult> => {
+    const response = await portfolioHttp.get<unknown>('/admin/price-history-audit', {
+      params: {
+        ...(options?.days ? { days: options.days } : {}),
+        ...(options?.threshold ? { threshold: options.threshold } : {}),
+        ...(options?.refresh_flagged ? { refresh_flagged: 1 } : {}),
+      },
+      headers: options?.adminToken ? { 'X-Admin-Token': options.adminToken } : undefined,
+    });
+    return normalizePriceHistoryAuditResult(response);
   },
   rebuild: async (portfolioId: number): Promise<{ message: string | null }> => {
     const response = await portfolioHttp.post<unknown>(`/${portfolioId}/rebuild`);
