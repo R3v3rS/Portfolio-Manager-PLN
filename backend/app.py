@@ -1,28 +1,86 @@
 from flask import Flask
+import json
 import logging
+import os
+import sys
+from datetime import datetime, timezone
+
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
-from database import init_db
+
 from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.response import error_response, success_response
+from database import init_db
+from price_service import PriceService
+from monitoring import monitoring_bp
 from routes import portfolio_bp
-from routes_loans import loans_bp
 from routes_budget import budget_bp
 from routes_dashboard import dashboard_bp
+from routes_loans import loans_bp
 from routes_radar import radar_bp
 from routes_symbol_map import symbol_map_bp
-from price_service import PriceService
-import os
+
+
+class JsonLineFormatter(logging.Formatter):
+    """Emit one JSON object per line for file-based log shipping."""
+
+    def format(self, record):
+        payload = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+        }
+
+        message = record.getMessage()
+        parsed_message = None
+        if isinstance(message, str):
+            try:
+                parsed_message = json.loads(message)
+            except json.JSONDecodeError:
+                parsed_message = None
+
+        if isinstance(parsed_message, dict):
+            payload.update(parsed_message)
+        else:
+            payload["message"] = message
+
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def configure_logging():
+    logs_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    backend_log_path = os.path.join(logs_dir, "backend.log")
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+
+    file_handler = logging.FileHandler(backend_log_path, encoding="utf-8")
+    file_handler.setFormatter(JsonLineFormatter())
+
+    root_logger.addHandler(stream_handler)
+    root_logger.addHandler(file_handler)
+
+    logging.getLogger(__name__).info("Backend file logs enabled at %s", backend_log_path)
+    return backend_log_path
+
 
 def create_app():
     app = Flask(__name__)
     CORS(app)  # Enable CORS for all routes
 
-    # Configure simple logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
-    )
+    backend_log_path = configure_logging()
+    app.config["BACKEND_LOG_PATH"] = backend_log_path
+    app.config["APP_STARTED_AT"] = datetime.now(timezone.utc)
 
     # Database configuration
     db_path = os.path.join(os.path.dirname(__file__), 'portfolio.db')
@@ -45,6 +103,7 @@ def create_app():
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(radar_bp, url_prefix='/api/radar')
     app.register_blueprint(symbol_map_bp, url_prefix='/api/symbol-map')
+    app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
 
 
     # Global API error handling.
@@ -112,6 +171,7 @@ def create_app():
         return success_response({'status': 'healthy', 'message': 'Portfolio Manager API is running'})
 
     return app
+
 
 if __name__ == '__main__':
     app = create_app()
