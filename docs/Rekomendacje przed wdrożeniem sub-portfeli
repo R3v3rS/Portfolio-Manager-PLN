@@ -2,6 +2,18 @@ Rekomendacje przed wdrożeniem sub-portfeli
 Data: 2026-03-26
 Cel: zminimalizować ryzyko regresji i uprościć implementację sub-portfeli.
 
+0) Weryfikacja ze stanem faktycznym (na dzień 2026-03-27)
+
+Poniżej szybki status tego dokumentu względem aktualnego kodu:
+
+- ✅ Kierunek dokumentu jest trafny: sub-portfele nie są jeszcze wdrożone i wymagają osobnego kontraktu danych + migracji.
+- ⚠️ Teza „aplikacja operuje wyłącznie na PLN” jest niezgodna ze stanem backendu — system przechowuje waluty aktywów (np. USD/EUR/GBP) i robi przeliczenia FX do PLN przy wycenie.
+- ⚠️ Teza o „jednym zbiorczym imporcie CSV” wymaga doprecyzowania — aktualnie import XTB jest wykonywany per portfel (`/api/portfolio/<portfolio_id>/import/xtb`).
+- ⚠️ Teza o „rozszerzeniu istniejącego systemu alertów o child/parent” jest częściowo nieprecyzyjna — brak wydzielonego systemu alertów domenowych parent/child (są m.in. alerty UI typu `alert(...)` i mechanizmy quality/monitoring).
+- ⚠️ Flaga `SUBPORTFOLIOS_ENABLED` jest rekomendacją, ale obecnie nie istnieje w kodzie.
+
+Wniosek: dokument jest dobrym planem „docelowym”, ale warto jawnie traktować go jako plan zmian, a nie opis aktualnie działającej funkcji.
+
 1) Najważniejsze usprawnienia „przed"
 1.1 Kontrakt danych sub-portfela (MVP spec)
 Zanim ruszy kodowanie, warto spisać mini-spec z poniższymi rozstrzygniętymi decyzjami:
@@ -13,7 +25,8 @@ zakaz cykli egzekwowany przez constraint DB (child nie może być parentem swoje
 
 Waluta:
 
-aplikacja operuje wyłącznie na PLN — brak przeliczeń kursowych, agregacja parenta to prosta suma arytmetyczna childów.
+UI i główne KPI są prezentowane w PLN, ale backend obsługuje również instrumenty w innych walutach i przeliczenia FX;
+dla sub-portfeli należy utrzymać jedną walutę raportową (PLN), a agregację parenta liczyć po przeliczeniu childów do PLN.
 
 Transakcje:
 
@@ -75,7 +88,7 @@ Warto od razu zaplanować cache'owanie na poziomie childa: jeśli child nie zmie
 Dlaczego teraz: ułatwi testowanie i ograniczy ryzyko „if-ologii" w wielu miejscach.
 
 1.6 Import CSV — przypisanie do sub-portfeli
-Aplikacja ma jeden zbiorczy import CSV. Przy sub-portfelach pojawiają się dwa podejścia — rekomendacja to podejście hybrydowe:
+Aktualnie import XTB działa per portfel. Przy sub-portfelach pojawiają się dwa podejścia — rekomendacja to podejście hybrydowe:
 Etap 1 (MVP) — przypisanie ręczne po imporcie:
 
 import trafia do parenta lub jako „nieprzypisane";
@@ -125,4 +138,4 @@ Ujednolicić identyfikatory i DTO już teraz — unikać mieszania portfolio_id 
 Dodać constraint DB blokujący głębokość > 1 poziomu oraz cykle.
 Dodać kolumnę sub_portfolio_id (nullable) w tabeli transakcji — kluczowa dla przypisania CSV.
 Przygotować krótką notkę UX: jakie akcje dostępne są na parent vs child (np. „parent nie ma własnych transakcji, tylko agregat").
-Dodać metrykę/log „czas liczenia wyceny parenta" od razu przy agrегatorze.
+Dodać metrykę/log „czas liczenia wyceny parenta" od razu przy agregatorze.
