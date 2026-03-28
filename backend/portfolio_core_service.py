@@ -176,11 +176,26 @@ class PortfolioCoreService:
     def clear_portfolio_data(portfolio_id: int) -> dict[str, Any]:
         db = get_db()
         portfolio = db.execute(
-            'SELECT id, name, account_type FROM portfolios WHERE id = ?',
+            'SELECT id, name, account_type, parent_portfolio_id FROM portfolios WHERE id = ?',
             (portfolio_id,)
         ).fetchone()
         if not portfolio:
             raise ValueError('Portfolio not found')
+
+        if portfolio['parent_portfolio_id']:
+            raise ValueError('Czyszczenie sub-portfela nie jest dozwolone. Przenieś transakcje ręcznie.')
+
+        active_children = db.execute(
+            '''
+            SELECT id
+            FROM portfolios
+            WHERE parent_portfolio_id = ? AND is_archived = 0
+            LIMIT 1
+            ''',
+            (portfolio_id,),
+        ).fetchone()
+        if active_children:
+            raise ValueError('Najpierw zarchiwizuj sub-portfele.')
 
         try:
             tx_deleted = db.execute('DELETE FROM transactions WHERE portfolio_id = ?', (portfolio_id,)).rowcount
