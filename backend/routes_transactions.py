@@ -1,4 +1,4 @@
-from flask import request
+from flask import current_app, request
 from database import get_db
 from portfolio_service import PortfolioService
 from api.response import success_response
@@ -128,34 +128,36 @@ def assign_transaction(transaction_id):
 
     # Start async job to re-calculate history after assignment
     job_id = job_registry.create_job()
+    app = current_app._get_current_object()
     
     def run_recalculation():
-        try:
-            job_registry.update_job(job_id, status='running', progress=10)
-            
-            # 1. Update the transaction assignment
-            PortfolioService.assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id)
-            job_registry.update_job(job_id, progress=40)
-            
-            # 2. Rebuild the portfolio state/holdings
-            # We rebuild the parent (sub_portfolio_id=None) and the specific sub-portfolio
-            PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
-            if sub_portfolio_id:
-                PortfolioService.repair_portfolio_state(sub_portfolio_id)
-            
-            job_registry.update_job(job_id, progress=80)
-            
-            # 3. Clear history cache
-            PortfolioService.clear_cache(portfolio_id)
-            # Also clear child if applicable
-            if sub_portfolio_id:
-                PortfolioService.clear_cache(sub_portfolio_id)
-            
-            job_registry.update_job(job_id, status='done', progress=100)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            job_registry.update_job(job_id, status='failed', error=str(e))
+        with app.app_context():
+            try:
+                job_registry.update_job(job_id, status='running', progress=10)
+                
+                # 1. Update the transaction assignment
+                PortfolioService.assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id)
+                job_registry.update_job(job_id, progress=40)
+                
+                # 2. Rebuild the portfolio state/holdings
+                # We rebuild the parent (sub_portfolio_id=None) and the specific sub-portfolio
+                PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
+                if sub_portfolio_id:
+                    PortfolioService.repair_portfolio_state(sub_portfolio_id)
+                
+                job_registry.update_job(job_id, progress=80)
+                
+                # 3. Clear history cache
+                PortfolioService.clear_cache(portfolio_id)
+                # Also clear child if applicable
+                if sub_portfolio_id:
+                    PortfolioService.clear_cache(sub_portfolio_id)
+                
+                job_registry.update_job(job_id, status='done', progress=100)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                job_registry.update_job(job_id, status='failed', error=str(e))
 
     thread = threading.Thread(target=run_recalculation, daemon=True)
     thread.start()
@@ -184,32 +186,34 @@ def assign_transactions_bulk():
 
     # Start async job
     job_id = job_registry.create_job()
+    app = current_app._get_current_object()
     
     def run_bulk_recalculation():
-        try:
-            job_registry.update_job(job_id, status='running', progress=10)
-            
-            # 1. Update the transactions
-            PortfolioService.assign_transactions_bulk(transaction_ids, sub_portfolio_id)
-            job_registry.update_job(job_id, progress=40)
-            
-            # 2. Rebuild the portfolio state
-            PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
-            if sub_portfolio_id:
-                PortfolioService.repair_portfolio_state(sub_portfolio_id)
+        with app.app_context():
+            try:
+                job_registry.update_job(job_id, status='running', progress=10)
                 
-            job_registry.update_job(job_id, progress=80)
-            
-            # 3. Clear history cache
-            PortfolioService.clear_cache(portfolio_id)
-            if sub_portfolio_id:
-                PortfolioService.clear_cache(sub_portfolio_id)
+                # 1. Update the transactions
+                PortfolioService.assign_transactions_bulk(transaction_ids, sub_portfolio_id)
+                job_registry.update_job(job_id, progress=40)
                 
-            job_registry.update_job(job_id, status='done', progress=100)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            job_registry.update_job(job_id, status='failed', error=str(e))
+                # 2. Rebuild the portfolio state
+                PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
+                if sub_portfolio_id:
+                    PortfolioService.repair_portfolio_state(sub_portfolio_id)
+                    
+                job_registry.update_job(job_id, progress=80)
+                
+                # 3. Clear history cache
+                PortfolioService.clear_cache(portfolio_id)
+                if sub_portfolio_id:
+                    PortfolioService.clear_cache(sub_portfolio_id)
+                    
+                job_registry.update_job(job_id, status='done', progress=100)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                job_registry.update_job(job_id, status='failed', error=str(e))
 
     thread = threading.Thread(target=run_bulk_recalculation, daemon=True)
     thread.start()
