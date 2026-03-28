@@ -87,19 +87,20 @@ def closed_positions(portfolio_id):
         '''
         holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.sub_portfolio_id = t.sub_portfolio_id AND h.ticker = t.ticker'
     else:
-        # It's a parent - include all transactions for this portfolio (parent's own + all children)
+        # It's a parent - include only parent's own transactions.
         actual_portfolio_id = portfolio['id']
-        where_clause = 't.portfolio_id = ?'
+        where_clause = 't.portfolio_id = ? AND t.sub_portfolio_id IS NULL'
         where_params = (actual_portfolio_id,)
         
         invested_capital_subquery = '''
             SELECT SUM(tb.total_value)
             FROM transactions tb
             WHERE tb.portfolio_id = t.portfolio_id
+              AND tb.sub_portfolio_id IS NULL
               AND tb.ticker = t.ticker
               AND tb.type = 'BUY'
         '''
-        holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker'
+        holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.sub_portfolio_id IS NULL AND h.ticker = t.ticker'
 
     query = f'''
         SELECT t.ticker,

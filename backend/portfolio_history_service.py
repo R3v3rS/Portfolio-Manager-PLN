@@ -92,9 +92,9 @@ class PortfolioHistoryService(PortfolioCoreService):
             tx_query = 'SELECT * FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? ORDER BY date ASC'
             tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
         else:
-            # It's a parent - include all transactions for this portfolio (parent's own + all children)
+            # It's a parent - include only parent's own transactions.
             actual_portfolio_id = portfolio['id']
-            tx_query = 'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC'
+            tx_query = 'SELECT * FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id IS NULL ORDER BY date ASC'
             tx_params = (actual_portfolio_id,)
 
         transactions = db.execute(tx_query, tx_params).fetchall()
@@ -307,9 +307,9 @@ class PortfolioHistoryService(PortfolioCoreService):
             tx_query = 'SELECT ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? ORDER BY date ASC'
             tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
         else:
-            # It's a parent - include all transactions for this portfolio (parent's own + all children)
+            # It's a parent - include only parent's own transactions.
             actual_portfolio_id = portfolio['id']
-            tx_query = 'SELECT ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? ORDER BY date ASC'
+            tx_query = 'SELECT ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id IS NULL ORDER BY date ASC'
             tx_params = (actual_portfolio_id,)
 
         transactions = db.execute(tx_query, tx_params).fetchall()
@@ -411,9 +411,9 @@ class PortfolioHistoryService(PortfolioCoreService):
             tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
             tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
         else:
-            # It's a parent - include all transactions for this portfolio (parent's own + all children)
+            # It's a parent - include only parent's own transactions.
             actual_portfolio_id = portfolio['id']
-            tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
+            tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id IS NULL AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
             tx_params = (actual_portfolio_id,)
 
         transactions = db.execute(tx_query, tx_params).fetchall()
