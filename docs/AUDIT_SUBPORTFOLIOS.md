@@ -1,44 +1,151 @@
-# Audyt wdrożenia sub-portfeli
+# AUDIT + plan wdrożenia transferu transakcji i pozycji między parent portfolio a sub-portfolio
 
-Data audytu: 2026-03-28
-Audytor: AI Assistant (Gemini-3-Flash)
+Data: 2026-03-28  
+Status: **plan implementacyjny (do wykonania przez agenta krok po kroku)**
 
-## 1. Podsumowanie
-Wdrożenie sub-portfeli jest kompletne i zgodne z dokumentacją `docs/Plan, promty oraz kontekst subportfeli` oraz `docs/Rekomendacje przed wdrożeniem sub-portfeli`. Wszystkie kluczowe mechanizmy (migracja, agregacja, obsługa transakcji, UI) zostały zaimplementowane.
+## 1) Cel i zakres
 
-## 2. Szczegółowa weryfikacja
+Celem jest bezpieczne wdrożenie **przenoszenia transakcji** pomiędzy:
+- parent portfolio (`sub_portfolio_id = NULL`),
+- child sub-portfolio (`sub_portfolio_id = <child_id>`),
+- child → child (w obrębie tego samego parenta).
 
-### 2.1 Baza danych (backend/database.py)
-- [x] Dodano kolumny `parent_portfolio_id` i `is_archived` do tabeli `portfolios`.
-- [x] Dodano kolumnę `sub_portfolio_id` do tabel `transactions`, `dividends` i `holdings`.
-- [x] Zaktualizowano unikalny klucz w `holdings` na `(portfolio_id, sub_portfolio_id, ticker)`.
-- [x] Migracja jest idempotentna (używa `try/except` dla `ALTER TABLE`).
-- [x] Dodano funkcję walidacyjną `validate_subportfolio_integrity` sprawdzającą cykle i głębokość zagnieżdżenia.
+> Kluczowa zasada: źródłem prawdy przypisania jest wyłącznie `transactions.sub_portfolio_id`.
 
-### 2.2 Logika Biznesowa (Backend)
-- [x] `PortfolioCoreService.list_portfolios` buduje strukturę drzewiastą.
-- [x] `PortfolioValuationService.get_portfolio_value` poprawnie agreguje wartości (parent = suma children + własne).
-- [x] `PortfolioValuationService.get_holdings` obsługuje filtrowanie po `sub_portfolio_id`.
-- [x] `PortfolioTradeService` wspiera `sub_portfolio_id` we wszystkich operacjach (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAW).
-- [x] Walidacja: sub-portfele dozwolone tylko dla `IKE` i `STANDARD`.
-- [x] Walidacja: blokada usuwania parentów i archiwizacja zamiast usuwania children.
+W tym planie „transfer pozycji” oznacza:
+1. zmianę przypisania transakcji,
+2. automatyczne odtworzenie holdings i historii po transferze,
+3. spójną prezentację wyniku w parent i child.
 
-### 2.3 Warstwa API i Frontend
-- [x] `frontend/src/api.ts` i `frontend/src/types.ts` zaktualizowane o nowe pola i metody.
-- [x] `PortfolioDashboard.tsx` wyświetla hierarchię portfeli i pozwala na dodawanie sub-portfeli.
-- [x] `PortfolioDetails.tsx` wyświetla breakdown dla parenta i pozwala na archiwizację childa.
-- [x] `TransactionModal.tsx` i import XTB pozwalają na wybór sub-portfela.
-- [x] Polling statusu joba przy przypisywaniu transakcji.
+## 2) Kontekst projektowy (skrót dla agenta)
 
-## 3. Uwagi i rekomendacje
+Na podstawie istniejących dokumentów:
+- API działa pod prefiksem `/api/portfolio/...`.
+- Backend: Flask + sqlite3.
+- Frontend: React + TypeScript + wspólny klient API.
+- Sub-portfele mają być dostępne tylko dla `IKE` i `STANDARD`.
+- Child nie może mieć dzieci (głębokość drzewa = 1).
+- Parent nie może być usunięty, child ma być archiwizowany.
 
-### 3.1 Przeliczanie historii (Job)
-Aktualnie endpoint `/transactions/<id>/assign` uruchamia asynchroniczny job, który wykonuje `PortfolioService.assign_transaction_to_subportfolio`. Kolejny krok — pełne przeliczenie historii (`rebuild_portfolio`) — jest oznaczony jako placeholder.
-- **Rekomendacja**: W przyszłości należy zaimplementować `PortfolioAuditService.rebuild_portfolio_history` (lub analogiczną funkcję), aby wykresy historyczne odświeżały się automatycznie po zmianie przypisania transakcji.
+## 3) Decyzje domenowe (finalne dla transferu)
 
-### 3.2 Spójność danych
-- [x] `PortfolioAuditService.is_portfolio_empty` poprawnie sprawdza, czy portfel (parent lub child) jest pusty, uwzględniając nową strukturę transakcji i pozycji.
+1. **Transfer nie edytuje ekonomii transakcji**: nie zmieniamy `price`, `quantity`, `date`, `commission`.
+2. **Transfer zmienia tylko przypisanie**: aktualizujemy tylko `sub_portfolio_id`.
+3. **`portfolio_id` pozostaje parentem** dla każdej transakcji.
+4. **Holdings są wynikiem transakcji**, nie niezależnym bytem do „ręcznego przenoszenia”.
+5. **Po transferze uruchamiamy przeliczenie historii asynchronicznie** (job idempotentny).
+6. **Zarchiwizowany child nie może być celem transferu** (422).
+7. **Transfer między różnymi parentami jest zabroniony** (422).
 
-## 4. Werdykt
-**Zgodność z dokumentacją: 100%**
-Błędów krytycznych nie stwierdzono. System jest gotowy do testów regresyjnych i wdrożenia produkcyjnego.
+## 4) Zakres techniczny (MVP)
+
+## 4.1 Baza danych
+
+Wymagane pola/założenia:
+- `transactions.sub_portfolio_id` (nullable, FK do `portfolios.id`).
+- `holdings.sub_portfolio_id` (nullable, FK do `portfolios.id`).
+- unikalność holdings: `(portfolio_id, sub_portfolio_id, ticker)`.
+- `portfolios.parent_portfolio_id`, `portfolios.is_archived`.
+
+Checklist:
+- [ ] migracje idempotentne (bezpieczne wielokrotne uruchomienie),
+- [ ] dane legacy ustawione na `sub_portfolio_id = NULL`,
+- [ ] walidacja spójności FK po migracji.
+
+## 4.2 Endpointy backend (MVP)
+
+1. `PUT /api/portfolio/transactions/<transaction_id>/assign`
+   - Body: `{ "target_sub_portfolio_id": number | null }`
+   - Działanie: przypisanie 1 transakcji do parent (`null`) lub child (`id`).
+
+2. `POST /api/portfolio/transactions/assign-bulk`
+   - Body: `{ "transaction_ids": number[], "target_sub_portfolio_id": number | null }`
+   - Działanie: przypisanie wsadowe.
+
+3. `GET /api/portfolio/jobs/<job_id>`
+   - Działanie: status przeliczenia historii.
+
+## 4.3 Walidacje backend (konieczne)
+
+Dla każdego transferu:
+- [ ] transakcja istnieje,
+- [ ] `target_sub_portfolio_id` istnieje albo `null`,
+- [ ] target child należy do tego samego parenta co transakcja,
+- [ ] target child nie jest zarchiwizowany,
+- [ ] transakcja typu `INTEREST` może mieć wyłącznie `sub_portfolio_id = NULL`,
+- [ ] operacja jest idempotentna (jeśli przypisanie już jest takie samo, zwróć 200 z no-op).
+
+Kody odpowiedzi:
+- 200: sukces/no-op,
+- 202: sukces + uruchomiony job,
+- 404: brak transakcji lub portfolio,
+- 422: naruszenie reguł domenowych.
+
+## 4.4 Przeliczenie po transferze
+
+Po zatwierdzeniu transferu:
+1. Zapis zmiany `sub_portfolio_id` (transakcja DB).
+2. Uruchomienie joba async:
+   - odtworzenie holdings parenta i childów dla dotkniętych portfeli,
+   - przeliczenie historii miesięcznej dla parenta i dotkniętych childów,
+   - odświeżenie KPI.
+3. Zwrócenie `job_id` do frontendu.
+
+Uwaga: jeżeli system nie ma trwałej kolejki, użyć in-memory job registry + polling.
+
+## 5) Plan realizacji dla agenta (kolejność prac)
+
+## Etap A — przygotowanie
+- [ ] wykonać backup DB,
+- [ ] dopisać/uzupełnić migracje,
+- [ ] dodać testy jednostkowe walidacji transferu.
+
+## Etap B — backend assign API
+- [ ] zaimplementować endpoint single assign,
+- [ ] zaimplementować endpoint bulk assign,
+- [ ] dodać wspólną funkcję walidującą (`validate_transfer_target(...)`).
+
+## Etap C — recalculation engine
+- [ ] dodać job registry (`queued/running/done/failed`),
+- [ ] dodać worker przeliczenia holdings + historii,
+- [ ] podpiąć polling endpoint job status.
+
+## Etap D — frontend
+- [ ] dodać selector target portfolio (parent + aktywne childy),
+- [ ] dodać akcję pojedynczą i wsadową,
+- [ ] dodać polling joba + komunikaty stanu,
+- [ ] zablokować wybór zarchiwizowanych childów.
+
+## Etap E — testy i rollout
+- [ ] testy kontraktu API (single/bulk/no-op/422/404),
+- [ ] testy E2E: parent→child, child→parent, child→child,
+- [ ] test regresji importu XTB,
+- [ ] rollout za feature flagą.
+
+## 6) Definition of Done (DoD)
+
+Funkcję uznajemy za gotową gdy:
+- [ ] transfer transakcji działa w 3 kierunkach (parent↔child, child↔child),
+- [ ] holdings po transferze są poprawne i bez duplikatów,
+- [ ] historia i KPI parent/child odświeżają się po zakończeniu joba,
+- [ ] `INTEREST` nie może być przypięty do childa,
+- [ ] brak regresji endpointów `/api/portfolio/...` i importu XTB,
+- [ ] frontend jasno komunikuje „przeliczanie w toku”.
+
+## 7) Ryzyka + mitigacje
+
+1. **Niespójne holdings po błędzie w jobie**
+   - Mitigacja: retry idempotentny + audyt spójności po jobie.
+
+2. **Długi czas przeliczenia dla dużych danych**
+   - Mitigacja: batchowanie oraz metryka czasu joba.
+
+3. **Regresja importu XTB**
+   - Mitigacja: osobne testy regresji i fixture z realnymi przypadkami BUY/SELL/INTEREST/DIVIDEND.
+
+## 8) Po MVP (opcjonalnie)
+
+- reguły automatycznego przypisywania po tickerze po imporcie,
+- partial transfer pozycji (split lotów przez kreator transakcji technicznych),
+- trwały job store (np. Redis/Postgres) zamiast in-memory.
+
