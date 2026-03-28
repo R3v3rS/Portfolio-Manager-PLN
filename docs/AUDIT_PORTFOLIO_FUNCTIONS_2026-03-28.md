@@ -19,6 +19,19 @@ Najważniejsze obserwacje po audycie kodu:
 
 ---
 
+## Re-audyt status (2026-03-28, ponowna weryfikacja)
+
+- [x] **1) [CRITICAL] Walidacja parent-child przy `withdraw_cash` naprawiona**.
+- [x] **2) [HIGH] Odczyt dywidend childów naprawiony** (`get_dividends`, `get_monthly_dividends`).
+- [x] **3) [HIGH] `clear_portfolio_data` dla childów zabezpieczone** (blokada clear dla childa + kontrola aktywnych childów parenta).
+- [x] **4) [MEDIUM] `/config` korzysta ze stałej backendowej** (`SUBPORTFOLIOS_ALLOWED_TYPES`).
+- [x] **5) [MEDIUM] Walidacja wejścia w assign endpointach wdrożona**.
+- [x] **6) [MEDIUM] Frontend Transactions: filtr sub-portfeli dla drzewa naprawiony** (spłaszczanie).
+- [x] **7) [MEDIUM] Testy regresyjne parent/child/assign/dividends/clear znacząco rozszerzone**.
+- [ ] **8) [P2] Automatyczne checki spójności parent/child po transferach w dashboardzie audytowym** – nadal otwarte.
+
+---
+
 ## Szczegółowe ustalenia
 
 ## 1) [CRITICAL] Brak walidacji parent-child przy `withdraw_cash`
@@ -130,18 +143,18 @@ Najważniejsze obserwacje po audycie kodu:
 ## Plan naprawczy (priorytety)
 
 ### P0 (natychmiast)
-1. Naprawić walidację `withdraw_cash` dla `sub_portfolio_id`.
-2. Naprawić odczyt dywidend (`get_dividends`, `get_monthly_dividends`) z pełną semantyką parent/child.
-3. Dodać testy integracyjne dla transferów assign + walidacji cross-parent.
+1. [x] Naprawić walidację `withdraw_cash` dla `sub_portfolio_id`.
+2. [x] Naprawić odczyt dywidend (`get_dividends`, `get_monthly_dividends`) z pełną semantyką parent/child.
+3. [x] Dodać testy integracyjne dla transferów assign + walidacji cross-parent.
 
 ### P1 (najbliższy sprint)
-4. Naprawić `clear_portfolio_data` dla childów lub zablokować endpoint dla childa do czasu wdrożenia.
-5. Ujednolicić źródło `SUBPORTFOLIOS_ALLOWED_TYPES` w `/config`.
-6. Uspójnić walidację payloadów assign endpointów.
+4. [x] Naprawić `clear_portfolio_data` dla childów lub zablokować endpoint dla childa do czasu wdrożenia.
+5. [x] Ujednolicić źródło `SUBPORTFOLIOS_ALLOWED_TYPES` w `/config`.
+6. [x] Uspójnić walidację payloadów assign endpointów.
 
 ### P2 (higiena i UX)
-7. Naprawić filtr sub-portfeli w `Transactions.tsx`.
-8. Rozszerzyć dashboard audytowy o automatyczne checki spójności parent/child po transferach.
+7. [x] Naprawić filtr sub-portfeli w `Transactions.tsx`.
+8. [ ] Rozszerzyć dashboard audytowy o automatyczne checki spójności parent/child po transferach.
 
 ---
 
