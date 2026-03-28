@@ -155,12 +155,13 @@ def assign_transaction(transaction_id):
     data = require_json_body()
     sub_portfolio_id = data.get('sub_portfolio_id') # Can be None to unassign
 
-    # Resolve portfolio_id for the job
+    # Resolve portfolio_id and old sub_portfolio_id for the job
     db = get_db()
-    tx = db.execute('SELECT portfolio_id FROM transactions WHERE id = ?', (transaction_id,)).fetchone()
+    tx = db.execute('SELECT portfolio_id, sub_portfolio_id FROM transactions WHERE id = ?', (transaction_id,)).fetchone()
     if not tx:
         raise NotFoundError('Transaction not found')
     portfolio_id = tx['portfolio_id']
+    old_sub_portfolio_id = tx['sub_portfolio_id']
 
     # Start async job to re-calculate history after assignment
     job_id = job_registry.create_job()
@@ -176,18 +177,23 @@ def assign_transaction(transaction_id):
                 job_registry.update_job(job_id, progress=40)
                 
                 # 2. Rebuild the portfolio state/holdings
-                # We rebuild the parent (sub_portfolio_id=None) and the specific sub-portfolio
+                # We rebuild the parent (sub_portfolio_id=None), the new sub-portfolio, and the old sub-portfolio
                 PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
                 if sub_portfolio_id:
                     PortfolioService.repair_portfolio_state(sub_portfolio_id)
+                
+                # If we moved FROM a sub-portfolio, we must also repair it
+                if old_sub_portfolio_id and old_sub_portfolio_id != sub_portfolio_id:
+                    PortfolioService.repair_portfolio_state(old_sub_portfolio_id)
                 
                 job_registry.update_job(job_id, progress=80)
                 
                 # 3. Clear history cache
                 PortfolioService.clear_cache(portfolio_id)
-                # Also clear child if applicable
                 if sub_portfolio_id:
                     PortfolioService.clear_cache(sub_portfolio_id)
+                if old_sub_portfolio_id and old_sub_portfolio_id != sub_portfolio_id:
+                    PortfolioService.clear_cache(old_sub_portfolio_id)
                 
                 job_registry.update_job(job_id, status='done', progress=100)
             except Exception as e:
@@ -213,12 +219,16 @@ def assign_transactions_bulk():
     if not transaction_ids:
         raise ValidationError('No transactions provided')
 
-    # Resolve portfolio_id for the job (assuming all belong to same parent as validated in service)
+    # Resolve portfolio_id and affected old sub-portfolios
     db = get_db()
-    tx = db.execute('SELECT portfolio_id FROM transactions WHERE id = ?', (transaction_ids[0],)).fetchone()
-    if not tx:
-        raise NotFoundError('Transaction not found')
-    portfolio_id = tx['portfolio_id']
+    placeholders = ', '.join(['?'] * len(transaction_ids))
+    rows = db.execute(f'SELECT DISTINCT portfolio_id, sub_portfolio_id FROM transactions WHERE id IN ({placeholders})', transaction_ids).fetchall()
+    
+    if not rows:
+        raise NotFoundError('Transactions not found')
+        
+    portfolio_id = rows[0]['portfolio_id']
+    old_sub_portfolio_ids = {row['sub_portfolio_id'] for row in rows if row['sub_portfolio_id'] is not None}
 
     # Start async job
     job_id = job_registry.create_job()
@@ -237,6 +247,11 @@ def assign_transactions_bulk():
                 PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
                 if sub_portfolio_id:
                     PortfolioService.repair_portfolio_state(sub_portfolio_id)
+                
+                # Repair all old sub-portfolios
+                for old_id in old_sub_portfolio_ids:
+                    if old_id != sub_portfolio_id:
+                        PortfolioService.repair_portfolio_state(old_id)
                     
                 job_registry.update_job(job_id, progress=80)
                 
@@ -244,6 +259,9 @@ def assign_transactions_bulk():
                 PortfolioService.clear_cache(portfolio_id)
                 if sub_portfolio_id:
                     PortfolioService.clear_cache(sub_portfolio_id)
+                for old_id in old_sub_portfolio_ids:
+                    if old_id != sub_portfolio_id:
+                        PortfolioService.clear_cache(old_id)
                     
                 job_registry.update_job(job_id, status='done', progress=100)
             except Exception as e:
