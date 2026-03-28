@@ -18,13 +18,27 @@ class PortfolioService(
     @staticmethod
     def get_transactions(portfolio_id, ticker=None, sub_portfolio_id=None, transaction_type=None):
         db = get_db()
+        portfolio = db.execute(
+            'SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?',
+            (portfolio_id,),
+        ).fetchone()
+        if not portfolio:
+            return []
+
+        if portfolio['parent_portfolio_id']:
+            where_clause = 't.portfolio_id = ? AND t.sub_portfolio_id = ?'
+            params = [portfolio['parent_portfolio_id'], portfolio['id']]
+        else:
+            where_clause = 't.portfolio_id = ? AND t.sub_portfolio_id IS NULL'
+            params = [portfolio['id']]
+
         query = '''
             SELECT t.*, sp.name as sub_portfolio_name
             FROM transactions t
             LEFT JOIN portfolios sp ON t.sub_portfolio_id = sp.id
-            WHERE t.portfolio_id = ?
+            WHERE {where_clause}
         '''
-        params = [portfolio_id]
+        query = query.format(where_clause=where_clause)
         if ticker:
             query += ' AND t.ticker = ?'
             params.append(ticker)
