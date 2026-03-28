@@ -5,6 +5,8 @@ from api.response import success_response
 from api.exceptions import ApiError
 from job_registry import job_registry
 import threading
+from datetime import date, datetime
+from uuid import uuid4
 from routes_portfolio_base import (
     portfolio_bp,
     optional_bool,
@@ -16,6 +18,89 @@ from routes_portfolio_base import (
     require_number,
     require_positive_int,
 )
+
+
+def _parse_transfer_date(raw_value):
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'date must be a non-empty string in YYYY-MM-DD format', status=422)
+
+    try:
+        parsed = datetime.strptime(raw_value.strip(), '%Y-%m-%d').date()
+    except ValueError as exc:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'date must be in YYYY-MM-DD format', status=422) from exc
+
+    if parsed > date.today():
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'date cannot be in the future', status=422)
+    return parsed
+
+
+def _resolve_transfer_scope(db, *, portfolio_id, sub_portfolio_id, field_prefix):
+    portfolio = db.execute(
+        'SELECT id, parent_portfolio_id, is_archived, current_cash FROM portfolios WHERE id = ?',
+        (portfolio_id,),
+    ).fetchone()
+    if not portfolio:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', f'{field_prefix}_portfolio_id not found', status=422)
+
+    resolved_parent_id = portfolio['parent_portfolio_id'] or portfolio['id']
+    resolved_sub_id = portfolio['id'] if portfolio['parent_portfolio_id'] else None
+
+    if sub_portfolio_id is not None:
+        child = db.execute(
+            'SELECT id, parent_portfolio_id, is_archived, current_cash FROM portfolios WHERE id = ?',
+            (sub_portfolio_id,),
+        ).fetchone()
+        if not child:
+            raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', f'{field_prefix}_sub_portfolio_id not found', status=422)
+        if child['parent_portfolio_id'] != resolved_parent_id:
+            raise ApiError(
+                'CASH_TRANSFER_VALIDATION_ERROR',
+                f'{field_prefix}_sub_portfolio_id belongs to a different parent',
+                status=422,
+            )
+        if portfolio['parent_portfolio_id'] and child['id'] != portfolio['id']:
+            raise ApiError(
+                'CASH_TRANSFER_VALIDATION_ERROR',
+                f'{field_prefix}_portfolio_id is a child, so {field_prefix}_sub_portfolio_id must match it or be null',
+                status=422,
+            )
+        resolved_sub_id = child['id']
+
+    resolved_cash = float(portfolio['current_cash'])
+    if resolved_sub_id is not None:
+        child_scope = db.execute(
+            'SELECT id, is_archived, current_cash FROM portfolios WHERE id = ?',
+            (resolved_sub_id,),
+        ).fetchone()
+        if child_scope['is_archived']:
+            raise ApiError(
+                'CASH_TRANSFER_VALIDATION_ERROR',
+                f'Archived child portfolio cannot be used as {field_prefix}',
+                status=422,
+            )
+        resolved_cash = float(child_scope['current_cash'])
+
+    return {
+        'parent_id': resolved_parent_id,
+        'sub_id': resolved_sub_id,
+        'cash': resolved_cash,
+    }
+
+
+def _run_cash_transfer_recalculation(app, job_id, affected_ids):
+    with app.app_context():
+        try:
+            job_registry.update_job(job_id, status='running', progress=10)
+            unique_ids = [portfolio_id for portfolio_id in dict.fromkeys(affected_ids) if portfolio_id]
+            for index, _portfolio_id in enumerate(unique_ids, start=1):
+                job_registry.update_job(job_id, progress=min(70, 10 + int((index / max(1, len(unique_ids))) * 60)))
+            for portfolio_id in unique_ids:
+                PortfolioService.clear_cache(portfolio_id)
+            job_registry.update_job(job_id, status='done', progress=100)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            job_registry.update_job(job_id, status='failed', error=str(e))
 
 
 def validate_assign_payload(data, *, require_transaction_ids=False):
@@ -42,6 +127,157 @@ def validate_assign_payload(data, *, require_transaction_ids=False):
         raise_assign_validation('transaction_ids must be a non-empty list of positive integers')
 
     return transaction_ids, sub_portfolio_id
+
+
+@portfolio_bp.route('/transfer/cash', methods=['POST'])
+def transfer_cash_between_scopes():
+    data = require_json_body()
+    db = get_db()
+
+    raw_from_sub_portfolio_id = data.get('from_sub_portfolio_id')
+    raw_to_sub_portfolio_id = data.get('to_sub_portfolio_id')
+
+    if raw_from_sub_portfolio_id is not None and (isinstance(raw_from_sub_portfolio_id, bool) or not isinstance(raw_from_sub_portfolio_id, int) or raw_from_sub_portfolio_id <= 0):
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'from_sub_portfolio_id must be a positive integer or null', status=422)
+    if raw_to_sub_portfolio_id is not None and (isinstance(raw_to_sub_portfolio_id, bool) or not isinstance(raw_to_sub_portfolio_id, int) or raw_to_sub_portfolio_id <= 0):
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'to_sub_portfolio_id must be a positive integer or null', status=422)
+
+    amount = require_number(data, 'amount')
+    if amount <= 0:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'amount must be greater than zero', status=422)
+
+    transfer_date = _parse_transfer_date(data.get('date'))
+
+    from_scope = _resolve_transfer_scope(
+        db,
+        portfolio_id=require_positive_int(data, 'from_portfolio_id'),
+        sub_portfolio_id=raw_from_sub_portfolio_id,
+        field_prefix='from',
+    )
+    to_scope = _resolve_transfer_scope(
+        db,
+        portfolio_id=require_positive_int(data, 'to_portfolio_id'),
+        sub_portfolio_id=raw_to_sub_portfolio_id,
+        field_prefix='to',
+    )
+
+    if from_scope['parent_id'] != to_scope['parent_id']:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'Transfer is only allowed within the same parent portfolio tree', status=422)
+
+    if from_scope['parent_id'] == to_scope['parent_id'] and from_scope['sub_id'] is None and to_scope['sub_id'] is None:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'Parent to parent transfer within the same scope is not allowed', status=422)
+
+    if from_scope['parent_id'] == to_scope['parent_id'] and from_scope['sub_id'] == to_scope['sub_id']:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'Source and destination cannot be identical', status=422)
+
+    if from_scope['cash'] < amount:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'Insufficient cash in source portfolio', status=422)
+
+    transfer_id = str(uuid4())
+    note = optional_string(data, 'note')
+
+    try:
+        db.execute(
+            '''
+            INSERT INTO transactions (
+                portfolio_id, ticker, date, type, quantity, price, total_value, realized_profit, commission, sub_portfolio_id, transfer_id
+            ) VALUES (?, 'CASH', ?, 'WITHDRAW', 1, ?, ?, 0.0, 0.0, ?, ?)
+            ''',
+            (from_scope['parent_id'], transfer_date.isoformat(), amount, amount, from_scope['sub_id'], transfer_id),
+        )
+        db.execute(
+            '''
+            INSERT INTO transactions (
+                portfolio_id, ticker, date, type, quantity, price, total_value, realized_profit, commission, sub_portfolio_id, transfer_id
+            ) VALUES (?, 'CASH', ?, 'DEPOSIT', 1, ?, ?, 0.0, 0.0, ?, ?)
+            ''',
+            (to_scope['parent_id'], transfer_date.isoformat(), amount, amount, to_scope['sub_id'], transfer_id),
+        )
+
+        from_target_id = from_scope['sub_id'] or from_scope['parent_id']
+        to_target_id = to_scope['sub_id'] or to_scope['parent_id']
+        db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (amount, from_target_id))
+        db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (amount, to_target_id))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    job_id = job_registry.create_job()
+    app = current_app._get_current_object()
+    affected_ids = [from_scope['parent_id'], from_scope['sub_id'], to_scope['sub_id']]
+
+    if current_app.config.get('TESTING'):
+        _run_cash_transfer_recalculation(app, job_id, affected_ids)
+    else:
+        thread = threading.Thread(target=_run_cash_transfer_recalculation, args=(app, job_id, affected_ids), daemon=True)
+        thread.start()
+
+    response = {
+        'transfer_id': transfer_id,
+        'from': {'portfolio_id': from_scope['parent_id'], 'sub_portfolio_id': from_scope['sub_id']},
+        'to': {'portfolio_id': to_scope['parent_id'], 'sub_portfolio_id': to_scope['sub_id']},
+        'amount': amount,
+        'date': transfer_date.isoformat(),
+        'job_id': job_id,
+    }
+    if note:
+        response['note'] = note
+    return success_response(response, status=200)
+
+
+@portfolio_bp.route('/transfer/cash/<string:transfer_id>', methods=['DELETE'])
+def delete_cash_transfer(transfer_id):
+    db = get_db()
+    transactions = db.execute(
+        '''
+        SELECT id, portfolio_id, sub_portfolio_id, type, total_value
+        FROM transactions
+        WHERE transfer_id = ?
+        ORDER BY id ASC
+        ''',
+        (transfer_id,),
+    ).fetchall()
+
+    if len(transactions) != 2:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'transfer_id must match exactly two transactions', status=422)
+
+    withdraw_tx = next((tx for tx in transactions if tx['type'] == 'WITHDRAW'), None)
+    deposit_tx = next((tx for tx in transactions if tx['type'] == 'DEPOSIT'), None)
+    if not withdraw_tx or not deposit_tx:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'transfer_id must contain one WITHDRAW and one DEPOSIT transaction', status=422)
+
+    amount = float(withdraw_tx['total_value'])
+    if amount <= 0 or abs(float(deposit_tx['total_value']) - amount) > 0.0001:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'transfer transactions must have matching positive amount', status=422)
+
+    withdraw_target_id = withdraw_tx['sub_portfolio_id'] or withdraw_tx['portfolio_id']
+    deposit_target_id = deposit_tx['sub_portfolio_id'] or deposit_tx['portfolio_id']
+
+    deposit_cash_row = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (deposit_target_id,)).fetchone()
+    if not deposit_cash_row or float(deposit_cash_row['current_cash']) < amount:
+        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'Cannot revert transfer due to insufficient destination cash', status=422)
+
+    try:
+        db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (amount, withdraw_target_id))
+        db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (amount, deposit_target_id))
+        db.execute('DELETE FROM transactions WHERE transfer_id = ?', (transfer_id,))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    job_id = job_registry.create_job()
+    app = current_app._get_current_object()
+    affected_ids = [withdraw_tx['portfolio_id'], withdraw_tx['sub_portfolio_id'], deposit_tx['sub_portfolio_id']]
+
+    if current_app.config.get('TESTING'):
+        _run_cash_transfer_recalculation(app, job_id, affected_ids)
+    else:
+        thread = threading.Thread(target=_run_cash_transfer_recalculation, args=(app, job_id, affected_ids), daemon=True)
+        thread.start()
+
+    return success_response({'message': 'Cash transfer deleted', 'transfer_id': transfer_id, 'job_id': job_id}, status=200)
 
 
 @portfolio_bp.route('/deposit', methods=['POST'])

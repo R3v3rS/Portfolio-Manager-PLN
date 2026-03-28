@@ -44,6 +44,26 @@ export interface JobStatusResponse {
   updated_at: string;
 }
 
+export interface CashTransferPayload {
+  from_portfolio_id: number;
+  from_sub_portfolio_id: number | null;
+  to_portfolio_id: number;
+  to_sub_portfolio_id: number | null;
+  amount: number;
+  date: string;
+  note?: string | null;
+}
+
+export interface CashTransferResponse {
+  transfer_id: string;
+  from: { portfolio_id: number; sub_portfolio_id: number | null };
+  to: { portfolio_id: number; sub_portfolio_id: number | null };
+  amount: number;
+  date: string;
+  job_id: string;
+  note?: string | null;
+}
+
 export interface TransactionsListResponse {
   transactions: Transaction[];
 }
@@ -290,6 +310,7 @@ const normalizeTransaction = (value: unknown): Transaction => {
     portfolio_id: toNumber(source.portfolio_id),
     sub_portfolio_id: source.sub_portfolio_id == null ? undefined : toNumber(source.sub_portfolio_id),
     sub_portfolio_name: source.sub_portfolio_name == null ? undefined : toString(source.sub_portfolio_name),
+    transfer_id: source.transfer_id == null ? null : toString(source.transfer_id),
     ticker: toString(source.ticker, 'CASH'),
     date: toString(source.date),
     type:
@@ -779,6 +800,8 @@ export const portfolioApi = {
     date: string;
     sub_portfolio_id?: number | null;
   }) => portfolioHttp.post('/withdraw', payload),
+  transferCash: (payload: CashTransferPayload) => portfolioHttp.post<CashTransferResponse>('/transfer/cash', payload),
+  deleteCashTransfer: (transferId: string) => portfolioHttp.delete<{ transfer_id: string; job_id: string }>(`/transfer/cash/${transferId}`),
   addDividend: (payload: { portfolio_id: number; ticker: string; amount: number; date: string; sub_portfolio_id?: number | null }) =>
     portfolioHttp.post('/dividend', payload),
   addBond: (payload: {
