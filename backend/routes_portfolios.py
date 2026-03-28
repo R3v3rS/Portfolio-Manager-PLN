@@ -27,8 +27,6 @@ def get_tax_limits():
 
 @portfolio_bp.route('/config', methods=['GET'])
 def get_config():
-    # In the future, this can be moved to a constants file
-    SUBPORTFOLIOS_ALLOWED_TYPES = ['IKE', 'STANDARD']
     return success_response({
         'subportfolios_allowed_types': SUBPORTFOLIOS_ALLOWED_TYPES
     })
