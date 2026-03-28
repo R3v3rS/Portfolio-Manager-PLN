@@ -1,4 +1,5 @@
 from flask import request
+from database import get_db
 from portfolio_service import PortfolioService
 from api.response import success_response
 from api.exceptions import ApiError, NotFoundError, ValidationError
