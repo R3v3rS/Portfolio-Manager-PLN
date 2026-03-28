@@ -277,11 +277,23 @@ const normalizeTransaction = (value: unknown): Transaction => {
 
 const normalizePortfolioValue = (value: unknown): PortfolioValue & { live_interest?: number } => {
   const source = isRecord(value) ? value : {};
+  const breakdown = Array.isArray(source.breakdown)
+    ? source.breakdown.map((entry) => {
+        const item = isRecord(entry) ? entry : {};
+        return {
+          id: toNumber(item.id),
+          name: toString(item.name),
+          value: toNumber(item.value),
+          share_pct: toNumber(item.share_pct),
+        };
+      })
+    : undefined;
 
   return {
     portfolio_value: toNumber(source.portfolio_value),
     cash_value: toNumber(source.cash_value),
     holdings_value: toNumber(source.holdings_value),
+    breakdown,
     total_dividends: toNumber(source.total_dividends),
     total_interest: source.total_interest == null ? undefined : toNumber(source.total_interest),
     open_positions_result: toNumber(source.open_positions_result),
@@ -681,6 +693,18 @@ export const portfolioApi = {
     date?: string;
     sub_portfolio_id?: number | null;
   }) => portfolioHttp.post('/sell', payload),
+  deposit: (payload: {
+    portfolio_id: number;
+    amount: number;
+    date: string;
+    sub_portfolio_id?: number | null;
+  }) => portfolioHttp.post('/deposit', payload),
+  withdraw: (payload: {
+    portfolio_id: number;
+    amount: number;
+    date: string;
+    sub_portfolio_id?: number | null;
+  }) => portfolioHttp.post('/withdraw', payload),
   addDividend: (payload: { portfolio_id: number; ticker: string; amount: number; date: string; sub_portfolio_id?: number | null }) =>
     portfolioHttp.post('/dividend', payload),
   addBond: (payload: {

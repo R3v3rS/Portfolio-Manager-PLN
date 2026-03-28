@@ -84,6 +84,12 @@ export interface PortfolioValue {
   portfolio_value: number;
   cash_value: number;
   holdings_value: number;
+  breakdown?: {
+    id: number;
+    name: string;
+    value: number;
+    share_pct: number;
+  }[];
   total_dividends: number;
   total_interest?: number;
   open_positions_result: number;
