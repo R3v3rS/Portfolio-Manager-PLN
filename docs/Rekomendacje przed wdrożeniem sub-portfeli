@@ -6,7 +6,7 @@ Cel: zminimalizować ryzyko regresji i uprościć implementację sub-portfeli.
 
 ✅ Kierunek dokumentu jest trafny: sub-portfele nie są jeszcze wdrożone i wymagają osobnego kontraktu danych + migracji.
 ⚠️ Backend obsługuje instrumenty w wielu walutach (USD/EUR/GBP) i przelicza je do PLN przy wycenie — child zawsze zwraca wartość już w PLN, parent jedynie sumuje.
-⚠️ Import XTB działa per portfel (/api/portfolio/<portfolio_id>/import/xtb) — po wdrożeniu sub-portfeli import do parenta pozostaje możliwy; nieprzypisane transakcje mogą być później ręcznie przenoszone do childów.
+⚠️ Import XTB (CSV) działa per portfel (/api/portfolio/<portfolio_id>/import/xtb) — po wdrożeniu sub-portfeli import do parenta pozostaje możliwy; nieprzypisane transakcje mogą być później ręcznie przenoszone do childów.
 ⚠️ Brak wydzielonego systemu alertów domenowych — alerty nie są częścią tego wdrożenia.
 
 
@@ -23,7 +23,7 @@ zakaz cykli egzekwowany przez constraint DB.
 
 Interest — doprecyzowanie
 
-interest pochodzi z importu XTB — trafia do parenta automatycznie jako transakcja z importu;
+interest pochodzi z Import XTB (CSV) — trafia do parenta automatycznie jako transakcja z importu;
 
 Dywidendy — uproszczenie
 
@@ -42,26 +42,32 @@ walutą raportową całego drzewa jest zawsze PLN.
 
 Transakcje i import:
 
-transakcja należy wyłącznie do childa albo do parenta — nigdy do obu jednocześnie;
-parent może mieć własne transakcje (BUY/SELL/DIVIDEND/DEPOSIT) — import XTB do parenta pozostaje możliwy nawet po tym, jak portfel stał się parentem;
-transakcje parenta, które nie są przypisane do childa, są traktowane jako własne pozycje parenta (gotówka, instrumenty, itp.);
-przeniesienie transakcji z parenta do childa (lub między childami) powoduje pełne przeliczenie historii wstecz — wycena zachowuje się tak, jakby transakcja była na docelowym portfelu od dnia otwarcia.
+jedynym źródłem prawdy przypisania transakcji do childa jest `sub_portfolio_id` na transakcji (nullable);
+`sub_portfolio_id = NULL` oznacza transakcję parenta (lub portfela bez sub-portfeli), `sub_portfolio_id = X` oznacza transakcję childa `X`;
+`portfolio_id` na transakcji zawsze wskazuje parenta — również wtedy, gdy transakcja jest faktycznie przypisana do childa przez `sub_portfolio_id`;
+brak drugiego mechanizmu przypisania — model „transakcja należy do childa przez `portfolio_id`” nie jest używany;
+parent może mieć własne transakcje (BUY/SELL/DIVIDEND/DEPOSIT) — Import XTB (CSV) do parenta pozostaje możliwy nawet po tym, jak portfel stał się parentem;
+przeniesienie transakcji z parenta do childa (lub między childami) aktualizuje wyłącznie `sub_portfolio_id` i uruchamia asynchroniczne, pełne przeliczenie historii wstecz.
 
-Benchmark:
+Benchmark (uproszczenie):
 
-child dziedziczy benchmark parenta; nie ustawia własnego osobno.
+benchmark to wyłącznie wizualna linia porównawcza na wykresie historii (np. WIG20, S&P500);
+nie wpływa na wycenę, KPI ani agregację parent/child;
+każdy portfel (parent i child) ma własne, niezależne ustawienie benchmarku w UI (bez dziedziczenia i bez propagacji);
+benchmark nie jest ryzykiem wdrożeniowym dla sub-portfeli.
 
 Usuwanie i archiwizacja portfela:
 
 usunięcie childa: niedozwolone — jedyna opcja to archiwizacja/dezaktywacja;
-zarchiwizowany child pozostaje widoczny w historii, jego dane nie znikają z wyceny parenta;
-usunięcie parenta: dzieci stają się samodzielnymi portfelami (orfan → przeniesienie do głównej listy); kaskadowe usunięcie niedozwolone; operacja wymaga jawnego potwierdzenia w UI.
+zarchiwizowany child blokuje dodawanie nowych transakcji (422), pozostaje widoczny w KPI domyślnie i jest ukryty z selectorów przypisywania;
+historia childa jest zachowana w pełni;
+usunięcie parenta: niedozwolone — parent to główne portfolio i nie może być usunięty.
 
 Agregacja wyników:
 
 parent = suma(children w PLN) + własne pozycje parenta w PLN;
 historia miesięczna parenta wyliczana jako agregat historii childów + historia własnych pozycji parenta;
-przeniesienie transakcji między portfelami powoduje przeliczenie historii wstecz dla obu stron.
+przeniesienie transakcji między portfelami uruchamia asynchroniczne przeliczenie historii wstecz dla obu stron (job idempotentny).
 
 Dlaczego teraz: rozstrzygnięcie tych kwestii eliminuje niejednoznaczności przy implementacji agregatora i ogranicza „przepisywanie" endpointów po stronie frontendu.
 
@@ -99,8 +105,8 @@ Gdzie breakdown[] to lista childów z ich wartością (PLN) i udziałem procento
 Każdy child przelicza FX do PLN we własnym zakresie przed zwróceniem wyniku — agregator parenta nie ma logiki kursowej. Cache'owanie na poziomie childa: jeśli child nie zmienił się od ostatniej wyceny, parent używa cache'owanego wyniku w PLN. Dodać metrykę/log „czas liczenia wyceny parenta".
 Dlaczego teraz: ułatwi testowanie i ograniczy ryzyko „if-ologii" w wielu miejscach.
 
-1.6 Import CSV — przypisanie do sub-portfeli
-Aktualnie import XTB działa per portfolio_id. Po wdrożeniu sub-portfeli:
+1.6 Import XTB (CSV) — przypisanie do sub-portfeli
+Aktualnie Import XTB (CSV) działa per portfolio_id. Po wdrożeniu sub-portfeli:
 Etap 1 (MVP) — przypisanie ręczne po imporcie:
 
 import trafia do parenta (jak dotychczas) — endpoint /api/portfolio/<portfolio_id>/import/xtb bez zmian;
@@ -116,16 +122,25 @@ reguły stosowane przy imporcie, z możliwością ręcznej korekty po fakcie.
 Dlaczego teraz: decyzja o modelu przypisania wpływa na schemat danych (sub_portfolio_id w tabeli transakcji) i UI importu.
 
 2) Co warto dodać razem z sub-portfelami (small wins)
-FunkcjaKiedyDlaczegoWalidacja cykli (child nie może być parentem swojego parenta)Razem z write-pathBez niej można trwale zepsuć drzewoAgregowane KPI: wynik parenta i udział każdego childa (%)Razem z frontend readGłówna wartość biznesowa sub-portfeliAudyt spójności: endpoint sprawdzający suma(child) + własne parenta = parentRazem z write-pathTanie narzędzie debugowaniaArchiwizacja/dezaktywacja childa (zamiast usunięcia)Razem z write-pathJedyna dopuszczalna forma „usunięcia"Tagi / etykiety celu (np. „emerytura", „dywidendy")Osobny etap po MVPNie blokuje niczego krytycznegoFiltry i grupowanie UI (zwijanie/rozwijanie parent→child)Osobny etap po MVPZależy od dojrzałości komponentówReguły automatycznego przypisania CSVOsobny etap po MVPEtap 1 (ręczne) wystarczy do startu
+
+| Funkcja | Kiedy | Dlaczego |
+|---|---|---|
+| Walidacja cykli (child nie może być parentem swojego parenta) | Razem z write-path | Bez niej można trwale zepsuć drzewo |
+| Agregowane KPI: wynik parenta i udział każdego childa (%) | Razem z frontend read | Główna wartość biznesowa sub-portfeli |
+| Audyt spójności: endpoint sprawdzający suma(child) + własne parenta = parent | Razem z write-path | Tanie narzędzie debugowania |
+| Archiwizacja/dezaktywacja childa (zamiast usunięcia) | Razem z write-path | Jedyna dopuszczalna forma „usunięcia” |
+| Tagi / etykiety celu (np. „emerytura”, „dywidendy”) | Osobny etap po MVP | Nie blokuje niczego krytycznego |
+| Filtry i grupowanie UI (zwijanie/rozwijanie parent→child) | Osobny etap po MVP | Zależy od dojrzałości komponentów |
+| Reguły automatycznego przypisania Import XTB (CSV) | Osobny etap po MVP | Etap 1 (ręczne) wystarczy do startu |
 
 3) Minimalna kolejność wdrożenia (bezpieczny rollout)
 
 Schema + migracje (bez zmian UI) — z dry-run i walidacją po migracji.
 Fixture'y testowe — drzewo 1 parent + 2–3 children z mieszanką BUY/SELL/DIVIDEND/DEPOSIT + własne transakcje parenta; bez nich backend jest nieweryfikowalny.
 Backend read-path — endpointy zwracają strukturę parent/child z agregowanymi KPI; child przelicza FX do PLN, parent sumuje.
-Backend write-path — tworzenie/edycja/przenoszenie sub-portfela + walidacja cykli + reguła orfana przy usunięciu parenta + archiwizacja childa + przeliczanie historii wstecz przy przenoszeniu transakcji.
-Frontend read-only — prezentacja hierarchii, KPI agregowanych, udział childów, dziedziczony benchmark.
-Frontend akcje — pełne CRUD, przypisywanie transakcji (ręczne po imporcie CSV), batch-select.
+Backend write-path — tworzenie/edycja/przenoszenie sub-portfela + walidacja cykli + blokada usunięcia parenta + archiwizacja childa (blokada nowych zapisów 422) + asynchroniczne przeliczanie historii wstecz przy przenoszeniu transakcji.
+Frontend read-only — prezentacja hierarchii, KPI agregowanych, udział childów oraz niezależne ustawienie benchmarku per portfel (UI).
+Frontend akcje — pełne CRUD, przypisywanie transakcji (ręczne po imporcie XTB (CSV)), batch-select.
 Test na danych produkcyjnych (feature flag w configu, bez ekspozycji).
 Włączenie feature flag produkcyjnie.
 
@@ -136,13 +151,13 @@ Włączenie feature flag produkcyjnie.
  Child przelicza FX do PLN samodzielnie; agregator parenta tylko sumuje wartości PLN.
  Poprawna agregacja wartości, zysku i udziałów: parent = suma(children PLN) + własne pozycje parenta.
  Historia miesięczna działa dla parenta i childa.
- Przeniesienie transakcji między portfelami powoduje przeliczenie historii wstecz po obu stronach.
- Import CSV do parenta działa bez zmian; ręczne przypisanie transakcji do childa dostępne w UI.
- Usunięcie parenta przenosi dzieci do głównej listy (orfan), nie kasuje ich.
+ Przeniesienie transakcji między portfelami uruchamia asynchroniczny job przeliczenia historii wstecz po obu stronach; job jest idempotentny.
+ Import XTB (CSV) do parenta działa bez zmian; ręczne przypisanie transakcji do childa dostępne w UI.
+ Usunięcie parenta jest niedozwolone (parent = główne portfolio).
  Usunięcie childa niedozwolone — jedyna opcja to archiwizacja; dane historyczne zachowane.
  Zakaz tworzenia childów głębiej niż jeden poziom — walidacja backendowa i DB constraint.
  Walidacja cykli aktywna na write-path.
- Child dziedziczy benchmark parenta automatycznie.
+ Benchmark jest niezależnym ustawieniem UI per portfel i nie wpływa na wycenę, KPI ani agregację.
  UI jasno rozróżnia parent i child, bez niejednoznacznych akcji.
 dywidenda dodana ręcznie do childa → widoczna w historii childa i zagregowana w parentcie;
 import interest → trafia wyłącznie do parenta, nie do childa.
@@ -152,9 +167,9 @@ import interest → trafia wyłącznie do parenta, nie do childa.
 
 Ujednolicić identyfikatory i DTO już teraz — unikać mieszania portfolio_id i parent_portfolio_id w różnych formatach w różnych endpointach.
 Dodać constraint DB blokujący głębokość > 1 poziomu oraz cykle.
-Dodać kolumnę sub_portfolio_id (nullable) w tabeli transakcji — kluczowa dla przypisania CSV i przeliczania historii wstecz.
+Dodać kolumnę sub_portfolio_id (nullable) w tabeli transakcji — kluczowa dla przypisania Import XTB (CSV) i przeliczania historii wstecz.
 Logika FX zostaje wyłącznie w warstwie childa — agregator parenta jest wolny od kursów walut; udokumentować tę granicę odpowiedzialności.
-Przygotować krótką notkę UX: jakie akcje dostępne są na parent vs child (np. „import trafia do parenta, stamtąd przypisuje się do childa").
+Przygotować krótką notkę UX: jakie akcje dostępne są na parent vs child (np. „Import XTB (CSV) trafia do parenta, stamtąd przypisuje się do childa").
 Dodać metrykę/log „czas liczenia wyceny parenta" od razu przy agregatorze.
 
 
@@ -164,3 +179,41 @@ TL;DR
 Mini-spec kontraktu z powyższymi rozstrzygniętymi decyzjami (głębokość, FX w childzie, transakcje parenta, historia wstecz, archiwizacja).
 Idempotentna migracja + rollback z dry-run i walidacją po fakcie.
 Testy kontraktu API jako siatka bezpieczeństwa przed pierwszym commitem.
+
+
+6) Ustalenia finalne po ostatniej aktualizacji
+
+Poniższe decyzje są ostateczne i obowiązują jako kontrakt implementacyjny:
+
+1. **Jedno źródło prawdy dla przypisania transakcji**
+   - Jedyny mechanizm przypisania transakcji do childa to `sub_portfolio_id` na transakcji (nullable).
+   - `sub_portfolio_id = NULL` oznacza transakcję parenta (lub portfela bez sub-portfeli).
+   - `sub_portfolio_id = X` oznacza transakcję childa `X`.
+   - `portfolio_id` na transakcji zawsze wskazuje parenta — także dla transakcji przypisanej do childa.
+
+2. **Nazewnictwo importu**
+   - W całym dokumencie obowiązuje nazwa: **Import XTB (CSV)**.
+   - To jeden pipeline, jeden endpoint i jeden format.
+
+3. **Benchmark (uproszczenie)**
+   - Benchmark to wyłącznie wizualna linia porównawcza na wykresie historii (np. WIG20, S&P500).
+   - Nie wpływa na wycenę, KPI ani agregację parent/child.
+   - Każdy portfel (parent i child) może mieć wybrany indeks niezależnie, jako zwykłe ustawienie UI (bez dziedziczenia i bez propagacji).
+   - Ten temat jest poza listą ryzyk wdrożeniowych dla sub-portfeli.
+
+4. **Semantyka archiwizacji childa**
+   - Zarchiwizowany child blokuje dodawanie nowych transakcji (422).
+   - Zarchiwizowany child jest widoczny w KPI domyślnie i wchodzi do agregatu parenta.
+   - Zarchiwizowany child jest ukryty z selectorów przypisywania/przenoszenia transakcji.
+   - Historia i dane historyczne pozostają zachowane.
+
+5. **Usuwanie parenta**
+   - Parent to główne portfolio i nie może być usunięty.
+   - Próba usunięcia parenta zwraca błąd walidacji (422).
+
+6. **Przeliczenie historii wstecz**
+   - Po przeniesieniu transakcji przeliczenie historii działa asynchronicznie.
+   - UI od razu pokazuje komunikat „Trwa przeliczanie historii — dane zostaną zaktualizowane za chwilę”.
+   - Wykres i KPI pokazują poprzedni stan do zakończenia joba.
+   - Po zakończeniu joba UI odświeża dane automatycznie (polling lub websocket).
+   - Job przeliczania jest idempotentny (ponowne uruchomienie nie dubluje danych).
