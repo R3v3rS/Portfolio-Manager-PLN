@@ -5,17 +5,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
-class ImmediateThread:
-    def __init__(self, target=None, args=None, kwargs=None, daemon=None):
-        self._target = target
-        self._args = args or ()
-        self._kwargs = kwargs or {}
-
-    def start(self):
-        if self._target:
-            self._target(*self._args, **self._kwargs)
-
 BACKEND_DIR = Path(__file__).resolve().parents[1] / 'backend'
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -32,10 +21,6 @@ class AssignTransactionsIntegrationTestCase(unittest.TestCase):
         warmup_patcher = patch('app.PriceService.warmup_cache', return_value=None)
         self.addCleanup(warmup_patcher.stop)
         warmup_patcher.start()
-
-        thread_patcher = patch('routes_transactions.threading.Thread', ImmediateThread)
-        self.addCleanup(thread_patcher.stop)
-        thread_patcher.start()
 
         self.app = create_app()
         self.app.config.update(TESTING=True, DATABASE=self.db_path)

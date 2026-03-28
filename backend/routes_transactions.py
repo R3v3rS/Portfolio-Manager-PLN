@@ -2,7 +2,7 @@ from flask import current_app, request
 from database import get_db
 from portfolio_service import PortfolioService
 from api.response import success_response
-from api.exceptions import ApiError, NotFoundError, ValidationError
+from api.exceptions import ApiError
 from job_registry import job_registry
 import threading
 from routes_portfolio_base import (
@@ -152,130 +152,223 @@ def record_dividend():
 
 @portfolio_bp.route('/transactions/<int:transaction_id>/assign', methods=['PUT'])
 def assign_transaction(transaction_id):
-    data = require_json_body()
-    sub_portfolio_id = data.get('sub_portfolio_id') # Can be None to unassign
+    def raise_assign_validation(message):
+        raise ApiError('ASSIGN_VALIDATION_ERROR', message, status=422)
 
-    # Resolve portfolio_id and old sub_portfolio_id for the job
+    data = require_json_body()
+    raw_sub_portfolio_id = data.get('sub_portfolio_id')  # Can be None to unassign
+    if raw_sub_portfolio_id in (None, 0):
+        sub_portfolio_id = None
+    elif isinstance(raw_sub_portfolio_id, bool) or not isinstance(raw_sub_portfolio_id, int) or raw_sub_portfolio_id <= 0:
+        raise_assign_validation('Field sub_portfolio_id must be a positive integer or null')
+    else:
+        sub_portfolio_id = raw_sub_portfolio_id
+
     db = get_db()
-    tx = db.execute('SELECT portfolio_id, sub_portfolio_id FROM transactions WHERE id = ?', (transaction_id,)).fetchone()
+    tx = db.execute(
+        'SELECT id, portfolio_id, sub_portfolio_id, type, ticker, date, total_value FROM transactions WHERE id = ?',
+        (transaction_id,),
+    ).fetchone()
     if not tx:
-        raise NotFoundError('Transaction not found')
+        raise_assign_validation('Transaction not found')
+
     portfolio_id = tx['portfolio_id']
     old_sub_portfolio_id = tx['sub_portfolio_id']
+    tx_type = tx['type']
 
-    # Start async job to re-calculate history after assignment
+    if sub_portfolio_id is not None:
+        child = db.execute(
+            'SELECT id, parent_portfolio_id, is_archived FROM portfolios WHERE id = ?',
+            (sub_portfolio_id,),
+        ).fetchone()
+        if not child:
+            raise_assign_validation('Target sub-portfolio not found')
+        if child['parent_portfolio_id'] != portfolio_id:
+            raise_assign_validation('Target sub-portfolio belongs to a different parent')
+        if child['is_archived']:
+            raise_assign_validation('Cannot assign to an archived sub-portfolio')
+        if tx_type == 'INTEREST':
+            raise_assign_validation('INTEREST transactions must remain in parent portfolio')
+
+    # No-op: everything already up to date, no async recalculation needed
+    if old_sub_portfolio_id == sub_portfolio_id:
+        return success_response({'message': 'Transaction assignment updated'})
+
+    try:
+        db.execute('UPDATE transactions SET sub_portfolio_id = ? WHERE id = ?', (sub_portfolio_id, transaction_id))
+        if tx_type == 'DIVIDEND':
+            db.execute(
+                '''
+                UPDATE dividends
+                SET sub_portfolio_id = ?
+                WHERE portfolio_id = ? AND ticker = ? AND date = ? AND amount = ?
+                ''',
+                (sub_portfolio_id, portfolio_id, tx['ticker'], tx['date'], tx['total_value']),
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     job_id = job_registry.create_job()
     app = current_app._get_current_object()
-    
+
     def run_recalculation():
         with app.app_context():
             try:
                 job_registry.update_job(job_id, status='running', progress=10)
-                
-                # 1. Update the transaction assignment
-                PortfolioService.assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id)
                 job_registry.update_job(job_id, progress=40)
-                
-                # 2. Rebuild the portfolio state/holdings
-                # We rebuild the parent (sub_portfolio_id=None), the new sub-portfolio, and the old sub-portfolio
+
+                # Rebuild affected scopes after assignment was already committed
                 PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
                 if sub_portfolio_id:
                     PortfolioService.repair_portfolio_state(sub_portfolio_id)
-                
-                # If we moved FROM a sub-portfolio, we must also repair it
                 if old_sub_portfolio_id and old_sub_portfolio_id != sub_portfolio_id:
                     PortfolioService.repair_portfolio_state(old_sub_portfolio_id)
-                
+
                 job_registry.update_job(job_id, progress=80)
-                
-                # 3. Clear history cache
                 PortfolioService.clear_cache(portfolio_id)
                 if sub_portfolio_id:
                     PortfolioService.clear_cache(sub_portfolio_id)
                 if old_sub_portfolio_id and old_sub_portfolio_id != sub_portfolio_id:
                     PortfolioService.clear_cache(old_sub_portfolio_id)
-                
+
                 job_registry.update_job(job_id, status='done', progress=100)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 job_registry.update_job(job_id, status='failed', error=str(e))
 
-    thread = threading.Thread(target=run_recalculation, daemon=True)
-    thread.start()
+    if current_app.config.get('TESTING'):
+        run_recalculation()
+    else:
+        thread = threading.Thread(target=run_recalculation, daemon=True)
+        thread.start()
 
-    return success_response({
-        'job_id': job_id,
-        'message': 'Transaction assignment started'
-    }, status=202)
+    return success_response({'message': 'Transaction assignment updated', 'job_id': job_id}, status=200)
 
 
 @portfolio_bp.route('/transactions/assign-bulk', methods=['POST'])
 def assign_transactions_bulk():
+    def raise_assign_validation(message):
+        raise ApiError('ASSIGN_VALIDATION_ERROR', message, status=422)
+
     data = require_json_body()
     transaction_ids = data.get('transaction_ids', [])
-    sub_portfolio_id = data.get('sub_portfolio_id')
-    
-    if not transaction_ids:
-        raise ValidationError('No transactions provided')
+    raw_sub_portfolio_id = data.get('sub_portfolio_id')
 
-    # Resolve portfolio_id and affected old sub-portfolios
+    if not isinstance(transaction_ids, list) or not transaction_ids:
+        raise_assign_validation('No transactions provided')
+    if any(isinstance(tx_id, bool) or not isinstance(tx_id, int) or tx_id <= 0 for tx_id in transaction_ids):
+        raise_assign_validation('Field transaction_ids must be a list of positive integers')
+
+    if raw_sub_portfolio_id in (None, 0):
+        sub_portfolio_id = None
+    elif isinstance(raw_sub_portfolio_id, bool) or not isinstance(raw_sub_portfolio_id, int) or raw_sub_portfolio_id <= 0:
+        raise_assign_validation('Field sub_portfolio_id must be a positive integer or null')
+    else:
+        sub_portfolio_id = raw_sub_portfolio_id
+
+    unique_transaction_ids = list(dict.fromkeys(transaction_ids))
     db = get_db()
-    placeholders = ', '.join(['?'] * len(transaction_ids))
-    rows = db.execute(f'SELECT DISTINCT portfolio_id, sub_portfolio_id FROM transactions WHERE id IN ({placeholders})', transaction_ids).fetchall()
-    
+    placeholders = ', '.join(['?'] * len(unique_transaction_ids))
+    rows = db.execute(
+        f'''
+        SELECT id, portfolio_id, sub_portfolio_id, type, ticker, date, total_value
+        FROM transactions
+        WHERE id IN ({placeholders})
+        ''',
+        unique_transaction_ids,
+    ).fetchall()
+
     if not rows:
-        raise NotFoundError('Transactions not found')
-        
-    portfolio_id = rows[0]['portfolio_id']
+        raise_assign_validation('Transactions not found')
+    if len(rows) != len(unique_transaction_ids):
+        raise_assign_validation('One or more transactions were not found')
+
+    portfolio_ids = {row['portfolio_id'] for row in rows}
+    if len(portfolio_ids) != 1:
+        raise_assign_validation('Bulk assignment must be for transactions within the same parent portfolio')
+
+    portfolio_id = next(iter(portfolio_ids))
     old_sub_portfolio_ids = {row['sub_portfolio_id'] for row in rows if row['sub_portfolio_id'] is not None}
 
-    # Start async job
+    if sub_portfolio_id is not None:
+        child = db.execute(
+            'SELECT id, parent_portfolio_id, is_archived FROM portfolios WHERE id = ?',
+            (sub_portfolio_id,),
+        ).fetchone()
+        if not child:
+            raise_assign_validation('Target sub-portfolio not found')
+        if child['parent_portfolio_id'] != portfolio_id:
+            raise_assign_validation('Target sub-portfolio belongs to a different parent')
+        if child['is_archived']:
+            raise_assign_validation('Cannot assign to an archived sub-portfolio')
+
+        if any(row['type'] == 'INTEREST' for row in rows):
+            raise_assign_validation('INTEREST transactions must remain in parent portfolio')
+
+    if all(row['sub_portfolio_id'] == sub_portfolio_id for row in rows):
+        return success_response({'message': 'Bulk transaction assignment updated'})
+
+    try:
+        db.execute(
+            f'UPDATE transactions SET sub_portfolio_id = ? WHERE id IN ({placeholders})',
+            [sub_portfolio_id, *unique_transaction_ids],
+        )
+        for row in rows:
+            if row['type'] != 'DIVIDEND':
+                continue
+            db.execute(
+                '''
+                UPDATE dividends
+                SET sub_portfolio_id = ?
+                WHERE portfolio_id = ? AND ticker = ? AND date = ? AND amount = ?
+                ''',
+                (sub_portfolio_id, row['portfolio_id'], row['ticker'], row['date'], row['total_value']),
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     job_id = job_registry.create_job()
     app = current_app._get_current_object()
-    
+
     def run_bulk_recalculation():
         with app.app_context():
             try:
                 job_registry.update_job(job_id, status='running', progress=10)
-                
-                # 1. Update the transactions
-                PortfolioService.assign_transactions_bulk(transaction_ids, sub_portfolio_id)
                 job_registry.update_job(job_id, progress=40)
-                
-                # 2. Rebuild the portfolio state
+
                 PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
                 if sub_portfolio_id:
                     PortfolioService.repair_portfolio_state(sub_portfolio_id)
-                
-                # Repair all old sub-portfolios
                 for old_id in old_sub_portfolio_ids:
                     if old_id != sub_portfolio_id:
                         PortfolioService.repair_portfolio_state(old_id)
-                    
+
                 job_registry.update_job(job_id, progress=80)
-                
-                # 3. Clear history cache
                 PortfolioService.clear_cache(portfolio_id)
                 if sub_portfolio_id:
                     PortfolioService.clear_cache(sub_portfolio_id)
                 for old_id in old_sub_portfolio_ids:
                     if old_id != sub_portfolio_id:
                         PortfolioService.clear_cache(old_id)
-                    
+
                 job_registry.update_job(job_id, status='done', progress=100)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 job_registry.update_job(job_id, status='failed', error=str(e))
 
-    thread = threading.Thread(target=run_bulk_recalculation, daemon=True)
-    thread.start()
+    if current_app.config.get('TESTING'):
+        run_bulk_recalculation()
+    else:
+        thread = threading.Thread(target=run_bulk_recalculation, daemon=True)
+        thread.start()
 
-    return success_response({
-        'job_id': job_id,
-        'message': 'Bulk transaction assignment started'
-    }, status=202)
+    return success_response({'message': 'Bulk transaction assignment updated', 'job_id': job_id}, status=200)
 
 
 @portfolio_bp.route('/dividends/<int:portfolio_id>', methods=['GET'])
