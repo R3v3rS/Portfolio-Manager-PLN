@@ -64,29 +64,61 @@ def get_stock_history(ticker):
 @portfolio_bp.route('/<int:portfolio_id>/closed-positions', methods=['GET'])
 def closed_positions(portfolio_id):
     db = get_db()
-    rows = db.execute(
-        '''SELECT t.ticker,
-                  SUM(t.realized_profit) as realized_profit,
-                  MAX(t.date) as last_sell_date,
-                  COALESCE((
-                      SELECT SUM(tb.total_value)
-                      FROM transactions tb
-                      WHERE tb.portfolio_id = t.portfolio_id
-                        AND tb.ticker = t.ticker
-                        AND tb.type = 'BUY'
-                  ), 0) as invested_capital,
-                  COALESCE(
-                      MAX(NULLIF(h.company_name, '')),
-                      MAX(NULLIF(m.company_name, ''))
-                  ) as company_name
-           FROM transactions t
-           LEFT JOIN holdings h ON h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker
-           LEFT JOIN asset_metadata m ON m.ticker = t.ticker
-           WHERE t.portfolio_id = ? AND t.type = 'SELL'
-           GROUP BY t.ticker
-           ORDER BY realized_profit DESC''',
-        (portfolio_id,)
-    ).fetchall()
+    # Resolve portfolio and its parent/child status
+    portfolio = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+    if not portfolio:
+        return success_response({'positions': [], 'total_historical_profit': 0})
+
+    if portfolio['parent_portfolio_id']:
+        # It's a child - filter transactions and holdings by parent_id and this child_id
+        actual_portfolio_id = portfolio['parent_portfolio_id']
+        actual_sub_portfolio_id = portfolio['id']
+        where_clause = 't.portfolio_id = ? AND t.sub_portfolio_id = ?'
+        where_params = (actual_portfolio_id, actual_sub_portfolio_id)
+        
+        # Subquery for invested_capital needs same filter
+        invested_capital_subquery = '''
+            SELECT SUM(tb.total_value)
+            FROM transactions tb
+            WHERE tb.portfolio_id = t.portfolio_id
+              AND tb.sub_portfolio_id = t.sub_portfolio_id
+              AND tb.ticker = t.ticker
+              AND tb.type = 'BUY'
+        '''
+        holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.sub_portfolio_id = t.sub_portfolio_id AND h.ticker = t.ticker'
+    else:
+        # It's a parent - include all transactions for this portfolio (parent's own + all children)
+        actual_portfolio_id = portfolio['id']
+        where_clause = 't.portfolio_id = ?'
+        where_params = (actual_portfolio_id,)
+        
+        invested_capital_subquery = '''
+            SELECT SUM(tb.total_value)
+            FROM transactions tb
+            WHERE tb.portfolio_id = t.portfolio_id
+              AND tb.ticker = t.ticker
+              AND tb.type = 'BUY'
+        '''
+        holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker'
+
+    query = f'''
+        SELECT t.ticker,
+               SUM(t.realized_profit) as realized_profit,
+               MAX(t.date) as last_sell_date,
+               COALESCE(({invested_capital_subquery}), 0) as invested_capital,
+               COALESCE(
+                   MAX(NULLIF(h.company_name, '')),
+                   MAX(NULLIF(m.company_name, ''))
+               ) as company_name
+        FROM transactions t
+        LEFT JOIN holdings h ON {holdings_join_clause}
+        LEFT JOIN asset_metadata m ON m.ticker = t.ticker
+        WHERE {where_clause} AND t.type = 'SELL'
+        GROUP BY t.ticker
+        ORDER BY realized_profit DESC
+    '''
+
+    rows = db.execute(query, where_params).fetchall()
 
     total = sum(row['realized_profit'] or 0 for row in rows)
     positions = [
@@ -110,13 +142,54 @@ def closed_positions(portfolio_id):
 @portfolio_bp.route('/<int:portfolio_id>/closed-position-cycles', methods=['GET'])
 def closed_position_cycles(portfolio_id):
     db = get_db()
-    tx_rows = db.execute(
-        '''SELECT id, ticker, type, quantity, total_value, realized_profit, date
+    # Resolve portfolio and its parent/child status
+    portfolio = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+    if not portfolio:
+        return success_response({'positions': [], 'total_historical_profit': 0})
+
+    if portfolio['parent_portfolio_id']:
+        # It's a child - filter transactions and holdings by parent_id and this child_id
+        actual_portfolio_id = portfolio['parent_portfolio_id']
+        actual_sub_portfolio_id = portfolio['id']
+        tx_query = '''SELECT id, ticker, type, quantity, total_value, realized_profit, date
+           FROM transactions
+           WHERE portfolio_id = ? AND sub_portfolio_id = ?
+             AND type IN ('BUY', 'SELL')'''
+        tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
+        
+        company_query = '''SELECT t.ticker as ticker,
+                  COALESCE(
+                      MAX(NULLIF(h.company_name, '')),
+                      MAX(NULLIF(m.company_name, ''))
+                  ) as company_name
+           FROM transactions t
+           LEFT JOIN holdings h ON h.portfolio_id = t.portfolio_id AND h.sub_portfolio_id = t.sub_portfolio_id AND h.ticker = t.ticker
+           LEFT JOIN asset_metadata m ON m.ticker = t.ticker
+           WHERE t.portfolio_id = ? AND t.sub_portfolio_id = ?
+           GROUP BY t.ticker'''
+        company_params = (actual_portfolio_id, actual_sub_portfolio_id)
+    else:
+        # It's a parent - include all transactions for this portfolio (parent's own + all children)
+        actual_portfolio_id = portfolio['id']
+        tx_query = '''SELECT id, ticker, type, quantity, total_value, realized_profit, date
            FROM transactions
            WHERE portfolio_id = ?
-             AND type IN ('BUY', 'SELL')''',
-        (portfolio_id,)
-    ).fetchall()
+             AND type IN ('BUY', 'SELL')'''
+        tx_params = (actual_portfolio_id,)
+        
+        company_query = '''SELECT t.ticker as ticker,
+                  COALESCE(
+                      MAX(NULLIF(h.company_name, '')),
+                      MAX(NULLIF(m.company_name, ''))
+                  ) as company_name
+           FROM transactions t
+           LEFT JOIN holdings h ON h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker
+           LEFT JOIN asset_metadata m ON m.ticker = t.ticker
+           WHERE t.portfolio_id = ?
+           GROUP BY t.ticker'''
+        company_params = (actual_portfolio_id,)
+
+    tx_rows = db.execute(tx_query, tx_params).fetchall()
 
     def _parse_tx_date(value):
         if not value:
@@ -146,19 +219,7 @@ def closed_position_cycles(portfolio_id):
 
     tx_rows = sorted(tx_rows, key=lambda tx: (_parse_tx_date(tx['date']) or datetime.min, tx['id']))
 
-    company_rows = db.execute(
-        '''SELECT t.ticker as ticker,
-                  COALESCE(
-                      MAX(NULLIF(h.company_name, '')),
-                      MAX(NULLIF(m.company_name, ''))
-                  ) as company_name
-           FROM transactions t
-           LEFT JOIN holdings h ON h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker
-           LEFT JOIN asset_metadata m ON m.ticker = t.ticker
-           WHERE t.portfolio_id = ?
-           GROUP BY t.ticker''',
-        (portfolio_id,)
-    ).fetchall()
+    company_rows = db.execute(company_query, company_params).fetchall()
 
     company_names = {row['ticker']: row['company_name'] for row in company_rows}
     ticker_state = defaultdict(lambda: {

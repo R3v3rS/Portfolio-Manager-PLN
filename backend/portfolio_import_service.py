@@ -66,7 +66,7 @@ class PortfolioImportService(PortfolioCoreService):
         return mapping.ticker if mapping else None
 
     @staticmethod
-    def import_xtb_csv(portfolio_id: int, df: pd.DataFrame, confirmed_hashes: Optional[list[str]] = None) -> dict[str, Any]:
+    def import_xtb_csv(portfolio_id: int, df: pd.DataFrame, confirmed_hashes: Optional[list[str]] = None, sub_portfolio_id: Optional[int] = None) -> dict[str, Any]:
         df = df.sort_values('Time')
 
         db = get_db()
@@ -74,6 +74,17 @@ class PortfolioImportService(PortfolioCoreService):
         missing_symbols: list[str] = []
         potential_conflicts: list[dict] = []
         internal_hashes = {} # hash -> row_index for internal duplicate source tracking
+        
+        # If sub_portfolio_id is provided, validate it belongs to the parent
+        if sub_portfolio_id:
+            child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
+            if not child:
+                raise ValueError("Invalid sub-portfolio for this parent")
+            if child['is_archived']:
+                raise ValueError("Cannot import to an archived sub-portfolio")
+
+        # ... (rest of the logic remains similar but needs sub_portfolio_id in queries)
+        # For simplicity, I'll search and replace specific parts.
         
         # Przygotowanie transakcji do przetworzenia
         prepared_transactions = []
@@ -185,11 +196,13 @@ class PortfolioImportService(PortfolioCoreService):
                 internal_hashes[row_hash] = idx
                 # Sprawdzanie duplikatu w bazie danych
                 # Używamy ROUND dla total_value i quantity, aby uniknąć problemów z precyzją float
+                # Filter by sub_portfolio_id as well
                 existing = db.execute(
                     '''SELECT id, date, total_value, type, quantity FROM transactions 
                        WHERE portfolio_id = ? AND date = ? AND ticker = ? AND type = ?
-                       AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001''',
-                    (portfolio_id, time, tx_ticker, tx_type, tx_total, tx_qty)
+                       AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001
+                       AND sub_portfolio_id IS ''' + ('?' if sub_portfolio_id else 'NULL'),
+                    (portfolio_id, time, tx_ticker, tx_type, tx_total, tx_qty, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, time, tx_ticker, tx_type, tx_total, tx_qty)
                 ).fetchone()
 
                 if existing:
@@ -254,45 +267,48 @@ class PortfolioImportService(PortfolioCoreService):
                 qty = tx['tx_qty']
                 tx_total = tx['tx_total']
 
+                # Target ID for cash updates (parent or child)
+                target_portfolio_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
+
                 if typ_lower in {'deposit', 'ike deposit'}:
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (tx_total, portfolio_id)
+                        (tx_total, target_portfolio_id)
                     )
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, 'CASH', 'DEPOSIT', 1, tx_total, tx_total, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, 'CASH', 'DEPOSIT', 1, tx_total, tx_total, time, sub_portfolio_id)
                     )
                 elif typ_lower == 'free funds interest':
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (tx_total, portfolio_id)
+                        (tx_total, target_portfolio_id)
                     )
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, 'CASH', 'INTEREST', 1, tx_total, tx_total, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, 'CASH', 'INTEREST', 1, tx_total, tx_total, time, sub_portfolio_id)
                     )
                 elif typ_lower == 'withdrawal':
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                        (tx_total, portfolio_id)
+                        (tx_total, target_portfolio_id)
                     )
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, 'CASH', 'WITHDRAW', 1, tx_total, tx_total, time)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, 'CASH', 'WITHDRAW', 1, tx_total, tx_total, time, sub_portfolio_id)
                     )
                 elif typ_lower == 'stock purchase':
                     price = tx_total / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                        (tx_total, portfolio_id)
+                        (tx_total, target_portfolio_id)
                     )
                     holding = cursor.execute(
-                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
-                        (portfolio_id, ticker)
+                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'),
+                        (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)
                     ).fetchone()
                     if holding:
                         new_qty = holding['quantity'] + qty
@@ -304,24 +320,24 @@ class PortfolioImportService(PortfolioCoreService):
                         )
                     else:
                         cursor.execute(
-                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, auto_fx_fees)
-                               VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                            (portfolio_id, ticker, qty, price, tx_total, ticker_currency, 1 if ticker_currency != 'PLN' else 0)
+                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, auto_fx_fees, sub_portfolio_id)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                            (portfolio_id, ticker, qty, price, tx_total, ticker_currency, 1 if ticker_currency != 'PLN' else 0, sub_portfolio_id)
                         )
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'BUY', qty, price, tx_total, time, 0.0)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission, sub_portfolio_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'BUY', qty, price, tx_total, time, 0.0, sub_portfolio_id)
                     )
                 elif typ_lower == 'stock sell':
                     price = tx_total / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (amount, portfolio_id)
+                        (amount, target_portfolio_id)
                     )
                     holding = cursor.execute(
-                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?',
-                        (portfolio_id, ticker)
+                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'),
+                        (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)
                     ).fetchone()
                     realized_profit = 0.0
                     if holding:
@@ -336,9 +352,9 @@ class PortfolioImportService(PortfolioCoreService):
                         else:
                             cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
                     cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'SELL', qty, price, tx_total, realized_profit, time, 0.0)
+                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission, sub_portfolio_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (portfolio_id, ticker, 'SELL', qty, price, tx_total, realized_profit, time, 0.0, sub_portfolio_id)
                     )
 
             db.commit()

@@ -41,9 +41,10 @@ const SellModal: React.FC<SellModalProps> = ({
       await portfolioApi.sell({
         portfolio_id: portfolioId,
         ticker: holding.ticker,
-        quantity: holding.quantity,
+        quantity: parseFloat(quantity),
         price: parseFloat(price),
-        date
+        date,
+        sub_portfolio_id: holding.sub_portfolio_id
       });
       onSuccess();
       onClose();

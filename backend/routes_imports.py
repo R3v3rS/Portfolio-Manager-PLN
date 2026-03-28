@@ -18,6 +18,8 @@ def import_xtb_csv(portfolio_id):
     # Najprościej: frontend wysyła plik ponownie wraz z confirmed_hashes w form-data.
     
     confirmed_hashes_raw = request.form.get('confirmed_hashes')
+    sub_portfolio_id = request.form.get('sub_portfolio_id', type=int)
+    
     if confirmed_hashes_raw:
         try:
             import json
@@ -42,7 +44,7 @@ def import_xtb_csv(portfolio_id):
             details={},
         ) from error
 
-    result = PortfolioService.import_xtb_csv(portfolio_id, df, confirmed_hashes=confirmed_hashes)
+    result = PortfolioService.import_xtb_csv(portfolio_id, df, confirmed_hashes=confirmed_hashes, sub_portfolio_id=sub_portfolio_id)
     if not result['success']:
         raise ApiError(
             'IMPORT_VALIDATION_ERROR',

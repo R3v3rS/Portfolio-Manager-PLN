@@ -1,6 +1,6 @@
 import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench, ChevronDown, Archive } from 'lucide-react';
 import {
   portfolioApi,
   normalizeXtbImportError,
@@ -34,13 +34,18 @@ const createMissingSymbolDrafts = (symbols: string[]) =>
     return acc;
   }, {});
 
-function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, onSuccess: () => void }) {
+function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: { 
+  portfolioId: number, 
+  onSuccess: () => void,
+  subPortfolios?: Portfolio[]
+}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [missingSymbols, setMissingSymbols] = useState<string[]>([]);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, { ticker: string; currency: MappingCurrency }>>({});
   const [savingMappings, setSavingMappings] = useState(false);
   const [conflicts, setConflicts] = useState<XtbImportConflict[]>([]);
+  const [selectedSubPortfolioId, setSelectedSubPortfolioId] = useState<string>('');
 
   const openMissingSymbolsModal = (symbols: string[], file: File) => {
     setMissingSymbols(symbols);
@@ -50,7 +55,8 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
 
   const importFile = async (file: File, confirmedHashes?: string[]) => {
     try {
-      const result = await portfolioApi.importXtbCsv(portfolioId, file, confirmedHashes);
+      const subId = selectedSubPortfolioId ? parseInt(selectedSubPortfolioId) : undefined;
+      const result = await portfolioApi.importXtbCsv(portfolioId, file, confirmedHashes, subId);
 
       if (result.missingSymbols.length > 0) {
         openMissingSymbolsModal(result.missingSymbols, file);
@@ -136,12 +142,26 @@ function ImportXtbCsvButton({ portfolioId, onSuccess }: { portfolioId: number, o
 
   return (
     <>
-      <button
-        className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-        onClick={() => fileInput.current?.click()}
-      >
-        Import XTB CSV
-      </button>
+      <div className="flex items-center gap-2">
+        {subPortfolios.length > 0 && (
+          <select
+            value={selectedSubPortfolioId}
+            onChange={(e) => setSelectedSubPortfolioId(e.target.value)}
+            className="rounded border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
+          >
+            <option value="">Do portfela głównego</option>
+            {subPortfolios.filter(p => !p.is_archived).map(sp => (
+              <option key={sp.id} value={sp.id}>Do sub-portfela: {sp.name}</option>
+            ))}
+          </select>
+        )}
+        <button
+          className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+          onClick={() => fileInput.current?.click()}
+        >
+          Import XTB CSV
+        </button>
+      </div>
       <input
         type="file"
         accept=".csv"
@@ -699,6 +719,9 @@ const PortfolioDetails: React.FC = () => {
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
   if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
 
+  const isParent = !!portfolio.children && portfolio.children.length > 0;
+  const isChild = !!portfolio.parent_portfolio_id;
+
   const visibleTabs: ActiveTab[] =
     portfolio.account_type === 'SAVINGS'
       ? ['savings', 'history']
@@ -713,7 +736,11 @@ const PortfolioDetails: React.FC = () => {
       {/* Import / reset actions */}
       {portfolio && portfolio.account_type !== 'PPK' && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchData} />
+          <ImportXtbCsvButton 
+            portfolioId={portfolio.id} 
+            onSuccess={fetchData} 
+            subPortfolios={portfolio.children}
+          />
           <ClearPortfolioButton portfolioId={portfolio.id} portfolioName={portfolio.name} onSuccess={fetchData} />
           <button
             type="button"
@@ -742,6 +769,22 @@ const PortfolioDetails: React.FC = () => {
             <ShieldAlert className="h-4 w-4" />
             {priceAuditLoading ? 'Audyt cen...' : 'Price history audit'}
           </button>
+          
+          {isChild && !portfolio.is_archived && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (window.confirm('Czy na pewno chcesz zarchiwizować ten sub-portfel?')) {
+                  await portfolioApi.archive(portfolio.id);
+                  fetchData();
+                }
+              }}
+              className="inline-flex items-center gap-2 rounded border border-gray-300 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            >
+              <Archive className="h-4 w-4" />
+              Archiwizuj
+            </button>
+          )}
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3">
@@ -753,7 +796,10 @@ const PortfolioDetails: React.FC = () => {
           <span>Wróć do inwestycji</span>
         </Link>
         <div className="flex items-center space-x-2">
-          <h1 className="text-2xl font-bold text-gray-900">{portfolio.name}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {portfolio.name}
+            {portfolio.is_archived && <span className="ml-2 text-sm text-gray-400">(Zarchiwizowany)</span>}
+          </h1>
           <span className={cn(
             "text-xs uppercase tracking-wider font-bold px-2 py-1 rounded-full",
             portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
@@ -764,9 +810,38 @@ const PortfolioDetails: React.FC = () => {
           )}>
             {portfolio.account_type}
           </span>
+          {isChild && (
+            <span className="text-xs text-gray-400">
+              Część portfela: <Link to={`/portfolio/${portfolio.parent_portfolio_id}`} className="hover:underline"># {portfolio.parent_portfolio_id}</Link>
+            </span>
+          )}
         </div>
       </div>
 
+      {/* Breakdown (if parent) */}
+      {isParent && valueData.breakdown && valueData.breakdown.length > 0 && (
+        <div className="bg-white shadow rounded-lg p-5 border border-blue-100">
+          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
+            <ChevronDown className="h-5 w-5 text-blue-500" />
+            Podział Portfela (Sub-portfele)
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {valueData.breakdown.map((item) => (
+              <Link 
+                key={item.id} 
+                to={`/portfolio/${item.id}`}
+                className="p-4 border border-gray-100 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex justify-between items-start">
+                  <span className="text-sm font-semibold text-gray-700 truncate mr-2">{item.name}</span>
+                  <span className="text-xs font-bold text-blue-600">{item.share_pct}%</span>
+                </div>
+                <div className="mt-2 text-lg font-bold text-gray-900">{item.value.toFixed(2)} PLN</div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-6">
         <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-blue-500">
@@ -1301,6 +1376,9 @@ const PortfolioDetails: React.FC = () => {
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
+                    {portfolio.children && portfolio.children.length > 0 && (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub-portfel</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -1335,6 +1413,28 @@ const PortfolioDetails: React.FC = () => {
                         {t.total_value.toFixed(2)} PLN
                       </td>
                       <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", t.realized_profit >= 0 ? "text-green-600" : "text-red-600")}>{typeof t.realized_profit === 'number' ? t.realized_profit.toFixed(2) + ' PLN' : '-'}</td>
+                      {portfolio.children && portfolio.children.length > 0 && (
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <select
+                            value={t.sub_portfolio_id || ''}
+                            onChange={async (e) => {
+                              const subId = e.target.value ? parseInt(e.target.value) : null;
+                              try {
+                                await portfolioApi.assignTransaction(t.id, subId);
+                                fetchData();
+                              } catch (err) {
+                                alert('Failed to assign transaction');
+                              }
+                            }}
+                            className="text-xs border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-1 border bg-transparent"
+                          >
+                            <option value="">Główny</option>
+                            {portfolio.children.map(sp => (
+                              <option key={sp.id} value={sp.id}>{sp.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
                     </tr>
                   ))}
                   {portfolioTransactions.length === 0 && (
@@ -1715,6 +1815,7 @@ const PortfolioDetails: React.FC = () => {
         portfolioId={portfolio.id}
         budgetAccounts={budgetAccounts}
         maxCash={valueData.cash_value}
+        subPortfolios={portfolio.children}
       />
 
       <TransactionModal
@@ -1725,6 +1826,7 @@ const PortfolioDetails: React.FC = () => {
         portfolioType={portfolio.account_type}
         holdings={holdings}
         dividendTickers={dividendTickers}
+        subPortfolios={portfolio.children}
       />
 
       <SellModal

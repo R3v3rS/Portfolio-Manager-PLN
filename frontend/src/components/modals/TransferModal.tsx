@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import api from '../../api';
+import { portfolioApi } from '../../api';
 import { budgetApi, BudgetAccount } from '../../api_budget';
+import { Portfolio } from '../../types';
 import { cn } from '../../lib/utils.ts';
 
 interface TransferModalProps {
@@ -11,6 +12,7 @@ interface TransferModalProps {
   portfolioId: number;
   budgetAccounts: BudgetAccount[];
   maxCash: number;
+  subPortfolios?: Portfolio[];
 }
 
 const TransferModal: React.FC<TransferModalProps> = ({
@@ -20,9 +22,11 @@ const TransferModal: React.FC<TransferModalProps> = ({
   portfolioId,
   budgetAccounts,
   maxCash,
+  subPortfolios = [],
 }) => {
   const [type, setType] = useState<'DEPOSIT' | 'WITHDRAW'>('DEPOSIT');
   const [amount, setAmount] = useState('');
+  const [subPortfolioId, setSubPortfolioId] = useState<string>('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedBudgetAccountId, setSelectedBudgetAccountId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,6 +35,7 @@ const TransferModal: React.FC<TransferModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setAmount('');
+      setSubPortfolioId('');
       setDate(new Date().toISOString().split('T')[0]);
       setSelectedBudgetAccountId('');
       setType('DEPOSIT');
@@ -40,6 +45,8 @@ const TransferModal: React.FC<TransferModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    const subId = subPortfolioId ? parseInt(subPortfolioId) : null;
+
     try {
       if (type === 'WITHDRAW') {
         if (selectedBudgetAccountId) {
@@ -51,17 +58,19 @@ const TransferModal: React.FC<TransferModalProps> = ({
             date
           );
         } else {
-          await api.post('/withdraw', {
+          await portfolioApi.withdraw({
             portfolio_id: portfolioId,
             amount: parseFloat(amount),
-            date
+            date,
+            sub_portfolio_id: subId
           });
         }
       } else {
-        await api.post('/deposit', {
+        await portfolioApi.deposit({
           portfolio_id: portfolioId,
           amount: parseFloat(amount),
-          date
+          date,
+          sub_portfolio_id: subId
         });
       }
       onSuccess();
@@ -114,6 +123,23 @@ const TransferModal: React.FC<TransferModalProps> = ({
               Wypłata
             </button>
           </div>
+
+          {/* Sub-portfolio selector */}
+          {subPortfolios.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Sub-portfel (opcjonalnie)</label>
+              <select
+                value={subPortfolioId}
+                onChange={(e) => setSubPortfolioId(e.target.value)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+              >
+                <option value="">Portfel Główny (Parent)</option>
+                {subPortfolios.filter(p => !p.is_archived).map((sp) => (
+                  <option key={sp.id} value={sp.id}>{sp.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Withdraw specific fields */}
           {type === 'WITHDRAW' && (

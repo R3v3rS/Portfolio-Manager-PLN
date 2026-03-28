@@ -28,16 +28,27 @@ class PortfolioTradeService(PortfolioCoreService):
         db.execute('UPDATE portfolios SET last_interest_date = ? WHERE id = ?', (today.isoformat(), portfolio_id))
 
     @staticmethod
-    def deposit_cash(portfolio_id, amount, date_str=None):
+    def deposit_cash(portfolio_id, amount, date_str=None, sub_portfolio_id=None):
         db = get_db()
         try:
             PortfolioTradeService._capitalize_savings(db, portfolio_id)
             if not date_str:
                 date_str = date.today().isoformat()
-            db.execute('UPDATE portfolios SET current_cash = current_cash + ?, total_deposits = total_deposits + ? WHERE id = ?', (amount, amount, portfolio_id))
+            
+            # If sub_portfolio_id is provided, validate it belongs to the parent
+            if sub_portfolio_id:
+                child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
+                if not child:
+                    raise ValueError("Invalid sub-portfolio for this parent")
+                if child['is_archived']:
+                    raise ValueError("Cannot deposit to an archived sub-portfolio")
+
+            target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
+            db.execute('UPDATE portfolios SET current_cash = current_cash + ?, total_deposits = total_deposits + ? WHERE id = ?', (amount, amount, target_id))
+            
             db.execute('''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, date_str))
+                   (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, date_str, sub_portfolio_id))
             db.commit()
             return True
         except Exception as e:
@@ -45,25 +56,33 @@ class PortfolioTradeService(PortfolioCoreService):
             raise e
 
     @staticmethod
-    def withdraw_cash(portfolio_id, amount, date_str=None):
+    def withdraw_cash(portfolio_id, amount, date_str=None, sub_portfolio_id=None):
         db = get_db()
-        portfolio = db.execute('SELECT current_cash, account_type, last_interest_date, savings_rate FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        
+        target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
+        portfolio = db.execute('SELECT current_cash, account_type, last_interest_date, savings_rate FROM portfolios WHERE id = ?', (target_id,)).fetchone()
+        
         live_interest = 0
         if portfolio and portfolio['account_type'] == 'SAVINGS':
-            last_date = datetime.strptime(portfolio['last_interest_date'], '%Y-%m-%d').date()
-            days = (date.today() - last_date).days
-            if days > 0:
-                live_interest = float(portfolio['current_cash']) * (float(portfolio['savings_rate']) / 100) * (days / 365.0)
+            last_date_str = portfolio['last_interest_date']
+            if last_date_str:
+                last_date = datetime.strptime(last_date_str, '%Y-%m-%d').date()
+                days = (date.today() - last_date).days
+                if days > 0:
+                    live_interest = float(portfolio['current_cash']) * (float(portfolio['savings_rate']) / 100) * (days / 365.0)
+        
         if not portfolio or (portfolio['current_cash'] + live_interest) < amount:
-            raise ValueError("Insufficient funds")
+            raise ValueError(f"Insufficient funds in {('sub-portfolio' if sub_portfolio_id else 'parent portfolio')}")
+            
         try:
-            PortfolioTradeService._capitalize_savings(db, portfolio_id)
+            PortfolioTradeService._capitalize_savings(db, target_id)
             if not date_str:
                 date_str = date.today().isoformat()
-            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (amount, portfolio_id))
+            
+            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (amount, target_id))
             db.execute('''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount, date_str))
+                   (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount, date_str, sub_portfolio_id))
             db.commit()
             return True
         except Exception as e:
@@ -83,30 +102,45 @@ class PortfolioTradeService(PortfolioCoreService):
             raise e
 
     @staticmethod
-    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False):
+    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False, sub_portfolio_id=None):
         db = get_db()
-        existing_holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?', (portfolio_id, ticker)).fetchone()
-        currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
-        if not currency:
-            meta = PriceService.fetch_metadata(ticker)
-            currency = (meta.get('currency') if meta else None) or 'PLN'
-        currency = currency.upper()
-        unit_price_pln = float(price)
-        base_commission = float(commission or 0.0)
-        total_commission = base_commission
-        gross_cost = quantity * unit_price_pln
-        total_cost = gross_cost + total_commission
-        if not purchase_date:
-            purchase_date = date.today().isoformat()
-        portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
-        if not portfolio or portfolio['current_cash'] < total_cost:
-            raise ValueError("Insufficient funds")
         try:
+            # If sub_portfolio_id is provided, validate it belongs to the parent
+            if sub_portfolio_id:
+                child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
+                if not child:
+                    raise ValueError("Invalid sub-portfolio for this parent")
+                if child['is_archived']:
+                    raise ValueError("Cannot record buy for an archived sub-portfolio")
+
+            existing_holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'), 
+                                         (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)).fetchone()
+            
+            currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
+            if not currency:
+                meta = PriceService.fetch_metadata(ticker)
+                currency = (meta.get('currency') if meta else None) or 'PLN'
+            currency = currency.upper()
+            unit_price_pln = float(price)
+            base_commission = float(commission or 0.0)
+            total_commission = base_commission
+            gross_cost = quantity * unit_price_pln
+            total_cost = gross_cost + total_commission
+            if not purchase_date:
+                purchase_date = date.today().isoformat()
+
+            # Check cash of the specific portfolio (parent or child)
+            target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
+            portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (target_id,)).fetchone()
+            if not portfolio or portfolio['current_cash'] < total_cost:
+                raise ValueError(f"Insufficient cash in {('sub-portfolio' if sub_portfolio_id else 'parent portfolio')}")
+
             PriceService.sync_stock_history(ticker, purchase_date)
-            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (total_cost, portfolio_id))
+            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (total_cost, target_id))
             db.execute('''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date, commission) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'BUY', quantity, unit_price_pln, total_cost, purchase_date, total_commission))
+                   (portfolio_id, ticker, type, quantity, price, total_value, date, commission, sub_portfolio_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'BUY', quantity, unit_price_pln, total_cost, purchase_date, total_commission, sub_portfolio_id))
+            
             holding = existing_holding
             if holding:
                 new_quantity = holding['quantity'] + quantity
@@ -117,8 +151,8 @@ class PortfolioTradeService(PortfolioCoreService):
                        WHERE id = ?''', (new_quantity, new_total_cost, new_avg_price, 1 if (auto_fx_fees or currency != 'PLN') else holding['auto_fx_fees'], currency, holding['id']))
             else:
                 db.execute('''INSERT INTO holdings 
-                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency))
+                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, sub_portfolio_id) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency, sub_portfolio_id))
             db.commit()
             return True
         except Exception as e:
@@ -126,11 +160,15 @@ class PortfolioTradeService(PortfolioCoreService):
             raise e
 
     @staticmethod
-    def sell_stock(portfolio_id, ticker, quantity, price, sell_date=None):
+    def sell_stock(portfolio_id, ticker, quantity, price, sell_date=None, sub_portfolio_id=None):
         db = get_db()
-        holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ?', (portfolio_id, ticker)).fetchone()
+        # Find holding in the specific portfolio/sub-portfolio
+        holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'), 
+                            (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)).fetchone()
+        
         if not holding or holding['quantity'] < quantity:
-            raise ValueError("Insufficient shares")
+            raise ValueError("Insufficient shares in " + ("sub-portfolio" if sub_portfolio_id else "parent portfolio"))
+        
         unit_price_pln = float(price)
         total_value = quantity * unit_price_pln
         cost_basis = quantity * holding['average_buy_price']
@@ -138,10 +176,12 @@ class PortfolioTradeService(PortfolioCoreService):
         if not sell_date:
             sell_date = date.today().isoformat()
         try:
-            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (total_value, portfolio_id))
+            target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
+            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (total_value, target_id))
             db.execute('''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit, sell_date, 0.0))
+                   (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission, sub_portfolio_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'SELL', quantity, unit_price_pln, total_value, realized_profit, sell_date, 0.0, sub_portfolio_id))
+            
             new_quantity = holding['quantity'] - quantity
             if new_quantity > 0.000001:
                 new_total_cost = holding['total_cost'] - cost_basis
@@ -157,15 +197,75 @@ class PortfolioTradeService(PortfolioCoreService):
             raise e
 
     @staticmethod
-    def record_dividend(portfolio_id, ticker, amount, date):
+    def record_dividend(portfolio_id, ticker, amount, date, sub_portfolio_id=None):
         db = get_db()
         try:
-            db.execute('''INSERT INTO dividends (portfolio_id, ticker, amount, date)
-                   VALUES (?, ?, ?, ?)''', (portfolio_id, ticker, amount, date))
-            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (amount, portfolio_id))
+            # If sub_portfolio_id is provided, validate it belongs to the parent
+            if sub_portfolio_id:
+                child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
+                if not child:
+                    raise ValueError("Invalid sub-portfolio for this parent")
+                if child['is_archived']:
+                    raise ValueError("Cannot record dividend for an archived sub-portfolio")
+
+            db.execute('''INSERT INTO dividends (portfolio_id, ticker, amount, date, sub_portfolio_id)
+                   VALUES (?, ?, ?, ?, ?)''', (portfolio_id, ticker, amount, date, sub_portfolio_id))
+            
+            # Update cash of the specific portfolio (parent or child)
+            target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
+            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (amount, target_id))
+            
             db.execute('''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'DIVIDEND', 1, amount, amount, date))
+                   (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'DIVIDEND', 1, amount, amount, date, sub_portfolio_id))
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise e
+
+    @staticmethod
+    def assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id):
+        db = get_db()
+        tx = db.execute('SELECT * FROM transactions WHERE id = ?', (transaction_id,)).fetchone()
+        if not tx:
+            raise ValueError("Transaction not found")
+        
+        portfolio_id = tx['portfolio_id']
+        old_sub_portfolio_id = tx['sub_portfolio_id']
+        
+        if sub_portfolio_id == old_sub_portfolio_id:
+            return True
+
+        try:
+            # Validate new sub_portfolio_id if provided
+            if sub_portfolio_id:
+                child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
+                if not child:
+                    raise ValueError("Invalid sub-portfolio for this parent")
+                if child['is_archived']:
+                    raise ValueError("Cannot assign to an archived sub-portfolio")
+
+            # Update the transaction
+            db.execute('UPDATE transactions SET sub_portfolio_id = ? WHERE id = ?', (sub_portfolio_id, transaction_id))
+            
+            # Also update dividends if this was a dividend transaction
+            if tx['type'] == 'DIVIDEND':
+                # Match by ticker, date, and amount (this is a bit loose, but usually sufficient)
+                db.execute('UPDATE dividends SET sub_portfolio_id = ? WHERE portfolio_id = ? AND ticker = ? AND date = ? AND amount = ?', 
+                           (sub_portfolio_id, portfolio_id, tx['ticker'], tx['date'], tx['total_value']))
+
+            # Update current_cash in portfolios (move cash from old to new)
+            amount = float(tx['total_value'])
+            
+            # Remove from old
+            old_target_id = old_sub_portfolio_id if old_sub_portfolio_id else portfolio_id
+            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (amount, old_target_id))
+            
+            # Add to new
+            new_target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
+            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (amount, new_target_id))
+
             db.commit()
             return True
         except Exception as e:

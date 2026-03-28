@@ -1,16 +1,91 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart, Plus } from 'lucide-react';
-import { portfolioApi, type TaxLimitsResponse } from '../api';
+import { portfolioApi, type TaxLimitsResponse, type ConfigResponse } from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils.ts';
+import { ChevronRight, ChevronDown, Archive } from 'lucide-react';
+
+const PortfolioRow: React.FC<{ 
+  portfolio: Portfolio; 
+  level?: number;
+  onChildCreate?: (parentId: number) => void;
+}> = ({ portfolio, level = 0, onChildCreate }) => {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const hasChildren = portfolio.children && portfolio.children.length > 0;
+
+  return (
+    <>
+      <tr className={cn(
+        "hover:bg-gray-50 transition-colors group",
+        portfolio.is_archived && "opacity-60 bg-gray-50"
+      )}>
+        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+          <div className="flex items-center" style={{ paddingLeft: `${level * 1.5}rem` }}>
+            {hasChildren ? (
+              <button 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="p-1 hover:bg-gray-200 rounded mr-1"
+              >
+                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </button>
+            ) : (
+              <div className="w-6" />
+            )}
+            <Link to={`/portfolio/${portfolio.id}`} className="flex flex-col hover:text-blue-600">
+              <span className="text-base font-semibold flex items-center">
+                {portfolio.name}
+                {portfolio.is_archived && <Archive className="ml-2 h-3 w-3 text-gray-400" />}
+              </span>
+              <span className="text-[10px] text-gray-500 font-bold uppercase">{portfolio.account_type}</span>
+            </Link>
+            
+            {!portfolio.parent_portfolio_id && ['IKE', 'STANDARD'].includes(portfolio.account_type) && (
+              <button
+                onClick={() => onChildCreate?.(portfolio.id)}
+                className="ml-2 p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Dodaj sub-portfel"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+          {portfolio.portfolio_value?.toFixed(2)} PLN
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600 font-medium">
+          {portfolio.total_dividends?.toFixed(2)} PLN
+        </td>
+        <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", 
+          (portfolio.total_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
+          {portfolio.total_result?.toFixed(2)} PLN
+        </td>
+        <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", 
+          (portfolio.total_result_percent || 0) >= 0 ? "text-green-600" : "text-red-600")}>
+          {portfolio.total_result_percent?.toFixed(2)}%
+        </td>
+      </tr>
+      {isExpanded && hasChildren && portfolio.children?.map(child => (
+        <PortfolioRow 
+          key={child.id} 
+          portfolio={child} 
+          level={level + 1} 
+          onChildCreate={onChildCreate}
+        />
+      ))}
+    </>
+  );
+};
 
 const PortfolioDashboard: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [taxLimits, setTaxLimits] = useState<TaxLimitsResponse | null>(null);
+  const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [parentPortfolioId, setParentPortfolioId] = useState<number | null>(null);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [initialCash, setInitialCash] = useState('');
   const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK'>('STANDARD');
@@ -18,12 +93,14 @@ const PortfolioDashboard: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const [listRes, limitsRes] = await Promise.all([
+      const [listRes, limitsRes, configRes] = await Promise.all([
         portfolioApi.list(),
-        portfolioApi.limits()
+        portfolioApi.limits(),
+        portfolioApi.config()
       ]);
       setPortfolios(listRes.portfolios);
       setTaxLimits(limitsRes.limits);
+      setConfig(configRes);
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error(err);
@@ -41,21 +118,42 @@ const PortfolioDashboard: React.FC = () => {
     if (!newPortfolioName.trim()) return;
 
     try {
-      await portfolioApi.create({
-        name: newPortfolioName,
-        initial_cash: parseFloat(initialCash) || 0,
-        account_type: accountType,
-        created_at: createdAt
-      });
+      if (parentPortfolioId) {
+        await portfolioApi.createChild(parentPortfolioId, {
+          name: newPortfolioName,
+          initial_cash: parseFloat(initialCash) || 0,
+          account_type: accountType,
+          created_at: createdAt,
+          parent_portfolio_id: parentPortfolioId
+        });
+      } else {
+        await portfolioApi.create({
+          name: newPortfolioName,
+          initial_cash: parseFloat(initialCash) || 0,
+          account_type: accountType,
+          created_at: createdAt
+        });
+      }
       setNewPortfolioName('');
       setInitialCash('');
       setAccountType('STANDARD');
+      setParentPortfolioId(null);
       setCreatedAt(new Date().toISOString().split('T')[0]);
       setIsCreating(false);
       fetchData();
     } catch (err) {
       console.error('Failed to create portfolio', err);
       alert('Failed to create portfolio');
+    }
+  };
+
+  const handleAddSubPortfolio = (parentId: number) => {
+    const parent = portfolios.find(p => p.id === parentId);
+    if (parent) {
+      setAccountType(parent.account_type);
+      setParentPortfolioId(parentId);
+      setIsCreating(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -113,7 +211,11 @@ const PortfolioDashboard: React.FC = () => {
     
           {isCreating && (
             <div className="bg-white shadow rounded-lg p-6 border border-blue-100">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Utwórz Nowy Portfel</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">
+                  {parentPortfolioId ? `Dodaj Sub-portfel dla: ${portfolios.find(p => p.id === parentPortfolioId)?.name}` : 'Utwórz Nowy Portfel'}
+                </h3>
+              </div>
               <form onSubmit={handleCreate} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
@@ -147,7 +249,8 @@ const PortfolioDashboard: React.FC = () => {
                       id="type"
                       value={accountType}
                       onChange={(e) => setAccountType(e.target.value as 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK')}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                      disabled={!!parentPortfolioId}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border disabled:bg-gray-100"
                     >
                       <option value="STANDARD">Standardowe Akcje</option>
                       <option value="IKE">IKE (Akcje)</option>
@@ -171,7 +274,10 @@ const PortfolioDashboard: React.FC = () => {
                 <div className="flex justify-end space-x-3">
                   <button
                     type="button"
-                    onClick={() => setIsCreating(false)}
+                    onClick={() => {
+                      setIsCreating(false);
+                      setParentPortfolioId(null);
+                    }}
                     className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
                   >
                     Anuluj
@@ -180,7 +286,7 @@ const PortfolioDashboard: React.FC = () => {
                     type="submit"
                     className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
                   >
-                    Utwórz
+                    {parentPortfolioId ? 'Dodaj Sub-portfel' : 'Utwórz Portfel'}
                   </button>
                 </div>
               </form>
@@ -275,28 +381,11 @@ const PortfolioDashboard: React.FC = () => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {portfolios.map((portfolio) => (
-                <tr key={portfolio.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    <Link to={`/portfolio/${portfolio.id}`} className="flex flex-col hover:text-blue-600">
-                      <span className="text-base font-semibold">{portfolio.name}</span>
-                      <span className="text-[10px] text-gray-500 font-bold uppercase">{portfolio.account_type}</span>
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                    {portfolio.portfolio_value?.toFixed(2)} PLN
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600 font-medium">
-                    {portfolio.total_dividends?.toFixed(2)} PLN
-                  </td>
-                  <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", 
-                    (portfolio.total_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-                    {portfolio.total_result?.toFixed(2)} PLN
-                  </td>
-                  <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", 
-                    (portfolio.total_result_percent || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-                    {portfolio.total_result_percent?.toFixed(2)}%
-                  </td>
-                </tr>
+                <PortfolioRow 
+                  key={portfolio.id} 
+                  portfolio={portfolio} 
+                  onChildCreate={handleAddSubPortfolio}
+                />
               ))}
               {portfolios.length === 0 && (
                 <tr>

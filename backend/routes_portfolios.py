@@ -3,7 +3,10 @@ from flask import request
 from bond_service import BondService
 from portfolio_service import PortfolioService
 from api.response import success_response
-from api.exceptions import NotFoundError, ValidationError
+from api.exceptions import NotFoundError, ValidationError, ApiError
+from constants import SUBPORTFOLIOS_ALLOWED_TYPES
+from job_registry import job_registry
+import threading
 from routes_portfolio_base import (
     portfolio_bp,
     optional_number,
@@ -20,6 +23,15 @@ from routes_portfolio_base import (
 def get_tax_limits():
     limits = PortfolioService.get_tax_limits()
     return success_response({'limits': limits})
+
+
+@portfolio_bp.route('/config', methods=['GET'])
+def get_config():
+    # In the future, this can be moved to a constants file
+    SUBPORTFOLIOS_ALLOWED_TYPES = ['IKE', 'STANDARD']
+    return success_response({
+        'subportfolios_allowed_types': SUBPORTFOLIOS_ALLOWED_TYPES
+    })
 
 
 @portfolio_bp.route('/create', methods=['POST'])
@@ -127,6 +139,61 @@ def update_savings_rate():
     except ValueError as error:
         raise_portfolio_validation_error(error)
     return success_response({'message': 'Rate updated successfully'})
+
+
+@portfolio_bp.route('/<int:parent_id>/children', methods=['POST'])
+def create_child_portfolio(parent_id):
+    data = require_json_body()
+    name = require_non_empty_string(data, 'name')
+    initial_cash = optional_number(data, 'initial_cash', default=0.0, non_negative=True)
+    created_at = optional_string(data, 'created_at')
+
+    parent = PortfolioService.get_portfolio(parent_id)
+    if not parent:
+        raise NotFoundError('Parent portfolio not found')
+    
+    if parent['account_type'] not in SUBPORTFOLIOS_ALLOWED_TYPES:
+        raise ApiError('INVALID_ACCOUNT_TYPE', f'Sub-portfolios are only allowed for types: {SUBPORTFOLIOS_ALLOWED_TYPES}', status=422)
+    
+    if parent.get('parent_portfolio_id'):
+        raise ApiError('DEEP_NESTING_ERROR', 'Maximum one level of nesting is allowed', status=422)
+
+    # Create child portfolio (it inherits parent's account_type)
+    child_id = PortfolioService.create_portfolio(
+        name,
+        initial_cash,
+        parent['account_type'],
+        created_at,
+        parent_portfolio_id=parent_id
+    )
+    return success_response({'id': child_id, 'message': 'Child portfolio created successfully'}, status=201)
+
+
+@portfolio_bp.route('/<int:portfolio_id>/archive', methods=['POST'])
+def archive_portfolio(portfolio_id):
+    portfolio = PortfolioService.get_portfolio(portfolio_id)
+    if not portfolio:
+        raise NotFoundError('Portfolio not found')
+    
+    if not portfolio.get('parent_portfolio_id'):
+        raise ApiError('INVALID_ACTION', 'Only child portfolios can be archived', status=422)
+
+    PortfolioService.archive_portfolio(portfolio_id)
+    return success_response({'message': 'Portfolio archived successfully'})
+
+
+@portfolio_bp.route('/jobs/<string:job_id>', methods=['GET'])
+def get_job_status(job_id):
+    job = job_registry.get_job(job_id)
+    if not job:
+        raise NotFoundError('Job not found')
+    
+    # Simple serialization of datetime objects
+    response_job = {**job}
+    response_job['created_at'] = job['created_at'].isoformat()
+    response_job['updated_at'] = job['updated_at'].isoformat()
+    
+    return success_response(response_job)
 
 
 @portfolio_bp.route('/savings/interest/manual', methods=['POST'])

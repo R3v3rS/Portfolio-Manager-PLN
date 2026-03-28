@@ -68,11 +68,28 @@ class PortfolioHistoryService(PortfolioCoreService):
             return PortfolioHistoryService._metrics_cache[cache_key]
 
         db = get_db()
-        transactions = db.execute('SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC', (portfolio_id,)).fetchall()
+        # Resolve portfolio and its parent/child status
+        portfolio = db.execute('SELECT id, account_type, created_at, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            return {}
+            
+        account_type = portfolio['account_type']
+        
+        if portfolio['parent_portfolio_id']:
+            # It's a child - filter transactions by parent_id and this child_id
+            actual_portfolio_id = portfolio['parent_portfolio_id']
+            actual_sub_portfolio_id = portfolio['id']
+            tx_query = 'SELECT * FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? ORDER BY date ASC'
+            tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
+        else:
+            # It's a parent - include all transactions for this portfolio (parent's own + all children)
+            actual_portfolio_id = portfolio['id']
+            tx_query = 'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC'
+            tx_params = (actual_portfolio_id,)
+
+        transactions = db.execute(tx_query, tx_params).fetchall()
         if not transactions:
             return {}
-        portfolio = db.execute('SELECT account_type, created_at FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
-        account_type = portfolio['account_type']
 
         first_trans_date = transactions[0]['date']
         if isinstance(first_trans_date, str):
@@ -265,13 +282,29 @@ class PortfolioHistoryService(PortfolioCoreService):
     def get_portfolio_profit_history_daily(portfolio_id, days=30, metric="profit"):
         db = get_db()
         days = max(1, min(int(days), 365))
-        transactions = db.execute('''SELECT ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? ORDER BY date ASC''', (portfolio_id,)).fetchall()
-        if not transactions:
-            return []
-        portfolio = db.execute('SELECT account_type FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        
+        # Resolve portfolio and its parent/child status
+        portfolio = db.execute('SELECT id, account_type, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         if not portfolio:
             return []
+            
         account_type = portfolio['account_type']
+        
+        if portfolio['parent_portfolio_id']:
+            # It's a child - filter transactions by parent_id and this child_id
+            actual_portfolio_id = portfolio['parent_portfolio_id']
+            actual_sub_portfolio_id = portfolio['id']
+            tx_query = 'SELECT ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? ORDER BY date ASC'
+            tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
+        else:
+            # It's a parent - include all transactions for this portfolio (parent's own + all children)
+            actual_portfolio_id = portfolio['id']
+            tx_query = 'SELECT ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? ORDER BY date ASC'
+            tx_params = (actual_portfolio_id,)
+
+        transactions = db.execute(tx_query, tx_params).fetchall()
+        if not transactions:
+            return []
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
         date_points = [start_date + timedelta(days=offset) for offset in range(days)]
@@ -355,7 +388,25 @@ class PortfolioHistoryService(PortfolioCoreService):
         if not monthly_values_map:
             return {}
         db = get_db()
-        transactions = db.execute('''SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC''', (portfolio_id,)).fetchall()
+        
+        # Resolve portfolio and its parent/child status
+        portfolio = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            return {}
+
+        if portfolio['parent_portfolio_id']:
+            # It's a child - filter transactions by parent_id and this child_id
+            actual_portfolio_id = portfolio['parent_portfolio_id']
+            actual_sub_portfolio_id = portfolio['id']
+            tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
+            tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
+        else:
+            # It's a parent - include all transactions for this portfolio (parent's own + all children)
+            actual_portfolio_id = portfolio['id']
+            tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
+            tx_params = (actual_portfolio_id,)
+
+        transactions = db.execute(tx_query, tx_params).fetchall()
         monthly_flows = {}
         for t in transactions:
             t_date_str = str(t['date']).split(' ')[0]

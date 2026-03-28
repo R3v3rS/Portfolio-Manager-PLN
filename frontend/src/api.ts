@@ -23,10 +23,25 @@ export interface CreatePortfolioPayload {
   initial_cash: number;
   account_type: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
   created_at: string;
+  parent_portfolio_id?: number | null;
 }
 
 export interface PortfolioListResponse {
   portfolios: Portfolio[];
+}
+
+export interface ConfigResponse {
+  subportfolios_allowed_types: string[];
+}
+
+export interface JobStatusResponse {
+  id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  progress: number;
+  result: any;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TransactionsListResponse {
@@ -189,6 +204,9 @@ const normalizePortfolio = (value: unknown): Portfolio => {
     savings_rate: toNumber(source.savings_rate),
     last_interest_date: typeof source.last_interest_date === 'string' ? source.last_interest_date : undefined,
     created_at: typeof source.created_at === 'string' ? source.created_at : undefined,
+    parent_portfolio_id: source.parent_portfolio_id == null ? undefined : toNumber(source.parent_portfolio_id),
+    is_archived: typeof source.is_archived === 'boolean' ? source.is_archived : (source.is_archived === 1),
+    children: Array.isArray(source.children) ? source.children.map(normalizePortfolio) : undefined,
     portfolio_value: source.portfolio_value == null ? undefined : toNumber(source.portfolio_value),
     cash_value: source.cash_value == null ? undefined : toNumber(source.cash_value),
     holdings_value: source.holdings_value == null ? undefined : toNumber(source.holdings_value),
@@ -240,6 +258,7 @@ const normalizeTransaction = (value: unknown): Transaction => {
   return {
     id: toNumber(source.id),
     portfolio_id: toNumber(source.portfolio_id),
+    sub_portfolio_id: source.sub_portfolio_id == null ? undefined : toNumber(source.sub_portfolio_id),
     ticker: toString(source.ticker, 'CASH'),
     date: toString(source.date),
     type:
@@ -500,6 +519,13 @@ export const portfolioApi = {
   listNormalized: async (): Promise<Portfolio[]> => {
     return (await portfolioApi.list()).portfolios;
   },
+  config: () => portfolioHttp.get<ConfigResponse>('/config'),
+  createChild: (parentId: number, payload: CreatePortfolioPayload) =>
+    portfolioHttp.post(`/${parentId}/children`, payload),
+  archive: (portfolioId: number) => portfolioHttp.post(`/${portfolioId}/archive`),
+  getJobStatus: (jobId: string) => portfolioHttp.get<JobStatusResponse>(`/jobs/${jobId}`),
+  assignTransaction: (transactionId: number, subPortfolioId: number | null) =>
+    portfolioHttp.put(`/transactions/${transactionId}/assign`, { sub_portfolio_id: subPortfolioId }),
   getHoldings: async (portfolioId: number, params?: QueryParams): Promise<Holding[]> => {
     const response = await portfolioHttp.get<unknown>(`/holdings/${portfolioId}`, { params });
     const holdings = isRecord(response) ? response.holdings : undefined;
@@ -604,11 +630,19 @@ export const portfolioApi = {
     const source = isRecord(response) ? response : {};
     return { message: toOptionalString(source.message) };
   },
-  importXtbCsv: async (portfolio_id: number, file: File, confirmedHashes?: string[]): Promise<XtbImportResult> => {
+  importXtbCsv: async (
+    portfolio_id: number,
+    file: File,
+    confirmedHashes?: string[],
+    subPortfolioId?: number | null
+  ): Promise<XtbImportResult> => {
     const formData = new FormData();
     formData.append('file', file);
-    if (confirmedHashes) {
+    if (confirmedHashes && confirmedHashes.length > 0) {
       formData.append('confirmed_hashes', JSON.stringify(confirmedHashes));
+    }
+    if (subPortfolioId != null) {
+      formData.append('sub_portfolio_id', subPortfolioId.toString());
     }
     const response = await portfolioHttp.post<unknown>(`/${portfolio_id}/import/xtb`, formData);
     return normalizeXtbImportResult(response);
@@ -621,10 +655,11 @@ export const portfolioApi = {
     date: string;
     commission?: number;
     auto_fx_fees?: boolean;
+    sub_portfolio_id?: number | null;
   }) => portfolioHttp.post('/buy', payload),
   sell: (payload: { portfolio_id: number; ticker: string; quantity: number; price: number; date?: string }) =>
     portfolioHttp.post('/sell', payload),
-  addDividend: (payload: { portfolio_id: number; ticker: string; amount: number; date: string }) =>
+  addDividend: (payload: { portfolio_id: number; ticker: string; amount: number; date: string; sub_portfolio_id?: number | null }) =>
     portfolioHttp.post('/dividend', payload),
   addBond: (payload: {
     portfolio_id: number;

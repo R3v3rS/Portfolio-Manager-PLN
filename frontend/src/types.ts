@@ -7,6 +7,9 @@ export interface Portfolio {
   savings_rate: number;
   last_interest_date?: string;
   created_at?: string;
+  parent_portfolio_id?: number | null;
+  is_archived?: boolean;
+  children?: Portfolio[];
   portfolio_value?: number;
   cash_value?: number;
   holdings_value?: number;
@@ -20,6 +23,7 @@ export interface Portfolio {
 export interface Transaction {
   id: number;
   portfolio_id: number;
+  sub_portfolio_id?: number | null;
   ticker: string;
   date: string;
   type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW' | 'DIVIDEND' | 'INTEREST';
@@ -52,6 +56,7 @@ export interface Dividend {
 export interface Holding {
   id: number;
   portfolio_id: number;
+  sub_portfolio_id?: number | null;
   ticker: string;
   quantity: number;
   average_buy_price: number;

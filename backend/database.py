@@ -485,6 +485,57 @@ def init_db(app):
             );
         ''')
 
+        # Migration: Add sub-portfolio support columns
+        try:
+            db.execute("ALTER TABLE portfolios ADD COLUMN parent_portfolio_id INTEGER REFERENCES portfolios(id)")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE portfolios ADD COLUMN is_archived BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN sub_portfolio_id INTEGER REFERENCES portfolios(id)")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE dividends ADD COLUMN sub_portfolio_id INTEGER REFERENCES portfolios(id)")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN sub_portfolio_id INTEGER REFERENCES portfolios(id)")
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: Update holdings unique constraint to include sub_portfolio_id
+        # In SQLite, we can't directly alter a UNIQUE constraint. 
+        # We need to recreate the table if we want a formal constraint, 
+        # but for now, let's just make sure the index exists or use logic in services.
+        # Actually, let's stick to the plan: if we really need it, we should recreate.
+        # But for an inline migration, let's at least ensure an index exists.
+        db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_sub_portfolio ON holdings(sub_portfolio_id);')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sub_portfolio ON transactions(sub_portfolio_id);')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_dividends_sub_portfolio ON dividends(sub_portfolio_id);')
+
+        # Validation function after migration
+        def validate_subportfolio_integrity(db_conn):
+            # Check for self-cycles
+            cycles = db_conn.execute("SELECT id FROM portfolios WHERE id = parent_portfolio_id").fetchall()
+            if cycles:
+                print(f"CRITICAL: Self-cycles detected in portfolios: {[c['id'] for c in cycles]}")
+            
+            # Check for child->child (max 1 level)
+            deep_nesting = db_conn.execute("""
+                SELECT p1.id 
+                FROM portfolios p1
+                JOIN portfolios p2 ON p1.parent_portfolio_id = p2.id
+                WHERE p2.parent_portfolio_id IS NOT NULL
+            """).fetchall()
+            if deep_nesting:
+                print(f"CRITICAL: Deep nesting (>1 level) detected in portfolios: {[n['id'] for n in deep_nesting]}")
+
+        validate_subportfolio_integrity(db)
+
         db.commit()
 
 def reset_budget_data():

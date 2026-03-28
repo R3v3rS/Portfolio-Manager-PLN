@@ -48,9 +48,30 @@ class PortfolioValuationService(PortfolioCoreService):
         return allocation
 
     @staticmethod
-    def get_holdings(portfolio_id, force_price_refresh=False):
+    def get_holdings(portfolio_id, force_price_refresh=False, sub_portfolio_id=None):
         db = get_db()
-        holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ?', (portfolio_id,)).fetchall()
+        
+        # Check if the provided portfolio_id is actually a child
+        portfolio = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            return []
+            
+        if portfolio['parent_portfolio_id']:
+            # It's a child portfolio. We need to query by parent_id and this child_id.
+            actual_portfolio_id = portfolio['parent_portfolio_id']
+            actual_sub_portfolio_id = portfolio['id']
+        else:
+            # It's a parent portfolio.
+            actual_portfolio_id = portfolio['id']
+            actual_sub_portfolio_id = sub_portfolio_id # Might be None (parent's own) or specific child
+
+        if actual_sub_portfolio_id is not None:
+            holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id = ?', 
+                                 (actual_portfolio_id, actual_sub_portfolio_id)).fetchall()
+        else:
+            holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id IS NULL', 
+                                 (actual_portfolio_id,)).fetchall()
+            
         results = []
         if not holdings:
             return results
@@ -111,6 +132,138 @@ class PortfolioValuationService(PortfolioCoreService):
         if not portfolio:
             return None
 
+        db = get_db()
+        # Check if this portfolio has children (is it a parent?)
+        children = db.execute('SELECT id, name FROM portfolios WHERE parent_portfolio_id = ? AND is_archived = 0', (portfolio_id,)).fetchall()
+        
+        # Calculate its OWN value (where sub_portfolio_id is NULL)
+        own_value_data = PortfolioValuationService._calculate_single_portfolio_value(portfolio)
+        
+        if not children:
+            # It's a single portfolio (or a child)
+            return own_value_data
+
+        # It's a parent portfolio - aggregate children values
+        breakdown = []
+        total_value = own_value_data['portfolio_value']
+        total_cash = own_value_data['cash_value']
+        total_holdings = own_value_data['holdings_value']
+        total_dividends = own_value_data['total_dividends']
+        total_interest = own_value_data['total_interest']
+        total_open_positions_result = own_value_data['open_positions_result']
+        
+        # Add parent's own values to breakdown first (if not zero)
+        if total_value > 0.001:
+            breakdown.append({
+                'id': portfolio_id,
+                'name': f"{portfolio['name']} (Own)",
+                'value': own_value_data['portfolio_value'],
+                'is_parent_own': True
+            })
+
+        for child in children:
+            child_portfolio = PortfolioValuationService.get_portfolio(child['id'])
+            child_value_data = PortfolioValuationService._calculate_single_portfolio_value(child_portfolio)
+            
+            total_value += child_value_data['portfolio_value']
+            total_cash += child_value_data['cash_value']
+            total_holdings += child_value_data['holdings_value']
+            total_dividends += child_value_data['total_dividends']
+            total_interest += child_value_data['total_interest']
+            total_open_positions_result += child_value_data['open_positions_result']
+            
+            breakdown.append({
+                'id': child['id'],
+                'name': child['name'],
+                'value': child_value_data['portfolio_value'],
+                'is_parent_own': False
+            })
+
+        # Calculate share percentage
+        if total_value > 0:
+            for item in breakdown:
+                item['share_pct'] = round((item['value'] / total_value) * 100, 2)
+        else:
+            for item in breakdown:
+                item['share_pct'] = 0.0
+
+        # Merge results (total result and XIRR would need more complex logic for parent, 
+        # but for now we follow the "sum children + own" rule)
+        # Note: total_result for parent is tricky because of net_contributions.
+        # Let's use the same logic as for single but with aggregated totals.
+        
+        # Aggregate net contributions for all (parent + children)
+        net_contributions = 0.0
+        portfolio_ids = [portfolio_id] + [c['id'] for c in children]
+        
+        for p_id in portfolio_ids:
+            p = PortfolioValuationService.get_portfolio(p_id)
+            if p['account_type'] == 'PPK':
+                current_price = None
+                try:
+                    current_price = PPKService.fetch_current_price()['price']
+                except Exception: pass
+                ppk_summary = PPKService.get_portfolio_summary(p_id, current_price)
+                net_contributions += float(ppk_summary['totalPurchaseValue'])
+            else:
+                flows = db.execute(
+                    '''SELECT
+                        COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN total_value ELSE 0 END), 0) AS deposits,
+                        COALESCE(SUM(CASE WHEN type = 'WITHDRAW' THEN total_value ELSE 0 END), 0) AS withdrawals
+                    FROM transactions
+                    WHERE portfolio_id = ?''',
+                    (p_id,)
+                ).fetchone()
+                net_contributions += float(flows['deposits']) - float(flows['withdrawals'])
+
+        total_result = total_value - net_contributions
+        total_result_percent = (total_result / net_contributions * 100) if net_contributions > 0 else 0.0
+
+        # Aggregated XIRR for parent
+        xirr_percent = 0.0
+        try:
+            # Collect all deposits/withdrawals for parent and all children
+            placeholders = ', '.join(['?'] * len(portfolio_ids))
+            tx_rows = db.execute(
+                f'SELECT date, type, total_value FROM transactions WHERE portfolio_id IN ({placeholders}) AND type IN (?, ?)', 
+                tuple(portfolio_ids) + ('DEPOSIT', 'WITHDRAW')
+            ).fetchall()
+            
+            cash_flows = []
+            for t in tx_rows:
+                try:
+                    t_date_str = str(t['date']).split(' ')[0]
+                    t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
+                    amount = float(t['total_value'])
+                    if t['type'] == 'DEPOSIT':
+                        cash_flows.append((t_date, -amount))
+                    elif t['type'] == 'WITHDRAW':
+                        cash_flows.append((t_date, amount))
+                except Exception: continue
+                
+            if cash_flows:
+                cash_flows.append((date.today(), total_value))
+                xirr_percent = xirr(cash_flows)
+        except Exception as e:
+            print(f"Aggregated XIRR calculation error: {e}")
+
+        return {
+            'portfolio_value': total_value,
+            'cash_value': total_cash,
+            'holdings_value': total_holdings,
+            'total_dividends': total_dividends,
+            'total_interest': total_interest,
+            'open_positions_result': total_open_positions_result,
+            'total_result': total_result,
+            'total_result_percent': total_result_percent,
+            'breakdown': sorted(breakdown, key=lambda x: x['value'], reverse=True),
+            'xirr_percent': xirr_percent 
+        }
+
+    @staticmethod
+    def _calculate_single_portfolio_value(portfolio):
+        # Move the existing logic from get_portfolio_value to this helper
+        portfolio_id = portfolio['id']
         account_type = portfolio['account_type']
         current_cash = float(portfolio['current_cash'])
         holdings_value = 0.0
@@ -144,6 +297,7 @@ class PortfolioValuationService(PortfolioCoreService):
             ppk_total_result = float(ppk_summary['netProfit'])
             extra_data = ppk_summary
         else:
+            # For standard/IKE, we only get OWN holdings (sub_portfolio_id IS NULL)
             holdings = PortfolioValuationService.get_holdings(portfolio_id)
             holdings_value = sum(float(h.get('current_value', 0.0) or 0.0) for h in holdings)
             open_positions_result = sum(float(h.get('profit_loss', 0.0) or 0.0) for h in holdings)
@@ -151,6 +305,7 @@ class PortfolioValuationService(PortfolioCoreService):
 
             # Calculate 1D and 7D changes for STANDARD/IKE portfolios
             if account_type in ['STANDARD', 'IKE'] and holdings:
+                # (Existing logic for 1D/7D changes...)
                 tickers = [h['ticker'] for h in holdings]
                 currencies = {h.get('currency') or 'PLN' for h in holdings}
                 fx_tickers = [f"{c.upper()}PLN=X" for c in currencies if c.upper() != 'PLN']
@@ -196,18 +351,47 @@ class PortfolioValuationService(PortfolioCoreService):
                     extra_data['change_7d_percent'] = (extra_data['change_7d'] / holdings_value_7d) * 100
 
         db = get_db()
-        div_result = db.execute('SELECT SUM(amount) as total_div FROM dividends WHERE portfolio_id = ?', (portfolio_id,)).fetchone()
-        total_dividends = div_result['total_div'] or 0.0
-        interest_result = db.execute("SELECT COALESCE(SUM(total_value), 0) AS total_interest FROM transactions WHERE portfolio_id = ? AND type = 'INTEREST'", (portfolio_id,)).fetchone()
-        total_interest = interest_result['total_interest'] or 0.0
-        flows_result = db.execute(
-            '''SELECT
+        # Dividends for this specific portfolio (parent's own or child's own)
+        # Check if we should filter by sub_portfolio_id here?
+        # If it's a child, its portfolio_id is NOT the parent's. 
+        # Wait, business rules say: "transactions.portfolio_id always points to parent".
+        # But `portfolios` table has `parent_portfolio_id`.
+        # If it's a child, it HAS an entry in `portfolios` table.
+        # So `dividends` for a child should have its own `portfolio_id`?
+        # No, rule 7: "dividends.portfolio_id always points to parent. dividends.sub_portfolio_id is the only source of child assignment."
+        
+        # This means for a child portfolio, we must query dividends where sub_portfolio_id = child.id
+        if portfolio.get('parent_portfolio_id'):
+            # It's a child
+            div_query = 'SELECT SUM(amount) as total_div FROM dividends WHERE portfolio_id = ? AND sub_portfolio_id = ?'
+            div_params = (portfolio['parent_portfolio_id'], portfolio['id'])
+            interest_query = "SELECT COALESCE(SUM(total_value), 0) AS total_interest FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? AND type = 'INTEREST'"
+            interest_params = (portfolio['parent_portfolio_id'], portfolio['id'])
+            flows_query = '''SELECT
                    COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN total_value ELSE 0 END), 0) AS deposits,
                    COALESCE(SUM(CASE WHEN type = 'WITHDRAW' THEN total_value ELSE 0 END), 0) AS withdrawals
                FROM transactions
-               WHERE portfolio_id = ?''',
-            (portfolio_id,)
-        ).fetchone()
+               WHERE portfolio_id = ? AND sub_portfolio_id = ?'''
+            flows_params = (portfolio['parent_portfolio_id'], portfolio['id'])
+        else:
+            # It's a parent (or a single portfolio)
+            div_query = 'SELECT SUM(amount) as total_div FROM dividends WHERE portfolio_id = ? AND sub_portfolio_id IS NULL'
+            div_params = (portfolio_id,)
+            interest_query = "SELECT COALESCE(SUM(total_value), 0) AS total_interest FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id IS NULL AND type = 'INTEREST'"
+            interest_params = (portfolio_id,)
+            flows_query = '''SELECT
+                   COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN total_value ELSE 0 END), 0) AS deposits,
+                   COALESCE(SUM(CASE WHEN type = 'WITHDRAW' THEN total_value ELSE 0 END), 0) AS withdrawals
+               FROM transactions
+               WHERE portfolio_id = ? AND sub_portfolio_id IS NULL'''
+            flows_params = (portfolio_id,)
+
+        div_result = db.execute(div_query, div_params).fetchone()
+        total_dividends = div_result['total_div'] or 0.0
+        interest_result = db.execute(interest_query, interest_params).fetchone()
+        total_interest = interest_result['total_interest'] or 0.0
+        flows_result = db.execute(flows_query, flows_params).fetchone()
+        
         net_contributions = float(flows_result['deposits']) - float(flows_result['withdrawals'])
         if account_type == 'PPK':
             net_contributions = ppk_total_contribution or 0.0
@@ -217,9 +401,21 @@ class PortfolioValuationService(PortfolioCoreService):
 
         xirr_percent = 0.0
         try:
-            transactions = db.execute('SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND type IN (?, ?)', (portfolio_id, 'DEPOSIT', 'WITHDRAW')).fetchall()
+            # Collect cash flows for this specific portfolio (parent's own or child)
+            tx_rows = db.execute(flows_query, flows_params).fetchall() # Wait, flows_query only returns SUMs.
+            
+            # We need the individual transactions for XIRR
+            if portfolio.get('parent_portfolio_id'):
+                xirr_tx_query = 'SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? AND type IN (?, ?)'
+                xirr_tx_params = (portfolio['parent_portfolio_id'], portfolio['id'], 'DEPOSIT', 'WITHDRAW')
+            else:
+                xirr_tx_query = 'SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id IS NULL AND type IN (?, ?)'
+                xirr_tx_params = (portfolio_id, 'DEPOSIT', 'WITHDRAW')
+                
+            tx_rows = db.execute(xirr_tx_query, xirr_tx_params).fetchall()
+            
             cash_flows = []
-            for t in transactions:
+            for t in tx_rows:
                 try:
                     t_date_str = str(t['date']).split(' ')[0]
                     t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
@@ -228,15 +424,13 @@ class PortfolioValuationService(PortfolioCoreService):
                         cash_flows.append((t_date, -amount))
                     elif t['type'] == 'WITHDRAW':
                         cash_flows.append((t_date, amount))
-                except Exception as e:
-                    print(f"Error parsing transaction for XIRR: {e}")
-                    continue
+                except Exception: continue
+                
             if cash_flows:
                 cash_flows.append((date.today(), total_value))
                 xirr_percent = xirr(cash_flows)
         except Exception as e:
-            print(f"Error calculating XIRR: {e}")
-            xirr_percent = 0.0
+            print(f"Single XIRR calculation error for {portfolio_id}: {e}")
 
         result = {
             'portfolio_value': total_value,

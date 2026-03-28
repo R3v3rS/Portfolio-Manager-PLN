@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { portfolioApi } from '../../api';
-import { Holding } from '../../types';
+import { Holding, Portfolio } from '../../types';
 import { cn } from '../../lib/utils.ts';
 
 interface TransactionModalProps {
@@ -12,6 +12,7 @@ interface TransactionModalProps {
   portfolioType: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
   holdings: Holding[];
   dividendTickers?: string[];
+  subPortfolios?: Portfolio[];
 }
 
 type TransactionType = 'BUY' | 'DIVIDEND' | 'BONDS' | 'SAVINGS_RATE' | 'SAVINGS_INTEREST';
@@ -24,9 +25,11 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   portfolioType,
   holdings,
   dividendTickers = [],
+  subPortfolios = [],
 }) => {
   const [type, setType] = useState<TransactionType>('BUY');
   const [ticker, setTicker] = useState('');
+  const [subPortfolioId, setSubPortfolioId] = useState<string>('');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
@@ -70,6 +73,8 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    const subId = subPortfolioId ? parseInt(subPortfolioId) : null;
+    
     try {
       if (type === 'BUY') {
         await portfolioApi.buy({
@@ -79,14 +84,16 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
           price: parseFloat(price),
           date,
           commission: parseFloat(commission) || 0,
-          auto_fx_fees: autoFxFees
+          auto_fx_fees: autoFxFees,
+          sub_portfolio_id: subId
         });
       } else if (type === 'DIVIDEND') {
         await portfolioApi.addDividend({
           portfolio_id: portfolioId,
           ticker,
           amount: parseFloat(amount),
-          date
+          date,
+          sub_portfolio_id: subId
         });
       } else if (type === 'BONDS') {
         await portfolioApi.addBond({
@@ -253,6 +260,23 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
         
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {renderTypeSelector()}
+
+          {/* Sub-portfolio selector (for BUY and DIVIDEND) */}
+          {(type === 'BUY' || type === 'DIVIDEND') && subPortfolios.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Sub-portfel (opcjonalnie)</label>
+              <select
+                value={subPortfolioId}
+                onChange={(e) => setSubPortfolioId(e.target.value)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+              >
+                <option value="">Portfel Główny (Parent)</option>
+                {subPortfolios.filter(p => !p.is_archived).map((sp) => (
+                  <option key={sp.id} value={sp.id}>{sp.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* BUY Fields */}
           {type === 'BUY' && (

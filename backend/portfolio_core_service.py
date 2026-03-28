@@ -89,7 +89,7 @@ class PortfolioCoreService:
         }
 
     @staticmethod
-    def create_portfolio(name, initial_cash=0.0, account_type='STANDARD', created_at=None):
+    def create_portfolio(name, initial_cash=0.0, account_type='STANDARD', created_at=None, parent_portfolio_id=None):
         db = get_db()
         cursor = db.cursor()
         try:
@@ -99,9 +99,9 @@ class PortfolioCoreService:
                 created_at = f"{created_at} 00:00:00"
             interest_date = created_at.split(' ')[0] if ' ' in created_at else created_at
             cursor.execute(
-                '''INSERT INTO portfolios (name, current_cash, total_deposits, account_type, last_interest_date, created_at) 
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (name, initial_cash, initial_cash, account_type, interest_date, created_at)
+                '''INSERT INTO portfolios (name, current_cash, total_deposits, account_type, last_interest_date, created_at, parent_portfolio_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (name, initial_cash, initial_cash, account_type, interest_date, created_at, parent_portfolio_id)
             )
             portfolio_id = cursor.lastrowid
             if account_type == 'PPK':
@@ -138,20 +138,33 @@ class PortfolioCoreService:
 
         db = get_db()
         try:
-            portfolios = db.execute('SELECT * FROM portfolios').fetchall()
-            results = []
-            for row in portfolios:
-                try:
-                    p = {key: row[key] for key in row.keys()}
-                    if p.get('last_interest_date'):
-                        p['last_interest_date'] = str(p['last_interest_date'])
-                    if p.get('created_at'):
-                        p['created_at'] = str(p['created_at'])
-                    p['is_empty'] = PortfolioAuditService.is_portfolio_empty(p['id'])
-                    results.append(p)
-                except Exception as e:
-                    print(f"MAPPING ERROR for row {row['id']}: {e}")
-            return results
+            # Fetch all portfolios
+            rows = db.execute('SELECT * FROM portfolios').fetchall()
+            
+            # Convert to list of dicts
+            all_portfolios = []
+            for row in rows:
+                p = {key: row[key] for key in row.keys()}
+                if p.get('last_interest_date'):
+                    p['last_interest_date'] = str(p['last_interest_date'])
+                if p.get('created_at'):
+                    p['created_at'] = str(p['created_at'])
+                p['is_empty'] = PortfolioAuditService.is_portfolio_empty(p['id'])
+                p['children'] = [] # Placeholder for tree structure
+                all_portfolios.append(p)
+            
+            # Build tree structure
+            portfolio_map = {p['id']: p for p in all_portfolios}
+            roots = []
+            
+            for p in all_portfolios:
+                parent_id = p.get('parent_portfolio_id')
+                if parent_id and parent_id in portfolio_map:
+                    portfolio_map[parent_id]['children'].append(p)
+                else:
+                    roots.append(p)
+                    
+            return roots
         except Exception as e:
             print(f"DB FETCH ERROR: {e}")
             raise e
@@ -191,6 +204,17 @@ class PortfolioCoreService:
         except Exception:
             db.rollback()
             raise
+
+    @staticmethod
+    def archive_portfolio(portfolio_id):
+        db = get_db()
+        try:
+            db.execute('UPDATE portfolios SET is_archived = 1 WHERE id = ?', (portfolio_id,))
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise e
 
     @staticmethod
     def delete_portfolio(portfolio_id):

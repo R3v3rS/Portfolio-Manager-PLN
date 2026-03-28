@@ -10,16 +10,33 @@ class PortfolioAuditService(PortfolioCoreService):
     def is_portfolio_empty(portfolio_id: int) -> bool:
         db = get_db()
         portfolio = db.execute(
-            'SELECT id, current_cash FROM portfolios WHERE id = ?',
+            'SELECT id, current_cash, parent_portfolio_id FROM portfolios WHERE id = ?',
             (portfolio_id,)
         ).fetchone()
         if not portfolio:
             return False
 
-        has_transactions = db.execute('SELECT 1 FROM transactions WHERE portfolio_id = ? LIMIT 1', (portfolio_id,)).fetchone() is not None
-        has_holdings = db.execute('SELECT 1 FROM holdings WHERE portfolio_id = ? LIMIT 1', (portfolio_id,)).fetchone() is not None
+        # If it's a parent, it's not empty if it has children
+        if not portfolio['parent_portfolio_id']:
+            has_children = db.execute('SELECT 1 FROM portfolios WHERE parent_portfolio_id = ? LIMIT 1', (portfolio_id,)).fetchone() is not None
+            if has_children:
+                return False
+
+        # Check own assets (using sub_portfolio_id NULL for parents, or just portfolio_id for children)
+        if portfolio['parent_portfolio_id']:
+            # It's a child
+            parent_id = portfolio['parent_portfolio_id']
+            child_id = portfolio['id']
+            has_transactions = db.execute('SELECT 1 FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? LIMIT 1', (parent_id, child_id)).fetchone() is not None
+            has_holdings = db.execute('SELECT 1 FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id = ? LIMIT 1', (parent_id, child_id)).fetchone() is not None
+            has_dividends = db.execute('SELECT 1 FROM dividends WHERE portfolio_id = ? AND sub_portfolio_id = ? LIMIT 1', (parent_id, child_id)).fetchone() is not None
+        else:
+            # It's a parent (own assets)
+            has_transactions = db.execute('SELECT 1 FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id IS NULL LIMIT 1', (portfolio_id,)).fetchone() is not None
+            has_holdings = db.execute('SELECT 1 FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id IS NULL LIMIT 1', (portfolio_id,)).fetchone() is not None
+            has_dividends = db.execute('SELECT 1 FROM dividends WHERE portfolio_id = ? AND sub_portfolio_id IS NULL LIMIT 1', (portfolio_id,)).fetchone() is not None
+
         has_bonds = db.execute('SELECT 1 FROM bonds WHERE portfolio_id = ? LIMIT 1', (portfolio_id,)).fetchone() is not None
-        has_dividends = db.execute('SELECT 1 FROM dividends WHERE portfolio_id = ? LIMIT 1', (portfolio_id,)).fetchone() is not None
         has_ppk_transactions = db.execute('SELECT 1 FROM ppk_transactions WHERE portfolio_id = ? LIMIT 1', (portfolio_id,)).fetchone() is not None
 
         return (
@@ -33,21 +50,36 @@ class PortfolioAuditService(PortfolioCoreService):
 
     @staticmethod
     def rebuild_holdings_from_transactions(portfolio_id: int, subportfolio_id: Optional[int] = None) -> dict[str, Any]:
-        logging.info("Rebuild started for portfolio %s", portfolio_id)
+        logging.info("Rebuild started for portfolio %s (sub=%s)", portfolio_id, subportfolio_id)
         db = get_db()
-        portfolio = db.execute('SELECT id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        portfolio = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         if not portfolio:
             raise ValueError('Portfolio not found')
-        if subportfolio_id is not None:
-            raise ValueError('subportfolio_id filtering is not supported yet')
+        
+        # Determine actual portfolio_id and sub_portfolio_id for filtering
+        if portfolio['parent_portfolio_id']:
+            # We are rebuilding a child
+            actual_portfolio_id = portfolio['parent_portfolio_id']
+            actual_sub_portfolio_id = portfolio['id']
+        else:
+            # We are rebuilding a parent (or its specific subportfolio if provided)
+            actual_portfolio_id = portfolio['id']
+            actual_sub_portfolio_id = subportfolio_id
 
-        transactions = db.execute(
-            '''SELECT id, ticker, type, quantity, total_value, date
-               FROM transactions
-               WHERE portfolio_id = ?
-               ORDER BY date ASC, id ASC''',
-            (portfolio_id,)
-        ).fetchall()
+        if actual_sub_portfolio_id is not None:
+            query = '''SELECT id, ticker, type, quantity, total_value, date
+                       FROM transactions
+                       WHERE portfolio_id = ? AND sub_portfolio_id = ?
+                       ORDER BY date ASC, id ASC'''
+            params = (actual_portfolio_id, actual_sub_portfolio_id)
+        else:
+            query = '''SELECT id, ticker, type, quantity, total_value, date
+                       FROM transactions
+                       WHERE portfolio_id = ? AND sub_portfolio_id IS NULL
+                       ORDER BY date ASC, id ASC'''
+            params = (actual_portfolio_id,)
+
+        transactions = db.execute(query, params).fetchall()
 
         holdings: dict[str, dict[str, Decimal]] = {}
         cash = Decimal('0')
@@ -116,10 +148,29 @@ class PortfolioAuditService(PortfolioCoreService):
     def audit_portfolio_integrity(portfolio_id: int, subportfolio_id: Optional[int] = None) -> dict[str, Any]:
         db = get_db()
         rebuilt = PortfolioAuditService.rebuild_holdings_from_transactions(portfolio_id, subportfolio_id=subportfolio_id)
-        holdings_rows = db.execute(
-            'SELECT ticker, quantity, total_cost FROM holdings WHERE portfolio_id = ? ORDER BY ticker ASC',
-            (portfolio_id,)
-        ).fetchall()
+        
+        portfolio = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+            
+        if portfolio['parent_portfolio_id']:
+            actual_portfolio_id = portfolio['parent_portfolio_id']
+            actual_sub_portfolio_id = portfolio['id']
+        else:
+            actual_portfolio_id = portfolio['id']
+            actual_sub_portfolio_id = subportfolio_id
+
+        if actual_sub_portfolio_id is not None:
+            holdings_rows = db.execute(
+                'SELECT ticker, quantity, total_cost FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id = ? ORDER BY ticker ASC',
+                (actual_portfolio_id, actual_sub_portfolio_id)
+            ).fetchall()
+        else:
+            holdings_rows = db.execute(
+                'SELECT ticker, quantity, total_cost FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id IS NULL ORDER BY ticker ASC',
+                (actual_portfolio_id,)
+            ).fetchall()
+
         stored_holdings = {
             row['ticker']: {
                 'quantity': PortfolioAuditService._to_decimal(row['quantity']),
@@ -170,10 +221,28 @@ class PortfolioAuditService(PortfolioCoreService):
         audit_result = PortfolioAuditService.audit_portfolio_integrity(portfolio_id, subportfolio_id=subportfolio_id)
         rebuilt = audit_result['rebuilt_state']
 
-        holdings_rows = db.execute(
-            'SELECT id, ticker, quantity, total_cost, average_buy_price, currency, auto_fx_fees, company_name, sector, industry FROM holdings WHERE portfolio_id = ?',
-            (portfolio_id,)
-        ).fetchall()
+        portfolio = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+        if not portfolio:
+            raise ValueError('Portfolio not found')
+            
+        if portfolio['parent_portfolio_id']:
+            actual_portfolio_id = portfolio['parent_portfolio_id']
+            actual_sub_portfolio_id = portfolio['id']
+        else:
+            actual_portfolio_id = portfolio['id']
+            actual_sub_portfolio_id = subportfolio_id
+
+        if actual_sub_portfolio_id is not None:
+            holdings_rows = db.execute(
+                'SELECT id, ticker, quantity, total_cost, average_buy_price, currency, auto_fx_fees, company_name, sector, industry FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id = ?',
+                (actual_portfolio_id, actual_sub_portfolio_id)
+            ).fetchall()
+        else:
+            holdings_rows = db.execute(
+                'SELECT id, ticker, quantity, total_cost, average_buy_price, currency, auto_fx_fees, company_name, sector, industry FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id IS NULL',
+                (actual_portfolio_id,)
+            ).fetchall()
+
         holdings_by_ticker = {row['ticker']: row for row in holdings_rows}
         changes: list[dict[str, Any]] = []
 
@@ -196,10 +265,10 @@ class PortfolioAuditService(PortfolioCoreService):
                     metadata = db.execute('SELECT company_name, sector, industry, currency FROM asset_metadata WHERE ticker = ?', (ticker,)).fetchone()
                     db.execute(
                         '''INSERT INTO holdings
-                           (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, company_name, sector, industry)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                           (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, company_name, sector, industry, sub_portfolio_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                         (
-                            portfolio_id,
+                            actual_portfolio_id,
                             ticker,
                             quantity,
                             avg_price,
@@ -208,14 +277,17 @@ class PortfolioAuditService(PortfolioCoreService):
                             (metadata['currency'] if metadata and metadata['currency'] else 'PLN'),
                             metadata['company_name'] if metadata else None,
                             metadata['sector'] if metadata else None,
-                            metadata['industry'] if metadata else None
+                            metadata['industry'] if metadata else None,
+                            actual_sub_portfolio_id
                         )
                     )
                     changes.append({'action': 'created_holding', 'ticker': ticker, 'current': rebuilt_holding})
 
-            previous_cash_row = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+            # Update cash of the specific portfolio (parent's own or child)
+            target_id = actual_sub_portfolio_id if actual_sub_portfolio_id else actual_portfolio_id
+            previous_cash_row = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (target_id,)).fetchone()
             previous_cash = float(previous_cash_row['current_cash']) if previous_cash_row else 0.0
-            db.execute('UPDATE portfolios SET current_cash = ? WHERE id = ?', (rebuilt['cash'], portfolio_id))
+            db.execute('UPDATE portfolios SET current_cash = ? WHERE id = ?', (rebuilt['cash'], target_id))
             changes.append({'action': 'updated_cash', 'previous': previous_cash, 'current': rebuilt['cash']})
             db.commit()
         except Exception:

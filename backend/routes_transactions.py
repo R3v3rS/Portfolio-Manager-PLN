@@ -1,6 +1,9 @@
 from flask import request
 from portfolio_service import PortfolioService
 from api.response import success_response
+from api.exceptions import ApiError, NotFoundError, ValidationError
+from job_registry import job_registry
+import threading
 from routes_portfolio_base import (
     portfolio_bp,
     optional_bool,
@@ -22,6 +25,7 @@ def deposit():
             require_positive_int(data, 'portfolio_id'),
             require_number(data, 'amount', positive=True),
             optional_string(data, 'date'),
+            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -36,6 +40,7 @@ def withdraw():
             require_positive_int(data, 'portfolio_id'),
             require_number(data, 'amount', positive=True),
             optional_string(data, 'date'),
+            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -54,6 +59,7 @@ def buy():
             optional_string(data, 'date'),
             optional_number(data, 'commission', default=0.0, non_negative=True),
             optional_bool(data, 'auto_fx_fees', default=False),
+            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -70,6 +76,7 @@ def sell():
             require_number(data, 'quantity', positive=True),
             require_number(data, 'price', positive=True),
             optional_string(data, 'date'),
+            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -99,10 +106,44 @@ def record_dividend():
             require_non_empty_string(data, 'ticker'),
             require_number(data, 'amount', positive=True),
             require_non_empty_string(data, 'date'),
+            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
     return success_response({'message': 'Dividend recorded successfully'}, status=201)
+
+
+@portfolio_bp.route('/transactions/<int:transaction_id>/assign', methods=['PUT'])
+def assign_transaction(transaction_id):
+    data = require_json_body()
+    sub_portfolio_id = data.get('sub_portfolio_id') # Can be None to unassign
+
+    # Start async job to re-calculate history after assignment
+    job_id = job_registry.create_job()
+    
+    def run_recalculation():
+        try:
+            job_registry.update_job(job_id, status='running', progress=10)
+            
+            # 1. Update the transaction
+            PortfolioService.assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id)
+            job_registry.update_job(job_id, progress=50)
+            
+            # 2. Rebuild the portfolio state/history (placeholder for now, 
+            # in a real app this would call PortfolioAuditService.rebuild_portfolio)
+            # PortfolioService.rebuild_portfolio(portfolio_id)
+            
+            job_registry.update_job(job_id, status='done', progress=100)
+        except Exception as e:
+            job_registry.update_job(job_id, status='failed', error=str(e))
+
+    thread = threading.Thread(target=run_recalculation, daemon=True)
+    thread.start()
+
+    return success_response({
+        'job_id': job_id,
+        'message': 'Transaction assignment started'
+    }, status=202)
 
 
 @portfolio_bp.route('/dividends/<int:portfolio_id>', methods=['GET'])

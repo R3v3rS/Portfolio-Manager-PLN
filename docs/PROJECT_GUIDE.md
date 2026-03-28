@@ -70,13 +70,39 @@ Najważniejszy plik infrastrukturalny backendu. Odpowiada za:
 - inicjalizację tabel,
 - część pomocniczych operacji administracyjnych, np. reset danych budżetu.
 
+#### Kluczowe tabele i kolumny (z obsługą sub-portfeli)
+- **`portfolios`**: `id`, `name`, `account_type`, `current_cash`, `total_deposits`, `savings_rate`, `last_interest_date`, `created_at`, `parent_portfolio_id` (klucz do struktury drzewiastej), `is_archived`.
+- **`transactions`**: `id`, `portfolio_id` (zawsze wskazuje na rodzica), `sub_portfolio_id` (wskazuje na konkretny sub-portfel), `ticker`, `date`, `type`, `quantity`, `price`, `total_value`, `realized_profit`, `commission`.
+- **`dividends`**: `id`, `portfolio_id`, `sub_portfolio_id`, `ticker`, `amount`, `date`.
+- **`holdings`**: `id`, `portfolio_id`, `sub_portfolio_id`, `ticker`, `quantity`, `average_buy_price`, `total_cost`, `company_name`, `sector`, `industry`, `auto_fx_fees`, `currency`.
+
 ### 4.3 Podział routerów (routes_*.py)
 Logika HTTP została podzielona na mniejsze, tematyczne blueprinty:
 
 - **`routes_portfolios.py`** – CRUD portfeli i lista portfeli.
+  - `/api/portfolio/limits` [GET] – limity podatkowe (IKE/IKZE).
+  - `/api/portfolio/create` [POST] – tworzenie portfela.
+  - `/api/portfolio/list` [GET] – lista portfeli z wyceną.
+  - `/api/portfolio/value/<id>` [GET] – szczegółowa wycena.
+  - `/api/portfolio/holdings/<id>` [GET] – aktualne pozycje.
+  - `/api/portfolio/allocation/<id>` [GET] – alokacja akcji.
+  - `/api/portfolio/<id>/clear` [POST] – czyszczenie danych portfela.
+  - `/api/portfolio/<id>` [DELETE] – usunięcie portfela.
+  - `/api/portfolio/bonds/<id>` [GET], `/api/portfolio/bonds` [POST] – obsługa obligacji.
+  - `/api/portfolio/savings/rate` [POST], `/api/portfolio/savings/interest/manual` [POST] – obsługa kont oszczędnościowych.
 - **`routes_transactions.py`** – operacje na transakcjach (BUY, SELL, DEPOSIT, WITHDRAW, DIVIDEND).
+  - `/api/portfolio/deposit`, `/api/portfolio/withdraw` [POST] – operacje gotówkowe.
+  - `/api/portfolio/buy`, `/api/portfolio/sell` [POST] – operacje giełdowe.
+  - `/api/portfolio/dividend` [POST], `/api/portfolio/dividends/<id>` [GET] – obsługa dywidend.
+  - `/api/portfolio/transactions/<id>` [GET], `/api/portfolio/transactions/all` [GET] – historia transakcji.
 - **`routes_history.py`** – endpointy dla wykresów i danych historycznych.
+  - `/api/portfolio/history/monthly/<id>` [GET] – historia miesięczna (wartość/benchmark).
+  - `/api/portfolio/history/profit/<id>` [GET] – historia zysku.
+  - `/api/portfolio/history/value/<id>` [GET] – historia wartości (dzienna/miesięczna).
+  - `/api/portfolio/<id>/closed-positions` [GET] – zamknięte pozycje.
+  - `/api/portfolio/<id>/closed-position-cycles` [GET] – cykle zamkniętych pozycji.
 - **`routes_imports.py`** – importy danych (np. XTB CSV).
+  - `/api/portfolio/<id>/import/xtb` [POST] – import transakcji z brokera XTB.
 - **`routes_ppk.py`** – operacje i podsumowania dla portfeli PPK.
 - **`routes_budget.py`** – pełna obsługa budżetu domowego (koperty, konta, transfery).
 - **`routes_dashboard.py`** – agregacja danych dla głównego dashboardu (net worth).
@@ -781,3 +807,39 @@ Aktualny porządek dokumentacji jest celowo prosty:
 - stare, rozproszone opisy architektury lub audyty powinny być kasowane albo scalane, zamiast mnożyć kolejne podobne pliki.
 
 Jeśli w przyszłości pojawi się potrzeba nowego dokumentu, warto najpierw sprawdzić, czy nie lepiej dopisać sekcji tutaj.
+
+## 16. Testy API i framework testowy
+
+Aplikacja posiada zestaw testów automatycznych weryfikujących poprawność działania backendu.
+
+- **Framework**: `unittest` (standardowa biblioteka Pythona).
+- **Kluczowe pliki testowe**:
+    - **`backend/test_api_contract.py`** – sprawdza spójność formatu odpowiedzi wszystkich zarejestrowanych endpointów. Weryfikuje, czy każdy endpoint zwraca poprawną strukturę `{ payload, error }`.
+    - **`backend/test_smoke_endpoints.py`** – testy typu "smoke" dla krytycznych funkcjonalności: tworzenie portfela, operacje BUY/SELL, wycena, transfery budżetowe.
+    - **`backend/test_price_service_scenarios.py`** – testy logiki pobierania i cache'owania cen.
+- **Uruchamianie testów**:
+    ```bash
+    cd backend
+    python -m unittest test_smoke_endpoints.py
+    python -m unittest test_api_contract.py
+    ```
+
+## 17. Sub-portfele (Struktura drzewiasta)
+
+Aplikacja wspiera strukturę drzewiastą portfeli (rodzic -> dzieci), co pozwala na dzielenie jednego portfela (np. IKE) na kilka strategii lub sub-kont.
+
+### Logika biznesowa sub-portfeli:
+1. **Nesting**: Maksymalnie jeden poziom zagnieżdżenia (rodzic -> sub-portfel). Sub-portfele nie mogą mieć własnych dzieci.
+2. **Typ Konta**: Sub-portfele dziedziczą `account_type` od rodzica (np. jeśli rodzic to IKE, sub-portfel też jest traktowany jako IKE).
+3. **Pieniądze i Aktywa**: Każdy sub-portfel ma własne saldo gotówkowe (`current_cash`) oraz własne pozycje (`holdings`).
+4. **Agregacja**: Wartość portfela nadrzędnego (rodzica) jest sumą jego własnych zasobów oraz zasobów wszystkich jego dzieci.
+5. **Transakcje**: Każda transakcja (BUY, SELL, DIVIDEND itp.) jest przypisana do `portfolio_id` (rodzica) oraz opcjonalnie do `sub_portfolio_id`.
+6. **Archiwizacja**: Sub-portfel może zostać zarchiwizowany (`is_archived`), co ukrywa go w głównych widokach, ale zachowuje jego historię w agregatach rodzica.
+
+### Implementacja techniczna:
+- **`PortfolioValuationService`**: Metoda `get_portfolio_value` automatycznie wykrywa czy portfel ma dzieci i zwraca dane zagregowane wraz z polem `breakdown` (podział na sub-portfele).
+- **`PortfolioHistoryService`**: Wszystkie raporty historyczne (wykresy wartości, zysku, matryca performance) obsługują filtrowanie po sub-portfelu lub agregację dla rodzica.
+- **`PortfolioAuditService`**: Pozwala na niezależny audyt i naprawę stanu (reconstruction) dla każdego sub-jednostki.
+- **Importy**: Import XTB CSV pozwala na wskazanie docelowego sub-portfela podczas wgrywania pliku.
+- **XIRR**: Liczony jest zarówno dla pojedynczych sub-portfeli, jak i jako zagregowany wskaźnik dla całego portfela nadrzędnego.
+
