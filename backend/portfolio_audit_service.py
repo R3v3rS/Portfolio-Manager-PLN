@@ -265,8 +265,8 @@ class PortfolioAuditService(PortfolioCoreService):
                     metadata = db.execute('SELECT company_name, sector, industry, currency FROM asset_metadata WHERE ticker = ?', (ticker,)).fetchone()
                     db.execute(
                         '''INSERT INTO holdings
-                           (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, company_name, sector, industry, sub_portfolio_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                           (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, company_name, sector, industry, sub_portfolio_id, instrument_currency, avg_buy_price_native, avg_buy_fx_rate)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                         (
                             actual_portfolio_id,
                             ticker,
@@ -278,7 +278,10 @@ class PortfolioAuditService(PortfolioCoreService):
                             metadata['company_name'] if metadata else None,
                             metadata['sector'] if metadata else None,
                             metadata['industry'] if metadata else None,
-                            actual_sub_portfolio_id
+                            actual_sub_portfolio_id,
+                            (metadata['currency'] if metadata and metadata['currency'] else 'PLN'),
+                            avg_price, # Defaulting native price to PLN price if unknown, or we could try to derive it
+                            1.0 # Default FX rate 1.0
                         )
                     )
                     changes.append({'action': 'created_holding', 'ticker': ticker, 'current': rebuilt_holding})

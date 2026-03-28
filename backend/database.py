@@ -41,6 +41,8 @@ def init_db(app):
                 total_deposits DECIMAL(10,2) DEFAULT 0.00,
                 savings_rate DECIMAL(5,2) DEFAULT 0.00,
                 last_interest_date TEXT,
+                parent_portfolio_id INTEGER REFERENCES portfolios(id),
+                is_archived BOOLEAN DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
@@ -95,6 +97,8 @@ def init_db(app):
                 price DECIMAL(10,2) NOT NULL,
                 total_value DECIMAL(10,2) NOT NULL,
                 realized_profit DECIMAL(10,2) DEFAULT 0.0,
+                commission DECIMAL(10,2) DEFAULT 0.00,
+                sub_portfolio_id INTEGER REFERENCES portfolios(id),
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
         ''')
@@ -103,6 +107,7 @@ def init_db(app):
         db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_portfolio ON transactions(portfolio_id);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_ticker ON transactions(ticker);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sub_portfolio ON transactions(sub_portfolio_id);')
 
         # Holdings table
         db.execute('''
@@ -113,7 +118,15 @@ def init_db(app):
                 quantity DECIMAL(10,4) NOT NULL,
                 average_buy_price DECIMAL(10,2) NOT NULL,
                 total_cost DECIMAL(10,2) NOT NULL,
-                UNIQUE(portfolio_id, ticker),
+                company_name TEXT,
+                sector TEXT,
+                industry TEXT,
+                auto_fx_fees BOOLEAN DEFAULT 0,
+                currency VARCHAR(3) DEFAULT 'PLN',
+                instrument_currency TEXT NOT NULL DEFAULT 'PLN',
+                avg_buy_price_native REAL NOT NULL DEFAULT 0,
+                avg_buy_fx_rate REAL NOT NULL DEFAULT 1,
+                sub_portfolio_id INTEGER REFERENCES portfolios(id),
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
         ''')
@@ -121,6 +134,8 @@ def init_db(app):
         # Create indexes for holdings
         db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_portfolio ON holdings(portfolio_id);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_ticker ON holdings(ticker);')
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_holdings_unique_sub ON holdings(portfolio_id, sub_portfolio_id, ticker) WHERE sub_portfolio_id IS NOT NULL")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_holdings_unique_main ON holdings(portfolio_id, ticker) WHERE sub_portfolio_id IS NULL")
         
         # Stock prices history table
         db.execute('''
@@ -204,12 +219,14 @@ def init_db(app):
                 ticker VARCHAR(10) NOT NULL,
                 amount DECIMAL(10,2) NOT NULL,
                 date DATE NOT NULL,
+                sub_portfolio_id INTEGER REFERENCES portfolios(id),
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
         ''')
         
         # Create index for dividends
         db.execute('CREATE INDEX IF NOT EXISTS idx_dividends_portfolio ON dividends(portfolio_id);')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_dividends_sub_portfolio ON dividends(sub_portfolio_id);')
 
         # Bonds table
         db.execute('''
@@ -536,34 +553,40 @@ def init_db(app):
                 cols = [c['name'] for c in columns_info]
                 cols_str = ", ".join(cols)
                 
-                # Create new table with updated unique constraint
+                # 1. Rename old table
+                db.execute("ALTER TABLE holdings RENAME TO holdings_old")
+                
+                # 2. Create new table WITH correct structure (using names from above)
+                # We'll use the column names we just got
+                cols_defs = []
+                for col in columns_info:
+                    name = col['name']
+                    type_ = col['type']
+                    notnull = " NOT NULL" if col['notnull'] else ""
+                    if name == 'id':
+                        cols_defs.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
+                    else:
+                        cols_defs.append(f"{name} {type_}{notnull}")
+                
+                new_cols_str = ", ".join(cols_defs)
                 db.execute(f'''
-                    CREATE TABLE holdings_new (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        portfolio_id INTEGER NOT NULL,
-                        ticker VARCHAR(10) NOT NULL,
-                        quantity DECIMAL(10,4) NOT NULL,
-                        average_buy_price DECIMAL(10,2) NOT NULL,
-                        total_cost DECIMAL(10,2) NOT NULL,
-                        company_name TEXT,
-                        sector TEXT,
-                        industry TEXT,
-                        auto_fx_fees BOOLEAN DEFAULT 0,
-                        currency VARCHAR(3) DEFAULT 'PLN',
-                        sub_portfolio_id INTEGER REFERENCES portfolios(id),
-                        UNIQUE(portfolio_id, sub_portfolio_id, ticker),
+                    CREATE TABLE holdings (
+                        {new_cols_str},
                         FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
                     )
                 ''')
                 
-                # Copy data
-                db.execute(f"INSERT INTO holdings_new ({cols_str}) SELECT {cols_str} FROM holdings")
+                # 3. Copy data
+                db.execute(f"INSERT INTO holdings ({cols_str}) SELECT {cols_str} FROM holdings_old")
                 
-                # Swap tables
-                db.execute("DROP TABLE holdings")
-                db.execute("ALTER TABLE holdings_new RENAME TO holdings")
+                # 4. Drop old table
+                db.execute("DROP TABLE holdings_old")
                 
-                # Re-create indexes
+                # 5. Create new UNIQUE indexes
+                db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_holdings_unique_sub ON holdings(portfolio_id, sub_portfolio_id, ticker) WHERE sub_portfolio_id IS NOT NULL")
+                db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_holdings_unique_main ON holdings(portfolio_id, ticker) WHERE sub_portfolio_id IS NULL")
+                
+                # Re-create other indexes
                 db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_portfolio ON holdings(portfolio_id);')
                 db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_ticker ON holdings(ticker);')
                 db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_sub_portfolio ON holdings(sub_portfolio_id);')

@@ -279,14 +279,14 @@ class PortfolioTradeService(PortfolioCoreService):
                            (sub_portfolio_id, portfolio_id, tx['ticker'], tx['date'], tx['total_value']))
 
             # 3. Move cash between sub-portfolios
-            # Remove cash from old location (parent if old_sub_portfolio_id is NULL)
-            old_cash_target = old_sub_portfolio_id if old_sub_portfolio_id else portfolio_id
-            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (total_value, old_cash_target))
+            # In sub-portfolio mode, the PortfolioAuditService.repair_portfolio_state 
+            # is responsible for setting the definitive cash balance based on transaction history.
+            # We don't manually adjust current_cash here because it would lead to double-counting 
+            # if repair_portfolio_state is called immediately after (which it is in routes_transactions).
             
-            # Add cash to new location (parent if sub_portfolio_id is NULL)
-            new_cash_target = sub_portfolio_id if sub_portfolio_id else portfolio_id
-            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (total_value, new_cash_target))
-
+            # HOWEVER, if we are NOT in a repair job context, we might want to update it.
+            # Given the current architecture, repair_portfolio_state is the source of truth.
+            
             db.commit()
             return True
         except Exception as e:
