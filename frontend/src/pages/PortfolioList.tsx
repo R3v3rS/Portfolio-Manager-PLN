@@ -165,73 +165,104 @@ const PortfolioList: React.FC = () => {
             ((portfolio.current_cash || 0) === 0 && (portfolio.portfolio_value || 0) === 0);
 
           return (
-            <Link
-              key={portfolio.id}
-              to={`/portfolio/${portfolio.id}`}
-              className="block hover:no-underline"
-            >
-              <div className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow duration-200">
-                <div className="px-4 py-5 sm:p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex flex-col">
-                      <h3 className="text-lg font-medium leading-6 text-gray-900 truncate">
-                        {portfolio.name}
-                      </h3>
-                      <span className={cn(
-                        "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full mt-1 w-fit",
-                        portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
-                        portfolio.account_type === 'BONDS' ? "bg-amber-100 text-amber-800" :
-                        portfolio.account_type === 'IKE' ? "bg-indigo-100 text-indigo-800" :
-                        portfolio.account_type === 'PPK' ? "bg-purple-100 text-purple-800" :
-                        "bg-gray-100 text-gray-800"
-                      )}>
-                        {portfolio.account_type}
-                      </span>
+            <div key={portfolio.id} className="space-y-4">
+              <Link
+                to={`/portfolio/${portfolio.id}`}
+                className="block hover:no-underline"
+              >
+                <div className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow duration-200 border-l-4 border-blue-500">
+                  <div className="px-4 py-5 sm:p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex flex-col">
+                        <h3 className="text-lg font-medium leading-6 text-gray-900 truncate">
+                          {portfolio.name}
+                        </h3>
+                        <span className={cn(
+                          "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full mt-1 w-fit",
+                          portfolio.account_type === 'SAVINGS' ? "bg-emerald-100 text-emerald-800" :
+                          portfolio.account_type === 'BONDS' ? "bg-amber-100 text-amber-800" :
+                          portfolio.account_type === 'IKE' ? "bg-indigo-100 text-indigo-800" :
+                          portfolio.account_type === 'PPK' ? "bg-purple-100 text-purple-800" :
+                          "bg-gray-100 text-gray-800"
+                        )}>
+                          {portfolio.account_type}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isEmptyPortfolio && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeletePortfolio(e, portfolio)}
+                            className="inline-flex items-center justify-center rounded-md p-2 text-red-600 hover:bg-red-50"
+                            title="Usuń puste portfolio"
+                            aria-label="Usuń puste portfolio"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                        <ChevronRight className="h-5 w-5 text-gray-400" />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {isEmptyPortfolio && (
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeletePortfolio(e, portfolio)}
-                          className="inline-flex items-center justify-center rounded-md p-2 text-red-600 hover:bg-red-50"
-                          title="Usuń puste portfolio"
-                          aria-label="Usuń puste portfolio"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                      <ChevronRight className="h-5 w-5 text-gray-400" />
-                    </div>
+                    <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <dt className="text-sm font-medium text-gray-500">Total Value</dt>
+                        <dd className="mt-1 text-2xl font-semibold text-gray-900">
+                          {portfolio.portfolio_value?.toFixed(2)} PLN
+                        </dd>
+                      </div>
+                      <div className="sm:col-span-1">
+                        <dt className="text-xs font-medium text-gray-500">Cash</dt>
+                        <dd className="mt-1 text-sm text-gray-900">{portfolio.current_cash?.toFixed(2)} PLN</dd>
+                      </div>
+                      <div className="sm:col-span-1 text-right">
+                        <dt className="text-xs font-medium text-gray-500">Profit/Loss</dt>
+                        <dd className={cn("mt-1 text-sm font-medium",
+                          (portfolio.total_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
+                          {portfolio.total_result_percent?.toFixed(2)}%
+                        </dd>
+                      </div>
+                    </dl>
                   </div>
-                  <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <dt className="text-sm font-medium text-gray-500">Total Value</dt>
-                      <dd className="mt-1 text-2xl font-semibold text-gray-900">
-                        {portfolio.portfolio_value?.toFixed(2)} PLN
-                      </dd>
-                    </div>
-                    <div className="sm:col-span-1">
-                      <dt className="text-xs font-medium text-gray-500">Cash</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{portfolio.current_cash?.toFixed(2)} PLN</dd>
-                    </div>
-                    <div className="sm:col-span-1 text-right">
-                      <dt className="text-xs font-medium text-gray-500">Profit/Loss</dt>
-                      <dd className={cn("mt-1 text-sm font-medium",
-                        (portfolio.total_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-                        {portfolio.total_result_percent?.toFixed(2)}%
-                      </dd>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <dt className="text-xs font-medium text-gray-500">Otwarte pozycje (aktualny wynik)</dt>
-                      <dd className={cn("mt-1 text-sm font-medium",
-                        (portfolio.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-                        {(portfolio.open_positions_result || 0).toFixed(2)} PLN
-                      </dd>
-                    </div>
-                  </dl>
                 </div>
-              </div>
-            </Link>
+              </Link>
+
+              {/* Sub-portfolios list */}
+              {portfolio.children && portfolio.children.length > 0 && (
+                <div className="ml-8 space-y-2 border-l-2 border-gray-200 pl-4">
+                  {portfolio.children.map((child) => (
+                    <Link
+                      key={child.id}
+                      to={`/portfolio/${child.id}`}
+                      className="block group"
+                    >
+                      <div className={cn(
+                        "flex items-center justify-between p-3 rounded-md border transition-colors",
+                        child.is_archived ? "bg-gray-50 border-gray-100 opacity-60" : "bg-white border-gray-100 hover:border-blue-200 hover:bg-blue-50/30"
+                      )}>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-700 group-hover:text-blue-700">
+                            {child.name}
+                            {child.is_archived && <span className="ml-2 text-[10px] text-gray-400 font-normal">(Archived)</span>}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {child.portfolio_value?.toFixed(2)} PLN
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "text-[10px] font-bold",
+                            (child.total_result || 0) >= 0 ? "text-green-600" : "text-red-600"
+                          )}>
+                            {child.total_result_percent?.toFixed(1)}%
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-blue-400" />
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>

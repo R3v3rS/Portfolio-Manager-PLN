@@ -53,12 +53,23 @@ def create_portfolio():
 
 @portfolio_bp.route('/list', methods=['GET'])
 def list_portfolios():
-    portfolios = PortfolioService.list_portfolios()
+    # If the request comes from the details page, we might want a flat list
+    # to easily find sub-portfolios by ID without traversing the tree.
+    include_children = request.args.get('tree', default='1') == '1'
+    portfolios = PortfolioService.list_portfolios(include_children=include_children)
     result = []
+    
+    def enrich_portfolio(p):
+        value_data = PortfolioService.get_portfolio_value(p['id'])
+        p.update(value_data)
+        if 'children' in p and p['children']:
+            for child in p['children']:
+                enrich_portfolio(child)
+        return p
+
     for portfolio in portfolios:
-        value_data = PortfolioService.get_portfolio_value(portfolio['id'])
-        portfolio.update(value_data)
-        result.append(portfolio)
+        result.append(enrich_portfolio(portfolio))
+        
     return success_response({'portfolios': result})
 
 

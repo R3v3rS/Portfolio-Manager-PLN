@@ -133,7 +133,7 @@ class PortfolioCoreService:
         return None
 
     @staticmethod
-    def list_portfolios():
+    def list_portfolios(include_children=True):
         from portfolio_audit_service import PortfolioAuditService
 
         db = get_db()
@@ -153,6 +153,9 @@ class PortfolioCoreService:
                 p['children'] = [] # Placeholder for tree structure
                 all_portfolios.append(p)
             
+            if not include_children:
+                return all_portfolios
+
             # Build tree structure
             portfolio_map = {p['id']: p for p in all_portfolios}
             roots = []

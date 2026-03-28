@@ -509,11 +509,58 @@ def init_db(app):
 
         # Migration: Update holdings unique constraint to include sub_portfolio_id
         # In SQLite, we can't directly alter a UNIQUE constraint. 
-        # We need to recreate the table if we want a formal constraint, 
-        # but for now, let's just make sure the index exists or use logic in services.
-        # Actually, let's stick to the plan: if we really need it, we should recreate.
-        # But for an inline migration, let's at least ensure an index exists.
-        db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_sub_portfolio ON holdings(sub_portfolio_id);')
+        # We need to recreate the table to update the constraint.
+        try:
+            # Check if we already updated it (by checking if index on sub_portfolio_id exists or other means)
+            # Actually, let's just check the table info
+            table_info = db.execute("PRAGMA index_list(holdings)").fetchall()
+            has_sub_portfolio_unique = any('sub_portfolio_id' in db.execute(f"PRAGMA index_info({row['name']})").fetchone()['name'] for row in table_info if row['unique'])
+            
+            if not has_sub_portfolio_unique:
+                db.execute("PRAGMA foreign_keys = OFF")
+                
+                # Get current columns
+                columns_info = db.execute("PRAGMA table_info(holdings)").fetchall()
+                cols = [c['name'] for c in columns_info]
+                cols_str = ", ".join(cols)
+                
+                # Create new table with updated unique constraint
+                db.execute(f'''
+                    CREATE TABLE holdings_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        portfolio_id INTEGER NOT NULL,
+                        ticker VARCHAR(10) NOT NULL,
+                        quantity DECIMAL(10,4) NOT NULL,
+                        average_buy_price DECIMAL(10,2) NOT NULL,
+                        total_cost DECIMAL(10,2) NOT NULL,
+                        company_name TEXT,
+                        sector TEXT,
+                        industry TEXT,
+                        auto_fx_fees BOOLEAN DEFAULT 0,
+                        currency VARCHAR(3) DEFAULT 'PLN',
+                        sub_portfolio_id INTEGER REFERENCES portfolios(id),
+                        UNIQUE(portfolio_id, sub_portfolio_id, ticker),
+                        FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
+                    )
+                ''')
+                
+                # Copy data
+                db.execute(f"INSERT INTO holdings_new ({cols_str}) SELECT {cols_str} FROM holdings")
+                
+                # Swap tables
+                db.execute("DROP TABLE holdings")
+                db.execute("ALTER TABLE holdings_new RENAME TO holdings")
+                
+                # Re-create indexes
+                db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_portfolio ON holdings(portfolio_id);')
+                db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_ticker ON holdings(ticker);')
+                db.execute('CREATE INDEX IF NOT EXISTS idx_holdings_sub_portfolio ON holdings(sub_portfolio_id);')
+                
+                db.execute("PRAGMA foreign_keys = ON")
+        except Exception as e:
+            print(f"Migration error for holdings unique constraint: {e}")
+            pass
+
         db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sub_portfolio ON transactions(sub_portfolio_id);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_dividends_sub_portfolio ON dividends(sub_portfolio_id);')
 

@@ -508,16 +508,16 @@ export const normalizeXtbImportError = (error: unknown): XtbImportResult => {
 };
 
 export const portfolioApi = {
-  list: async (): Promise<PortfolioListResponse> => {
-    const response = await portfolioHttp.get<unknown>('/list');
+  list: async (params?: QueryParams): Promise<PortfolioListResponse> => {
+    const response = await portfolioHttp.get<unknown>('/list', { params });
     return normalizePortfolioListResponse(response);
   },
   limits: () => portfolioHttp.get<PortfolioLimitsResponse>('/limits'),
   create: (payload: CreatePortfolioPayload) => portfolioHttp.post('/create', payload),
   remove: (portfolioId: number) => portfolioHttp.delete(`/${portfolioId}`),
   listTransactions: (ticker?: string) => portfolioHttp.get<TransactionsListResponse>('/transactions/all', { params: ticker ? { ticker } : undefined }),
-  listNormalized: async (): Promise<Portfolio[]> => {
-    return (await portfolioApi.list()).portfolios;
+  listNormalized: async (params?: QueryParams): Promise<Portfolio[]> => {
+    return (await portfolioApi.list(params)).portfolios;
   },
   config: () => portfolioHttp.get<ConfigResponse>('/config'),
   createChild: (parentId: number, payload: CreatePortfolioPayload) =>

@@ -406,10 +406,45 @@ const PortfolioDetails: React.FC = () => {
 
   // Budget Integration
   const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
+  const [subportfoliosAllowedTypes, setSubportfoliosAllowedTypes] = useState<string[]>([]);
+  const [isCreatingSubPortfolio, setIsCreatingSubPortfolio] = useState(false);
+  const [newSubPortfolioName, setNewSubPortfolioName] = useState('');
+  const [newSubPortfolioCash, setNewSubPortfolioCash] = useState('');
 
   const initiateSell = (h: Holding) => {
     setSelectedHoldingForSell(h);
     setIsSellModalOpen(true);
+  };
+
+  const handleCreateSubPortfolio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !newSubPortfolioName.trim()) return;
+
+    try {
+      await portfolioApi.createChild(parseInt(id), {
+        name: newSubPortfolioName,
+        initial_cash: parseFloat(newSubPortfolioCash) || 0,
+        account_type: portfolio?.account_type || 'STANDARD',
+        created_at: new Date().toISOString().split('T')[0]
+      });
+      setNewSubPortfolioName('');
+      setNewSubPortfolioCash('');
+      setIsCreatingSubPortfolio(false);
+      fetchData();
+    } catch (err) {
+      console.error('Failed to create sub-portfolio', err);
+      alert('Nie udało się utworzyć sub-portfela');
+    }
+  };
+
+  const handleAssignTransaction = async (transactionId: number, subId: number | null) => {
+    try {
+      await portfolioApi.assignTransaction(transactionId, subId);
+      fetchData();
+    } catch (err) {
+      console.error('Failed to assign transaction', err);
+      alert('Nie udało się przypisać transakcji');
+    }
   };
 
   const closePositionAtLastPrice = async (holding: Holding) => {
@@ -446,8 +481,8 @@ const PortfolioDetails: React.FC = () => {
     if (Number.isNaN(portfolioId)) return;
     setLoading(true);
     try {
-      const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes, aRes] = await Promise.all([
-        portfolioApi.listNormalized(),
+      const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes, aRes, configRes] = await Promise.all([
+        portfolioApi.listNormalized({ tree: 0 }),
         portfolioApi.getHoldings(portfolioId),
         portfolioApi.getValue(portfolioId),
         portfolioApi.getMonthlyDividends(portfolioId),
@@ -455,7 +490,8 @@ const PortfolioDetails: React.FC = () => {
         portfolioApi.getClosedPositions(portfolioId),
         portfolioApi.getClosedPositionCycles(portfolioId),
         budgetApi.getSummary(),
-        portfolioApi.getEquityAllocation(portfolioId)
+        portfolioApi.getEquityAllocation(portfolioId),
+        portfolioApi.config()
       ]);
       
       const found = pRes.find((p: Portfolio) => p.id === portfolioId) ?? null;
@@ -470,6 +506,7 @@ const PortfolioDetails: React.FC = () => {
       setTotalClosedCyclesProfit(ccRes.total_historical_profit || 0);
       setBudgetAccounts(bAccRes.accounts || []);
       setEquityAllocation(aRes ?? []);
+      setSubportfoliosAllowedTypes(configRes.subportfolios_allowed_types || []);
 
       if (found?.account_type === 'BONDS') {
         const bRes = await portfolioApi.getBonds(portfolioId);
@@ -785,8 +822,67 @@ const PortfolioDetails: React.FC = () => {
               Archiwizuj
             </button>
           )}
+
+          {!isChild && subportfoliosAllowedTypes.includes(portfolio.account_type) && (
+            <button
+              type="button"
+              onClick={() => setIsCreatingSubPortfolio(true)}
+              className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
+            >
+              <Plus className="h-4 w-4" />
+              Dodaj sub-portfel
+            </button>
+          )}
         </div>
       )}
+
+      {isCreatingSubPortfolio && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Nowy sub-portfel</h3>
+            <form onSubmit={handleCreateSubPortfolio} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Nazwa</label>
+                <input
+                  type="text"
+                  value={newSubPortfolioName}
+                  onChange={(e) => setNewSubPortfolioName(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                  placeholder="np. Akcje USA"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Początkowa gotówka (PLN)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newSubPortfolioCash}
+                  onChange={(e) => setNewSubPortfolioCash(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingSubPortfolio(false)}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm dark:border-gray-700"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+                >
+                  Utwórz
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
         <Link
           to="/portfolios"
