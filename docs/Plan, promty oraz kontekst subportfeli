@@ -36,6 +36,19 @@ Poniżej podsumowanie, co było niespójne i zostało poprawione w tym dokumenci
 - `last_interest_date`
 - `created_at`
 
+`holdings`:
+- `id`
+- `portfolio_id`
+- `sub_portfolio_id` (dodawane migracją)
+- `ticker`
+- `quantity`
+- `average_buy_price`
+- `total_cost`
+- `currency` (dodawane migracją inline)
+- `company_name`, `sector`, `industry` (metadata)
+
+*Uwaga: Unikalność w `holdings` musi zostać zmieniona na `(portfolio_id, sub_portfolio_id, ticker)`, aby umożliwić separację pozycji między sub-portfelami.*
+
 `transactions`:
 - `id`
 - `portfolio_id`
@@ -107,6 +120,8 @@ Import:
 11. Child nie może być usunięty — tylko archiwizacja (`is_archived=1`).
 12. Zarchiwizowany child blokuje nowe przypisania transakcji i dywidend (422).
 13. Wycena parenta = suma(children w PLN) + własne parenta.
+14. **Gotówka per sub-portfel**: Każdy sub-portfel (child) utrzymuje własny stan `current_cash` w tabeli `portfolios`. Pozwala to na niezależne wyliczanie KPI (zysk, XIRR) dla każdego sub-portfela. Sumaryczna gotówka parenta to suma gotówki własnej parenta (`sub_portfolio_id IS NULL`) i wszystkich jego dzieci.
+15. **Unikalność w holdings**: Tabela `holdings` musi obsługiwać unikalność `(portfolio_id, sub_portfolio_id, ticker)`. Jeśli `sub_portfolio_id` jest NULL, pozycja należy do parenta.
 
 > Uwaga: wcześniej w roboczych notatkach pojawiało się `Stocks`/`Obligacje`. W kodzie należy trzymać się istniejącego słownika `STANDARD|IKE|BONDS|SAVINGS|PPK`.
 
@@ -127,18 +142,21 @@ Zakres:
 - dodać `portfolios.is_archived BOOLEAN DEFAULT 0`
 - dodać `transactions.sub_portfolio_id INTEGER NULL REFERENCES portfolios(id)`
 - dodać `dividends.sub_portfolio_id INTEGER NULL REFERENCES portfolios(id)`
+- dodać `holdings.sub_portfolio_id INTEGER NULL REFERENCES portfolios(id)`
+- zmienić unikalność w `holdings` (dodanie `sub_portfolio_id` do klucza)
 
 Checklist:
 - [ ] migracja idempotentna (`try ALTER TABLE ... except sqlite3.OperationalError`).
-- [ ] dane historyczne mają `parent_portfolio_id = NULL`, `transactions.sub_portfolio_id = NULL` i `dividends.sub_portfolio_id = NULL`.
+- [ ] dane historyczne mają `parent_portfolio_id = NULL`, `transactions.sub_portfolio_id = NULL`, `dividends.sub_portfolio_id = NULL`, `holdings.sub_portfolio_id = NULL`.
 - [ ] walidacje aplikacyjne blokują głębokość >1 i cykle.
 
 ## ETAP 2 — backend read-path
 Nowe/zmienione endpointy (Flask):
-- `GET /api/portfolio/list` rozszerzone o pola: `parent_portfolio_id`, `is_archived`, `children[]`
-- `GET /api/portfolio/<id>` (nowy) ze strukturą parent/child
-- `GET /api/portfolio/value/<id>` rozszerzone o `breakdown[]` dla parentów
-- `GET /api/portfolio/config` (nowy) zwraca m.in. `subportfolios_allowed_types`
+- `GET /api/portfolio/list` rozszerzone o pola: `parent_portfolio_id`, `is_archived`, `children[]`. Zwraca drzewiastą strukturę parent -> child.
+- `GET /api/portfolio/<id>` (nowy) ze strukturą parent/child.
+- `GET /api/portfolio/value/<id>` rozszerzone o `breakdown[]` dla parentów.
+- `GET /api/portfolio/holdings/<id>` zwraca pozycje dla konkretnego portfolio (parent lub child). Parent zwraca własne pozycje (`sub_portfolio_id = NULL`).
+- `GET /api/portfolio/config` (nowy) zwraca m.in. `subportfolios_allowed_types`.
 
 Checklist:
 - [ ] parent zwraca agregat wartości childów + własne.

@@ -40,6 +40,18 @@ backend obsługuje instrumenty w wielu walutach; każdy child przelicza wycenę 
 parent jedynie sumuje wartości PLN zwrócone przez children — brak logiki FX na poziomie agregatora parenta;
 walutą raportową całego drzewa jest zawsze PLN.
 
+Gotówka per sub-portfel:
+
+każdy sub-portfel (child) posiada własne `current_cash` w tabeli `portfolios`;
+pozwala to na rzetelne wyliczanie KPI (zysku, XIRR) dla konkretnego sub-portfela;
+operacje wpłaty/wypłaty na poziomie childa aktualizują jego własne `current_cash`.
+
+Pozycje (Holdings) — separacja:
+
+tabela `holdings` musi zostać rozszerzona o kolumnę `sub_portfolio_id`;
+unikalny klucz tabeli `holdings` musi zostać zmieniony na `(portfolio_id, sub_portfolio_id, ticker)`;
+zapobiega to „zlewaniu się” pozycji różnych childów w jedną pozycję na poziomie parenta.
+
 Transakcje i import:
 
 jedynym źródłem prawdy przypisania transakcji do childa jest `sub_portfolio_id` na transakcji (nullable);
@@ -76,9 +88,10 @@ Dodać migrację, która:
 
 tworzy tabele/kolumny pod sub-portfele (parent_portfolio_id, flaga archiwizacji, itp.);
 uzupełnia wartości domyślne dla istniejących portfeli (parent_portfolio_id = NULL);
+rozszerza tabelę `holdings` o `sub_portfolio_id` i zmienia klucz unikalny;
 ma prosty plan rollback (snapshot lub migracja odwrotna);
 działa w trybie dry-run — raportuje co zrobi, bez wykonania;
-zawiera skrypt walidacji po migracji sprawdzający spójność parent_portfolio_id i sub_portfolio_id w tabeli transakcji.
+zawiera skrypt walidacji po migracji sprawdzający spójność parent_portfolio_id, sub_portfolio_id w transakcjach oraz sub_portfolio_id w pozycjach (holdings).
 
 Snapshot przed migracją powinien być automatycznym krokiem CI/CD — rollback musi być realny, nie tylko teoretyczny.
 Dlaczego teraz: sub-portfele dotkną kluczowych tabel i wycen, więc bezpieczna migracja to podstawa.
