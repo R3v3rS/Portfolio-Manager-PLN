@@ -66,6 +66,12 @@ Read:
 - `GET /api/portfolio/dividends/<portfolio_id>`
 - `GET /api/portfolio/history/monthly/<portfolio_id>`
 
+Zachowanie `GET /api/portfolio/dividends/<portfolio_id>` po wdrożeniu sub-portfeli:
+- dla childa: zwraca tylko dywidendy gdzie `dividends.sub_portfolio_id = child.id`
+- dla parenta: zwraca dywidendy parenta (`sub_portfolio_id = NULL`) ORAZ zagregowane dywidendy wszystkich childów
+- każdy rekord zawiera dodatkowo `sub_portfolio_id` i `sub_portfolio_name`
+- stary payload (lista obiektów dywidend) zostaje — dodawane są tylko nowe pola
+
 Write:
 - `POST /api/portfolio/create`
 - `POST /api/portfolio/deposit`
@@ -96,10 +102,11 @@ Import:
 6. `sub_portfolio_id = NULL` oznacza transakcję parenta.
 7. `dividends.portfolio_id` zawsze wskazuje parenta.
 8. `dividends.sub_portfolio_id` jest jedynym źródłem przypisania dywidendy do childa (`NULL` = dywidenda parenta).
-9. Parent nie może być usunięty (422).
-10. Child nie może być usunięty — tylko archiwizacja (`is_archived=1`).
-11. Zarchiwizowany child blokuje nowe przypisania transakcji i dywidend (422).
-12. Wycena parenta = suma(children w PLN) + własne parenta.
+9. Transakcje typu `INTEREST` zawsze mają `sub_portfolio_id = NULL` — interest należy wyłącznie do parenta i nie może być przypisany do childa.
+10. Parent nie może być usunięty (422).
+11. Child nie może być usunięty — tylko archiwizacja (`is_archived=1`).
+12. Zarchiwizowany child blokuje nowe przypisania transakcji i dywidend (422).
+13. Wycena parenta = suma(children w PLN) + własne parenta.
 
 > Uwaga: wcześniej w roboczych notatkach pojawiało się `Stocks`/`Obligacje`. W kodzie należy trzymać się istniejącego słownika `STANDARD|IKE|BONDS|SAVINGS|PPK`.
 
@@ -306,3 +313,6 @@ Feature sub-portfeli uznajemy za gotowy, gdy:
 - [ ] UI pozwala tworzyć i archiwizować childy oraz przypisywać transakcje.
 - [ ] parent/child KPI jest poprawny (suma childów + własne = parent).
 - [ ] dokumentacja (`README`/`PROJECT_GUIDE`/ten plik) jest spójna z implementacją.
+- [ ] dywidendy przypisane ręcznie do childa widoczne w historii childa i parenta.
+- [ ] interest z importu XTB zawsze trafia do parenta (`sub_portfolio_id = NULL`).
+- [ ] `GET /api/portfolio/dividends/<id>` zwraca właściwy zakres dla parenta i childa.
