@@ -74,22 +74,68 @@ class PortfolioService(
     @staticmethod
     def get_dividends(portfolio_id):
         db = get_db()
-        dividends = db.execute('SELECT * FROM dividends WHERE portfolio_id = ? ORDER BY date DESC', (portfolio_id,)).fetchall()
+        portfolio = db.execute(
+            'SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?',
+            (portfolio_id,),
+        ).fetchone()
+        if not portfolio:
+            return []
+
+        if portfolio['parent_portfolio_id']:
+            query = '''
+                SELECT d.*, sp.name AS sub_portfolio_name
+                FROM dividends d
+                LEFT JOIN portfolios sp ON d.sub_portfolio_id = sp.id
+                WHERE d.portfolio_id = ? AND d.sub_portfolio_id = ?
+                ORDER BY d.date DESC
+            '''
+            params = (portfolio['parent_portfolio_id'], portfolio['id'])
+        else:
+            query = '''
+                SELECT d.*, sp.name AS sub_portfolio_name
+                FROM dividends d
+                LEFT JOIN portfolios sp ON d.sub_portfolio_id = sp.id
+                WHERE d.portfolio_id = ?
+                  AND (
+                      d.sub_portfolio_id IS NULL
+                      OR d.sub_portfolio_id IN (
+                          SELECT id FROM portfolios WHERE parent_portfolio_id = ?
+                      )
+                  )
+                ORDER BY d.date DESC
+            '''
+            params = (portfolio['id'], portfolio['id'])
+
+        dividends = db.execute(query, params).fetchall()
         return [{key: d[key] for key in d.keys()} for d in dividends]
 
     @staticmethod
     def get_monthly_dividends(portfolio_id):
         db = get_db()
+        portfolio = db.execute(
+            'SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?',
+            (portfolio_id,),
+        ).fetchone()
+        if not portfolio:
+            return []
+
+        if portfolio['parent_portfolio_id']:
+            where_clause = 'WHERE portfolio_id = ? AND sub_portfolio_id = ?'
+            params = (portfolio['parent_portfolio_id'], portfolio['id'])
+        else:
+            where_clause = 'WHERE portfolio_id = ?'
+            params = (portfolio['id'],)
+
         query = '''
             SELECT
                 strftime('%Y-%m', date) as month_key,
                 SUM(amount) as total_amount
             FROM dividends
-            WHERE portfolio_id = ?
+            {where_clause}
             GROUP BY month_key
             ORDER BY month_key ASC
-        '''
-        results = db.execute(query, (portfolio_id,)).fetchall()
+        '''.format(where_clause=where_clause)
+        results = db.execute(query, params).fetchall()
         if not results:
             return []
         from datetime import datetime
