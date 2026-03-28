@@ -12,6 +12,62 @@ class PortfolioValuationService(PortfolioCoreService):
     CONSISTENCY_TOLERANCE_PLN = 0.01
 
     @staticmethod
+    def get_cash_balance_on_date(portfolio_id, as_of_date, sub_portfolio_id=None):
+        db = get_db()
+        if sub_portfolio_id is None:
+            row = db.execute(
+                '''
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
+                        WHEN type = 'WITHDRAW' THEN -total_value
+                        ELSE 0
+                    END
+                ), 0) AS cash_balance
+                FROM transactions
+                WHERE portfolio_id = ?
+                  AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
+                  AND date(date) <= date(?)
+                ''',
+                (portfolio_id, as_of_date),
+            ).fetchone()
+        else:
+            row = db.execute(
+                '''
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
+                        WHEN type = 'WITHDRAW' THEN -total_value
+                        ELSE 0
+                    END
+                ), 0) AS cash_balance
+                FROM transactions
+                WHERE portfolio_id = ?
+                  AND sub_portfolio_id = ?
+                  AND date(date) <= date(?)
+                ''',
+                (portfolio_id, sub_portfolio_id, as_of_date),
+            ).fetchone()
+            legacy_row = db.execute(
+                '''
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
+                        WHEN type = 'WITHDRAW' THEN -total_value
+                        ELSE 0
+                    END
+                ), 0) AS cash_balance
+                FROM transactions
+                WHERE portfolio_id = ?
+                  AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
+                  AND date(date) <= date(?)
+                ''',
+                (sub_portfolio_id, as_of_date),
+            ).fetchone()
+            return float(row['cash_balance'] or 0.0) + float(legacy_row['cash_balance'] or 0.0)
+        return float(row['cash_balance'] or 0.0)
+
+    @staticmethod
     def calculate_metrics(holdings, total_value, cash_value):
         if total_value == 0:
             return []

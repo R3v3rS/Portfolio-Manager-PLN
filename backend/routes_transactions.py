@@ -170,8 +170,17 @@ def transfer_cash_between_scopes():
     if from_scope['parent_id'] == to_scope['parent_id'] and from_scope['sub_id'] == to_scope['sub_id']:
         raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'Source and destination cannot be identical', status=422)
 
-    if from_scope['cash'] < amount:
-        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'Insufficient cash in source portfolio', status=422)
+    available_cash_on_transfer_date = PortfolioService.get_cash_balance_on_date(
+        from_scope['parent_id'],
+        transfer_date.isoformat(),
+        sub_portfolio_id=from_scope['sub_id'],
+    )
+    if amount > available_cash_on_transfer_date:
+        raise ApiError(
+            'CASH_TRANSFER_VALIDATION_ERROR',
+            f'Niewystarczająca gotówka na dzień {transfer_date.isoformat()} (dostępne: {available_cash_on_transfer_date:.2f} PLN)',
+            status=422,
+        )
 
     transfer_id = str(uuid4())
     note = optional_string(data, 'note')
