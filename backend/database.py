@@ -508,13 +508,25 @@ def init_db(app):
             pass
 
         # Migration: Update holdings unique constraint to include sub_portfolio_id
-        # In SQLite, we can't directly alter a UNIQUE constraint. 
+        # In SQLite, we can't directly alter a UNIQUE constraint.
         # We need to recreate the table to update the constraint.
         try:
-            # Check if we already updated it (by checking if index on sub_portfolio_id exists or other means)
-            # Actually, let's just check the table info
+            # Check if we already updated it by validating unique index columns.
+            # We need a unique index that contains exactly:
+            # (portfolio_id, sub_portfolio_id, ticker)
             table_info = db.execute("PRAGMA index_list(holdings)").fetchall()
-            has_sub_portfolio_unique = any('sub_portfolio_id' in db.execute(f"PRAGMA index_info({row['name']})").fetchone()['name'] for row in table_info if row['unique'])
+            has_sub_portfolio_unique = False
+            expected_cols = {'portfolio_id', 'sub_portfolio_id', 'ticker'}
+
+            for row in table_info:
+                if not row['unique']:
+                    continue
+                index_name = row['name']
+                index_cols_info = db.execute(f"PRAGMA index_info('{index_name}')").fetchall()
+                index_cols = {idx_row['name'] for idx_row in index_cols_info}
+                if index_cols == expected_cols:
+                    has_sub_portfolio_unique = True
+                    break
             
             if not has_sub_portfolio_unique:
                 db.execute("PRAGMA foreign_keys = OFF")
