@@ -4,15 +4,13 @@ Cel: zminimalizować ryzyko regresji i uprościć implementację sub-portfeli.
 
 0) Weryfikacja ze stanem faktycznym (na dzień 2026-03-27)
 
-Poniżej szybki status tego dokumentu względem aktualnego kodu:
+✅ Kierunek dokumentu jest trafny: sub-portfele nie są jeszcze wdrożone i wymagają osobnego kontraktu danych + migracji.
+⚠️ Backend obsługuje instrumenty w wielu walutach (USD/EUR/GBP) i przelicza je do PLN przy wycenie — child zawsze zwraca wartość już w PLN, parent jedynie sumuje.
+⚠️ Import XTB działa per portfel (/api/portfolio/<portfolio_id>/import/xtb) — po wdrożeniu sub-portfeli import do parenta pozostaje możliwy; nieprzypisane transakcje mogą być później ręcznie przenoszone do childów.
+⚠️ Brak wydzielonego systemu alertów domenowych — alerty nie są częścią tego wdrożenia.
 
-- ✅ Kierunek dokumentu jest trafny: sub-portfele nie są jeszcze wdrożone i wymagają osobnego kontraktu danych + migracji.
-- ⚠️ Teza „aplikacja operuje wyłącznie na PLN” jest niezgodna ze stanem backendu — system przechowuje waluty aktywów (np. USD/EUR/GBP) i robi przeliczenia FX do PLN przy wycenie.
-- ⚠️ Teza o „jednym zbiorczym imporcie CSV” wymaga doprecyzowania — aktualnie import XTB jest wykonywany per portfel (`/api/portfolio/<portfolio_id>/import/xtb`).
-- ⚠️ Teza o „rozszerzeniu istniejącego systemu alertów o child/parent” jest częściowo nieprecyzyjna — brak wydzielonego systemu alertów domenowych parent/child (są m.in. alerty UI typu `alert(...)` i mechanizmy quality/monitoring).
-- ⚠️ Flaga `SUBPORTFOLIOS_ENABLED` jest rekomendacją, ale obecnie nie istnieje w kodzie.
 
-Wniosek: dokument jest dobrym planem „docelowym”, ale warto jawnie traktować go jako plan zmian, a nie opis aktualnie działającej funkcji.
+Wniosek: dokument jest planem zmian, nie opisem aktualnie działającej funkcji.
 
 1) Najważniejsze usprawnienia „przed"
 1.1 Kontrakt danych sub-portfela (MVP spec)
@@ -21,114 +19,117 @@ Struktura i głębokość drzewa:
 
 relacja: portfolio (parent) → sub_portfolios (children);
 tylko jeden poziom — child nie może mieć własnych dzieci; ograniczenie twarde na poziomie walidacji backendowej i bazy;
-zakaz cykli egzekwowany przez constraint DB (child nie może być parentem swojego parenta).
+zakaz cykli egzekwowany przez constraint DB.
 
-Waluta:
+Waluta i przeliczenia FX:
 
-UI i główne KPI są prezentowane w PLN, ale backend obsługuje również instrumenty w innych walutach i przeliczenia FX;
-dla sub-portfeli należy utrzymać jedną walutę raportową (PLN), a agregację parenta liczyć po przeliczeniu childów do PLN.
+backend obsługuje instrumenty w wielu walutach; każdy child przelicza wycenę swoich instrumentów do PLN we własnym zakresie i zwraca wartość w PLN;
+parent jedynie sumuje wartości PLN zwrócone przez children — brak logiki FX na poziomie agregatora parenta;
+walutą raportową całego drzewa jest zawsze PLN.
 
-Transakcje:
+Transakcje i import:
 
 transakcja należy wyłącznie do childa albo do parenta — nigdy do obu jednocześnie;
-parent agreguje transakcje childów wirtualnie (read-path), nigdy nie przejmuje ich na własność.
+parent może mieć własne transakcje (BUY/SELL/DIVIDEND/DEPOSIT) — import XTB do parenta pozostaje możliwy nawet po tym, jak portfel stał się parentem;
+transakcje parenta, które nie są przypisane do childa, są traktowane jako własne pozycje parenta (gotówka, instrumenty, itp.);
+przeniesienie transakcji z parenta do childa (lub między childami) powoduje pełne przeliczenie historii wstecz — wycena zachowuje się tak, jakby transakcja była na docelowym portfelu od dnia otwarcia.
 
-Usuwanie portfela:
+Benchmark:
 
-usunięcie childa: dozwolone bez ograniczeń;
+child dziedziczy benchmark parenta; nie ustawia własnego osobno.
+
+Usuwanie i archiwizacja portfela:
+
+usunięcie childa: niedozwolone — jedyna opcja to archiwizacja/dezaktywacja;
+zarchiwizowany child pozostaje widoczny w historii, jego dane nie znikają z wyceny parenta;
 usunięcie parenta: dzieci stają się samodzielnymi portfelami (orfan → przeniesienie do głównej listy); kaskadowe usunięcie niedozwolone; operacja wymaga jawnego potwierdzenia w UI.
 
 Agregacja wyników:
 
-parent = suma(children) + ewentualna gotówka własna parenta;
-historia miesięczna parenta wyliczana jako agregat historii childów.
+parent = suma(children w PLN) + własne pozycje parenta w PLN;
+historia miesięczna parenta wyliczana jako agregat historii childów + historia własnych pozycji parenta;
+przeniesienie transakcji między portfelami powoduje przeliczenie historii wstecz dla obu stron.
 
-Dlaczego teraz: rozstrzygnięcie tych kwestii ogranicza „przepisywanie" endpointów i typów po stronie frontendu i eliminuje niejednoznaczności przy implementacji agregatora.
+Dlaczego teraz: rozstrzygnięcie tych kwestii eliminuje niejednoznaczności przy implementacji agregatora i ogranicza „przepisywanie" endpointów po stronie frontendu.
 
 1.2 Idempotentna migracja bazy + rollback plan
 Dodać migrację, która:
 
-tworzy tabele/kolumny pod sub-portfele (parent_portfolio_id, status orfana, itp.);
+tworzy tabele/kolumny pod sub-portfele (parent_portfolio_id, flaga archiwizacji, itp.);
 uzupełnia wartości domyślne dla istniejących portfeli (parent_portfolio_id = NULL);
 ma prosty plan rollback (snapshot lub migracja odwrotna);
-działa w trybie dry-run — raportuje co zrobi, bez wykonania (szczególnie ważne przy danych produkcyjnych);
-zawiera skrypt walidacji po migracji sprawdzający, że żadna istniejąca transakcja nie ma niespójnego parent_portfolio_id.
+działa w trybie dry-run — raportuje co zrobi, bez wykonania;
+zawiera skrypt walidacji po migracji sprawdzający spójność parent_portfolio_id i sub_portfolio_id w tabeli transakcji.
 
 Snapshot przed migracją powinien być automatycznym krokiem CI/CD — rollback musi być realny, nie tylko teoretyczny.
 Dlaczego teraz: sub-portfele dotkną kluczowych tabel i wycen, więc bezpieczna migracja to podstawa.
 
 1.3 Rozszerzenie testów kontraktu API
 Przed wdrożeniem nowych endpointów dopisać testy „guard rails" dla obecnych, podzielone na trzy warstwy:
-Kontrakty struktury — czy odpowiedź zawiera wymagane pola i typy? Najlepiej generowane ze schematu OpenAPI/Zod. Pokrycie:
-
-listowanie portfeli,
-szczegóły portfela,
-historia wartości/zysku,
-import i transakcje.
-
+Kontrakty struktury — czy odpowiedź zawiera wymagane pola i typy? Najlepiej generowane ze schematu OpenAPI/Zod. Pokrycie: listowanie portfeli, szczegóły portfela, historia wartości/zysku, import i transakcje.
 Kontrakty wartości — testy domenowe:
 
-suma childów = parent z tolerancją ε,
+suma childów (PLN) + własne pozycje parenta = wartość parenta z tolerancją ε,
 historia miesięczna bez luk,
+przeniesienie transakcji → historia przeliczona wstecz poprawnie,
 brak duplikatów transakcji przy przenoszeniu między portfelami.
 
 Kontrakty regresji — snapshoty payloadów dla konkretnych fixture'ów. Jeśli payload się zmieni, test wymusi świadomą decyzję, nie ciche złamanie.
 Dlaczego teraz: szybciej wykryjesz niezamierzone zmiany payloadów.
 
-1.4 „Feature flag" dla sub-portfeli
-Wprowadzić prostą flagę backendową/frontendową: SUBPORTFOLIOS_ENABLED.
-Przed włączeniem produkcyjnym — soft launch: flaga aktywna dla 1–2 kont testowych przez tydzień. Łapie problemy z realnymi danymi bez ekspozycji na wszystkich użytkowników.
-Dlaczego teraz: umożliwia bezpieczne mergowanie etapami bez natychmiastowej ekspozycji funkcji.
+1.4 USUNIETE
 
 1.5 Wydzielenie agregatora wyceny (parent/child)
 Dodać osobny serwis/funkcję agregującą z jasnym interfejsem:
 valuate(portfolioId, date) → { value, profit, contributions, breakdown[] }
-Gdzie breakdown[] to lista childów z ich wartością i udziałem procentowym. Parent wywołuje agregator iteracyjnie (jeden poziom głębokości — bez rekurencji). Ten sam agregator obsługuje endpoint /portfolio/:id/value i logikę historii miesięcznej bez duplikacji.
-Warto od razu zaplanować cache'owanie na poziomie childa: jeśli child nie zmienił się od ostatniej wyceny, parent używa cache'owanego wyniku. Dodać metrykę/log „czas liczenia wyceny parenta" — przyda się przy optymalizacji.
+Gdzie breakdown[] to lista childów z ich wartością (PLN) i udziałem procentowym. Parent wywołuje agregator iteracyjnie (jeden poziom — bez rekurencji). Ten sam agregator obsługuje endpoint /portfolio/:id/value i logikę historii miesięcznej.
+Każdy child przelicza FX do PLN we własnym zakresie przed zwróceniem wyniku — agregator parenta nie ma logiki kursowej. Cache'owanie na poziomie childa: jeśli child nie zmienił się od ostatniej wyceny, parent używa cache'owanego wyniku w PLN. Dodać metrykę/log „czas liczenia wyceny parenta".
 Dlaczego teraz: ułatwi testowanie i ograniczy ryzyko „if-ologii" w wielu miejscach.
 
 1.6 Import CSV — przypisanie do sub-portfeli
-Aktualnie import XTB działa per portfel. Przy sub-portfelach pojawiają się dwa podejścia — rekomendacja to podejście hybrydowe:
+Aktualnie import XTB działa per portfolio_id. Po wdrożeniu sub-portfeli:
 Etap 1 (MVP) — przypisanie ręczne po imporcie:
 
-import trafia do parenta lub jako „nieprzypisane";
-w widoku transakcji pojawia się kolumna „portfel" z możliwością przypisania do konkretnego childa z listy rozwijanej;
-batch-select: zaznacz N transakcji → przypisz wszystkie do wybranego sub-portfela.
+import trafia do parenta (jak dotychczas) — endpoint /api/portfolio/<portfolio_id>/import/xtb bez zmian;
+w widoku transakcji parenta pojawia się kolumna „portfel" z możliwością przypisania do konkretnego childa z listy rozwijanej;
+batch-select: zaznacz N transakcji → przypisz wszystkie do wybranego sub-portfela;
+przeniesienie powoduje przeliczenie historii wstecz dla obu portfeli.
 
 Etap 2 (rozszerzenie) — reguły automatyczne:
 
 użytkownik definiuje reguły: np. „jeśli ticker = X → przypisz do child Y";
 reguły stosowane przy imporcie, z możliwością ręcznej korekty po fakcie.
 
-Podejście „przepisywanie z listy pozycji" jest ryzykowne — przy dużej liczbie transakcji łatwo o błędy i trudno utrzymać spójność.
-Dlaczego teraz: decyzja o modelu przypisania wpływa na schemat danych (kolumna sub_portfolio_id w tabeli transakcji) i UI importu.
+Dlaczego teraz: decyzja o modelu przypisania wpływa na schemat danych (sub_portfolio_id w tabeli transakcji) i UI importu.
 
 2) Co warto dodać razem z sub-portfelami (small wins)
-FunkcjaKiedyDlaczegoWalidacja cykli (child nie może być parentem swojego parenta)Razem z write-pathBez niej można trwale zepsuć drzewoAgregowane KPI: wynik parenta i udział każdego childa (%)Razem z frontend readGłówna wartość biznesowa sub-portfeliAudyt spójności: endpoint sprawdzający suma(child) = parentRazem z write-pathTanie narzędzie debugowaniaAlerty na poziomie childa i parenta (oba)Razem z write-pathBrak symetrii prowadzi do pominiętych sygnałówTagi / etykiety celu (np. „emerytura", „dywidendy")Osobny etap po MVPNie blokuje niczego krytycznegoFiltry i grupowanie UI (zwijanie/rozwijanie parent→child)Osobny etap po MVPZależy od dojrzałości komponentówReguły automatycznego przypisania CSVOsobny etap po MVPEtap 1 (ręczne) wystarczy do startu
+FunkcjaKiedyDlaczegoWalidacja cykli (child nie może być parentem swojego parenta)Razem z write-pathBez niej można trwale zepsuć drzewoAgregowane KPI: wynik parenta i udział każdego childa (%)Razem z frontend readGłówna wartość biznesowa sub-portfeliAudyt spójności: endpoint sprawdzający suma(child) + własne parenta = parentRazem z write-pathTanie narzędzie debugowaniaArchiwizacja/dezaktywacja childa (zamiast usunięcia)Razem z write-pathJedyna dopuszczalna forma „usunięcia"Tagi / etykiety celu (np. „emerytura", „dywidendy")Osobny etap po MVPNie blokuje niczego krytycznegoFiltry i grupowanie UI (zwijanie/rozwijanie parent→child)Osobny etap po MVPZależy od dojrzałości komponentówReguły automatycznego przypisania CSVOsobny etap po MVPEtap 1 (ręczne) wystarczy do startu
 
 3) Minimalna kolejność wdrożenia (bezpieczny rollout)
 
 Schema + migracje (bez zmian UI) — z dry-run i walidacją po migracji.
-Fixture'y testowe — drzewo 1 parent + 2–3 children z mieszanką BUY/SELL/DIVIDEND/DEPOSIT; bez nich backend jest nieweryfikowalny.
-Backend read-path — endpointy zwracają strukturę parent/child z agregowanymi KPI.
-Backend write-path — tworzenie/edycja/przenoszenie sub-portfela + walidacja cykli + reguła orfana przy usunięciu parenta.
-Frontend read-only — prezentacja hierarchii, KPI agregowanych, udział childów.
-Frontend akcje — pełne CRUD, przypisywanie transakcji (ręczne po imporcie CSV).
-Alerty — rozszerzenie istniejącego systemu alertów o poziom childa i parenta.
-Soft launch (feature flag dla kont testowych na produkcji).
+Fixture'y testowe — drzewo 1 parent + 2–3 children z mieszanką BUY/SELL/DIVIDEND/DEPOSIT + własne transakcje parenta; bez nich backend jest nieweryfikowalny.
+Backend read-path — endpointy zwracają strukturę parent/child z agregowanymi KPI; child przelicza FX do PLN, parent sumuje.
+Backend write-path — tworzenie/edycja/przenoszenie sub-portfela + walidacja cykli + reguła orfana przy usunięciu parenta + archiwizacja childa + przeliczanie historii wstecz przy przenoszeniu transakcji.
+Frontend read-only — prezentacja hierarchii, KPI agregowanych, udział childów, dziedziczony benchmark.
+Frontend akcje — pełne CRUD, przypisywanie transakcji (ręczne po imporcie CSV), batch-select.
+Test na danych produkcyjnych (feature flag w configu, bez ekspozycji).
 Włączenie feature flag produkcyjnie.
 
 
 4) Kryteria „Definition of Done" dla etapu sub-portfeli
 
  Brak regresji w obecnych endpointach (testy kontraktu zielone).
- Poprawna agregacja wartości, zysku i udziałów parent/child (tylko PLN, prosta suma).
+ Child przelicza FX do PLN samodzielnie; agregator parenta tylko sumuje wartości PLN.
+ Poprawna agregacja wartości, zysku i udziałów: parent = suma(children PLN) + własne pozycje parenta.
  Historia miesięczna działa dla parenta i childa.
- Import CSV umożliwia ręczne przypisanie transakcji do sub-portfela po imporcie.
+ Przeniesienie transakcji między portfelami powoduje przeliczenie historii wstecz po obu stronach.
+ Import CSV do parenta działa bez zmian; ręczne przypisanie transakcji do childa dostępne w UI.
  Usunięcie parenta przenosi dzieci do głównej listy (orfan), nie kasuje ich.
+ Usunięcie childa niedozwolone — jedyna opcja to archiwizacja; dane historyczne zachowane.
  Zakaz tworzenia childów głębiej niż jeden poziom — walidacja backendowa i DB constraint.
  Walidacja cykli aktywna na write-path.
- Alerty działają symetrycznie na poziomie childa i parenta.
+ Child dziedziczy benchmark parenta automatycznie.
  UI jasno rozróżnia parent i child, bez niejednoznacznych akcji.
 
 
@@ -136,6 +137,15 @@ Włączenie feature flag produkcyjnie.
 
 Ujednolicić identyfikatory i DTO już teraz — unikać mieszania portfolio_id i parent_portfolio_id w różnych formatach w różnych endpointach.
 Dodać constraint DB blokujący głębokość > 1 poziomu oraz cykle.
-Dodać kolumnę sub_portfolio_id (nullable) w tabeli transakcji — kluczowa dla przypisania CSV.
-Przygotować krótką notkę UX: jakie akcje dostępne są na parent vs child (np. „parent nie ma własnych transakcji, tylko agregat").
+Dodać kolumnę sub_portfolio_id (nullable) w tabeli transakcji — kluczowa dla przypisania CSV i przeliczania historii wstecz.
+Logika FX zostaje wyłącznie w warstwie childa — agregator parenta jest wolny od kursów walut; udokumentować tę granicę odpowiedzialności.
+Przygotować krótką notkę UX: jakie akcje dostępne są na parent vs child (np. „import trafia do parenta, stamtąd przypisuje się do childa").
 Dodać metrykę/log „czas liczenia wyceny parenta" od razu przy agregatorze.
+
+
+TL;DR
+3 rzeczy na już:
+
+Mini-spec kontraktu z powyższymi rozstrzygniętymi decyzjami (głębokość, FX w childzie, transakcje parenta, historia wstecz, archiwizacja).
+Idempotentna migracja + rollback z dry-run i walidacją po fakcie.
+Testy kontraktu API jako siatka bezpieczeństwa przed pierwszym commitem.
