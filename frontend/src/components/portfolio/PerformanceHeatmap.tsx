@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../../api';
-import { cn } from '../../lib/utils.ts';
+import { cn } from '../../lib/utils';
 import {
   Bar,
   BarChart,

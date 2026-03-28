@@ -15,7 +15,7 @@ import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
 import DuplicateConfirmationModal from '../components/modals/DuplicateConfirmationModal';
-import { cn } from '../lib/utils.ts';
+import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
 

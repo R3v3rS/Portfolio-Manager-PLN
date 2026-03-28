@@ -4,7 +4,7 @@ import { extractErrorMessageFromUnknown } from '../http/response';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
-import { cn } from '../lib/utils.ts';
+import { cn } from '../lib/utils';
 
 const MainDashboard: React.FC = () => {
   const [data, setData] = useState<GlobalSummary>(EMPTY_GLOBAL_SUMMARY);

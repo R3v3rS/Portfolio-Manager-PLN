@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { portfolioApi } from '../../api';
 import { Holding, Portfolio } from '../../types';
-import { cn } from '../../lib/utils.ts';
+import { cn } from '../../lib/utils';
 
 interface TransactionModalProps {
   isOpen: boolean;

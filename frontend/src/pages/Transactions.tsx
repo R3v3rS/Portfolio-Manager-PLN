@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { portfolioApi } from '../api';
 import { Transaction, Portfolio } from '../types';
-import { cn } from '../lib/utils.ts';
+import { cn } from '../lib/utils';
 
 // Extend Transaction type to include portfolio_name for the list view
 interface ExtendedTransaction extends Transaction {

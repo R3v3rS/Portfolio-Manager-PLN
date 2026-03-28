@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Plus, ChevronRight, Trash2 } from 'lucide-react';
 import { portfolioApi } from '../api';
 import { Portfolio } from '../types';
-import { cn } from '../lib/utils.ts';
+import { cn } from '../lib/utils';
 
 const PortfolioList: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);

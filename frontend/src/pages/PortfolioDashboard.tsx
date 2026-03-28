@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart, Plus } from 'lucide-react';
 import { portfolioApi, type TaxLimitsResponse, type ConfigResponse } from '../api';
 import { Portfolio } from '../types';
-import { cn } from '../lib/utils.ts';
+import { cn } from '../lib/utils';
 import { ChevronRight, ChevronDown, Archive } from 'lucide-react';
 
 const PortfolioRow: React.FC<{ 

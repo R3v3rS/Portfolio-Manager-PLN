@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { portfolioApi } from '../../api';
 import { budgetApi, BudgetAccount } from '../../api_budget';
 import { Portfolio } from '../../types';
-import { cn } from '../../lib/utils.ts';
+import { cn } from '../../lib/utils';
 
 interface TransferModalProps {
   isOpen: boolean;

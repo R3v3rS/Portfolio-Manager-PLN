@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { portfolioApi } from '../../api';
 import { Holding } from '../../types';
-import { cn } from '../../lib/utils.ts';
+import { cn } from '../../lib/utils';
 
 interface SellModalProps {
   isOpen: boolean;
@@ -79,6 +79,7 @@ const SellModal: React.FC<SellModalProps> = ({
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"
               required
               max={holding.quantity}
+              min="0.000001"
             />
           </div>
           <div>

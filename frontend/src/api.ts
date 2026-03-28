@@ -232,6 +232,7 @@ const normalizeHolding = (value: unknown): Holding => {
   return {
     id: toNumber(source.id),
     portfolio_id: toNumber(source.portfolio_id),
+    sub_portfolio_id: source.sub_portfolio_id == null ? undefined : toNumber(source.sub_portfolio_id),
     ticker: toString(source.ticker),
     quantity: toNumber(source.quantity),
     average_buy_price: toNumber(source.average_buy_price),
@@ -657,8 +658,14 @@ export const portfolioApi = {
     auto_fx_fees?: boolean;
     sub_portfolio_id?: number | null;
   }) => portfolioHttp.post('/buy', payload),
-  sell: (payload: { portfolio_id: number; ticker: string; quantity: number; price: number; date?: string }) =>
-    portfolioHttp.post('/sell', payload),
+  sell: (payload: {
+    portfolio_id: number;
+    ticker: string;
+    quantity: number;
+    price: number;
+    date?: string;
+    sub_portfolio_id?: number | null;
+  }) => portfolioHttp.post('/sell', payload),
   addDividend: (payload: { portfolio_id: number; ticker: string; amount: number; date: string; sub_portfolio_id?: number | null }) =>
     portfolioHttp.post('/dividend', payload),
   addBond: (payload: {
