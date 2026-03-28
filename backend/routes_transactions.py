@@ -18,6 +18,32 @@ from routes_portfolio_base import (
 )
 
 
+def validate_assign_payload(data, *, require_transaction_ids=False):
+    def raise_assign_validation(message):
+        raise ApiError('ASSIGN_VALIDATION_ERROR', message, status=422)
+
+    raw_sub_portfolio_id = data.get('sub_portfolio_id')
+    if raw_sub_portfolio_id is None:
+        sub_portfolio_id = None
+    elif isinstance(raw_sub_portfolio_id, bool) or not isinstance(raw_sub_portfolio_id, int) or raw_sub_portfolio_id <= 0:
+        raise_assign_validation('sub_portfolio_id must be a positive integer or null')
+    else:
+        sub_portfolio_id = raw_sub_portfolio_id
+
+    if not require_transaction_ids:
+        return sub_portfolio_id
+
+    transaction_ids = data.get('transaction_ids')
+    if (
+        not isinstance(transaction_ids, list)
+        or not transaction_ids
+        or any(isinstance(tx_id, bool) or not isinstance(tx_id, int) or tx_id <= 0 for tx_id in transaction_ids)
+    ):
+        raise_assign_validation('transaction_ids must be a non-empty list of positive integers')
+
+    return transaction_ids, sub_portfolio_id
+
+
 @portfolio_bp.route('/deposit', methods=['POST'])
 def deposit():
     data = require_json_body()
@@ -156,13 +182,7 @@ def assign_transaction(transaction_id):
         raise ApiError('ASSIGN_VALIDATION_ERROR', message, status=422)
 
     data = require_json_body()
-    raw_sub_portfolio_id = data.get('sub_portfolio_id')  # Can be None to unassign
-    if raw_sub_portfolio_id in (None, 0):
-        sub_portfolio_id = None
-    elif isinstance(raw_sub_portfolio_id, bool) or not isinstance(raw_sub_portfolio_id, int) or raw_sub_portfolio_id <= 0:
-        raise_assign_validation('Field sub_portfolio_id must be a positive integer or null')
-    else:
-        sub_portfolio_id = raw_sub_portfolio_id
+    sub_portfolio_id = validate_assign_payload(data)
 
     db = get_db()
     tx = db.execute(
@@ -254,20 +274,7 @@ def assign_transactions_bulk():
         raise ApiError('ASSIGN_VALIDATION_ERROR', message, status=422)
 
     data = require_json_body()
-    transaction_ids = data.get('transaction_ids', [])
-    raw_sub_portfolio_id = data.get('sub_portfolio_id')
-
-    if not isinstance(transaction_ids, list) or not transaction_ids:
-        raise_assign_validation('No transactions provided')
-    if any(isinstance(tx_id, bool) or not isinstance(tx_id, int) or tx_id <= 0 for tx_id in transaction_ids):
-        raise_assign_validation('Field transaction_ids must be a list of positive integers')
-
-    if raw_sub_portfolio_id in (None, 0):
-        sub_portfolio_id = None
-    elif isinstance(raw_sub_portfolio_id, bool) or not isinstance(raw_sub_portfolio_id, int) or raw_sub_portfolio_id <= 0:
-        raise_assign_validation('Field sub_portfolio_id must be a positive integer or null')
-    else:
-        sub_portfolio_id = raw_sub_portfolio_id
+    transaction_ids, sub_portfolio_id = validate_assign_payload(data, require_transaction_ids=True)
 
     unique_transaction_ids = list(dict.fromkeys(transaction_ids))
     db = get_db()
