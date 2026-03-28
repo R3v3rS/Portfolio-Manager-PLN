@@ -104,6 +104,12 @@ def clear_portfolio(portfolio_id):
     try:
         result = PortfolioService.clear_portfolio_data(portfolio_id)
     except ValueError as error:
+        message = str(error)
+        if message in {
+            'Czyszczenie sub-portfela nie jest dozwolone. Przenieś transakcje ręcznie.',
+            'Najpierw zarchiwizuj sub-portfele.',
+        }:
+            raise ApiError('INVALID_ACTION', message, status=422) from error
         raise_portfolio_validation_error(error)
     return success_response({'message': 'Portfolio data cleared successfully', **result})
 
