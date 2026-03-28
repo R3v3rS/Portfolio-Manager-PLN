@@ -21,6 +21,19 @@ relacja: portfolio (parent) → sub_portfolios (children);
 tylko jeden poziom — child nie może mieć własnych dzieci; ograniczenie twarde na poziomie walidacji backendowej i bazy;
 zakaz cykli egzekwowany przez constraint DB.
 
+Interest — doprecyzowanie
+
+interest pochodzi z importu XTB — trafia do parenta automatycznie jako transakcja z importu;
+
+Dywidendy — uproszczenie
+
+dywidendy są zawsze dodawane ręcznie — w momencie dodania użytkownik od razu wybiera portfel (parent lub konkretny child) z listy rozwijanej;
+
+Wpływ na historię:
+
+dywidenda i interest wchodzą do wyceny historycznej w dniu zdarzenia — bezzwłocznie, bez ręcznego zatwierdzenia;
+dotyczy to zarówno wykresu wartości parenta jak i childa (dla dywidend przypisanych do childa).
+
 Waluta i przeliczenia FX:
 
 backend obsługuje instrumenty w wielu walutach; każdy child przelicza wycenę swoich instrumentów do PLN we własnym zakresie i zwraca wartość w PLN;
@@ -131,6 +144,8 @@ Włączenie feature flag produkcyjnie.
  Walidacja cykli aktywna na write-path.
  Child dziedziczy benchmark parenta automatycznie.
  UI jasno rozróżnia parent i child, bez niejednoznacznych akcji.
+dywidenda dodana ręcznie do childa → widoczna w historii childa i zagregowana w parentcie;
+import interest → trafia wyłącznie do parenta, nie do childa.
 
 
 5) Szybkie rekomendacje techniczne (konkret)
