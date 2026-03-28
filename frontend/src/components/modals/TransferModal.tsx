@@ -14,6 +14,8 @@ interface TransferModalProps {
   budgetAccounts: BudgetAccount[];
   maxCash: number;
   subPortfolios?: Portfolio[];
+  initialMode?: TransferMode;
+  initialDate?: string;
 }
 
 type TransferMode = 'DEPOSIT' | 'WITHDRAW' | 'INTERNAL_TRANSFER';
@@ -26,6 +28,8 @@ const TransferModal: React.FC<TransferModalProps> = ({
   budgetAccounts,
   maxCash,
   subPortfolios = [],
+  initialMode = 'DEPOSIT',
+  initialDate,
 }) => {
   const [mode, setMode] = useState<TransferMode>('DEPOSIT');
   const [amount, setAmount] = useState('');
@@ -86,15 +90,15 @@ const TransferModal: React.FC<TransferModalProps> = ({
     if (isOpen) {
       setAmount('');
       setSubPortfolioId('');
-      setDate(today);
+      setDate(initialDate && initialDate <= today ? initialDate : today);
       setSelectedBudgetAccountId('');
-      setMode('DEPOSIT');
+      setMode(initialMode);
       setFromScopeId('');
       setToScopeId('');
       setNote('');
       setStatusMessage(null);
     }
-  }, [isOpen, today]);
+  }, [initialDate, initialMode, isOpen, today]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

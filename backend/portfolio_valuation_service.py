@@ -12,6 +12,105 @@ class PortfolioValuationService(PortfolioCoreService):
     CONSISTENCY_TOLERANCE_PLN = 0.01
 
     @staticmethod
+    def _compute_cash_negative_days(parent_id, scope_portfolio_id):
+        db = get_db()
+        is_child_scope = parent_id != scope_portfolio_id
+
+        if is_child_scope:
+            tx_rows = db.execute(
+                '''
+                SELECT id, date, type, total_value
+                FROM transactions
+                WHERE (portfolio_id = ? AND sub_portfolio_id = ?)
+                   OR (portfolio_id = ? AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0))
+                ORDER BY date(date) ASC, id ASC
+                ''',
+                (parent_id, scope_portfolio_id, scope_portfolio_id),
+            ).fetchall()
+        else:
+            tx_rows = db.execute(
+                '''
+                SELECT id, date, type, total_value
+                FROM transactions
+                WHERE portfolio_id = ?
+                  AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
+                ORDER BY date(date) ASC, id ASC
+                ''',
+                (parent_id,),
+            ).fetchall()
+
+        if not tx_rows:
+            return {'ok': True, 'incidents': []}
+
+        def tx_delta(tx_type, amount):
+            if tx_type in ('DEPOSIT', 'INTEREST', 'SELL'):
+                return amount
+            if tx_type in ('WITHDRAW', 'BUY'):
+                return -amount
+            return 0.0
+
+        grouped_by_date = {}
+        first_tx_date = None
+        for row in tx_rows:
+            tx_date = str(row['date']).split(' ')[0]
+            if first_tx_date is None:
+                first_tx_date = tx_date
+            grouped_by_date.setdefault(tx_date, []).append(row)
+
+        incidents = []
+        running_balance = 0.0
+        carrying_trigger = None
+        current_day = datetime.strptime(first_tx_date, '%Y-%m-%d').date()
+        last_day = date.today()
+
+        while current_day <= last_day:
+            day_key = current_day.isoformat()
+            day_rows = grouped_by_date.get(day_key, [])
+            day_trigger = carrying_trigger
+
+            for row in day_rows:
+                amount = float(row['total_value'] or 0.0)
+                prev_balance = running_balance
+                running_balance += tx_delta(row['type'], amount)
+                if prev_balance >= 0 and running_balance < 0:
+                    day_trigger = {
+                        'triggering_transaction_id': int(row['id']),
+                        'triggering_type': row['type'],
+                        'triggering_amount': round(amount, 2),
+                    }
+
+            if running_balance < 0:
+                if day_trigger is None:
+                    fallback_row = day_rows[-1] if day_rows else None
+                    if fallback_row is not None:
+                        day_trigger = {
+                            'triggering_transaction_id': int(fallback_row['id']),
+                            'triggering_type': fallback_row['type'],
+                            'triggering_amount': round(float(fallback_row['total_value'] or 0.0), 2),
+                        }
+                    else:
+                        day_trigger = {
+                            'triggering_transaction_id': None,
+                            'triggering_type': None,
+                            'triggering_amount': 0.0,
+                        }
+                incidents.append({
+                    'date': day_key,
+                    'balance_pln': round(running_balance, 2),
+                    **day_trigger,
+                })
+                carrying_trigger = day_trigger
+            else:
+                carrying_trigger = None
+
+            current_day = current_day.fromordinal(current_day.toordinal() + 1)
+
+        return {
+            'ok': len(incidents) == 0,
+            'incidents': incidents,
+        }
+
+    @staticmethod
     def get_cash_balance_on_date(portfolio_id, as_of_date, sub_portfolio_id=None):
         db = get_db()
         if sub_portfolio_id is None:
@@ -409,6 +508,8 @@ class PortfolioValuationService(PortfolioCoreService):
             ).fetchall()
             archived_ids = [int(row['id']) for row in archived_rows]
 
+            parent_cash_negative_days = PortfolioValuationService._compute_cash_negative_days(parent_id, parent_id)
+
             checks = {
                 'value_match': {
                     'ok': value_match_ok,
@@ -429,10 +530,11 @@ class PortfolioValuationService(PortfolioCoreService):
                     'count': len(archived_ids),
                     'ids': archived_ids,
                 },
+                'cash_negative_days': parent_cash_negative_days,
             }
 
             has_error = not checks['orphan_transactions']['ok'] or not checks['interest_leaked']['ok'] or not checks['archived_child_transactions']['ok']
-            has_warning = not checks['value_match']['ok']
+            has_warning = (not checks['value_match']['ok']) or (not checks['cash_negative_days']['ok'])
             if has_error:
                 status = 'error'
             elif has_warning:
@@ -447,6 +549,42 @@ class PortfolioValuationService(PortfolioCoreService):
                 'status': status,
                 'checks': checks,
             })
+
+            for child in active_children:
+                child_id = int(child['id'])
+                child_portfolio = PortfolioValuationService.get_portfolio(child_id)
+                child_cash_negative_days = PortfolioValuationService._compute_cash_negative_days(parent_id, child_id)
+
+                child_checks = {
+                    'value_match': {
+                        'ok': True,
+                        'diff_pln': 0.0,
+                    },
+                    'orphan_transactions': {
+                        'ok': True,
+                        'count': 0,
+                        'ids': [],
+                    },
+                    'interest_leaked': {
+                        'ok': True,
+                        'count': 0,
+                        'ids': [],
+                    },
+                    'archived_child_transactions': {
+                        'ok': True,
+                        'count': 0,
+                        'ids': [],
+                    },
+                    'cash_negative_days': child_cash_negative_days,
+                }
+                child_status = 'warning' if not child_cash_negative_days['ok'] else 'ok'
+                summary[child_status] += 1
+                portfolio_rows.append({
+                    'portfolio_id': child_id,
+                    'portfolio_name': child_portfolio['name'] if child_portfolio else f'Child #{child_id}',
+                    'status': child_status,
+                    'checks': child_checks,
+                })
 
         return {
             'checked_at': checked_at,

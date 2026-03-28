@@ -1,7 +1,7 @@
 import { HttpError, type QueryParams } from './http';
 import type { ApiErrorEnvelope, XtbImportErrorDetailsDto, XtbImportSuccessDto } from './api-contract';
 import { createApiClient } from './apiConfig';
-import type { Bond, ClosedPosition, ClosedPositionCycle, EquityAllocation, Holding, Portfolio, PortfolioValue, Transaction } from './types';
+import type { Bond, CashNegativeDayIncident, ClosedPosition, ClosedPositionCycle, EquityAllocation, Holding, Portfolio, PortfolioValue, Transaction } from './types';
 import type { PPKSummary, PPKTransaction } from './services/ppkCalculator';
 
 const portfolioHttp = createApiClient('/portfolio');
@@ -136,6 +136,10 @@ export interface ConsistencyCheckResult {
   diff_pln?: number;
 }
 
+export interface CashNegativeDaysCheckResult extends ConsistencyCheckResult {
+  incidents?: CashNegativeDayIncident[];
+}
+
 export interface PortfolioConsistencyAuditItem {
   portfolio_id: number;
   portfolio_name: string;
@@ -145,6 +149,7 @@ export interface PortfolioConsistencyAuditItem {
     orphan_transactions: ConsistencyCheckResult;
     interest_leaked: ConsistencyCheckResult;
     archived_child_transactions: ConsistencyCheckResult;
+    cash_negative_days: CashNegativeDaysCheckResult;
   };
 }
 
@@ -508,6 +513,27 @@ const normalizeConsistencyCheck = (value: unknown): ConsistencyCheckResult => {
   };
 };
 
+const normalizeCashNegativeDaysCheck = (value: unknown): CashNegativeDaysCheckResult => {
+  const source = isRecord(value) ? value : {};
+  const incidentsRaw = Array.isArray(source.incidents) ? source.incidents : [];
+  return {
+    ...normalizeConsistencyCheck(source),
+    incidents: incidentsRaw
+      .map((incident) => {
+        const row = isRecord(incident) ? incident : {};
+        const triggeringType: 'BUY' | 'WITHDRAW' = row.triggering_type === 'BUY' ? 'BUY' : 'WITHDRAW';
+        return {
+          date: toString(row.date),
+          balance_pln: toNumber(row.balance_pln),
+          triggering_transaction_id: toNumber(row.triggering_transaction_id),
+          triggering_type: triggeringType,
+          triggering_amount: toNumber(row.triggering_amount),
+        };
+      })
+      .filter((incident) => Boolean(incident.date)),
+  };
+};
+
 const normalizePortfolioConsistencyAudit = (value: unknown): PortfolioConsistencyAuditResponse => {
   const source = isRecord(value) ? value : {};
   const summary = isRecord(source.summary) ? source.summary : {};
@@ -528,6 +554,7 @@ const normalizePortfolioConsistencyAudit = (value: unknown): PortfolioConsistenc
           orphan_transactions: normalizeConsistencyCheck(checks.orphan_transactions),
           interest_leaked: normalizeConsistencyCheck(checks.interest_leaked),
           archived_child_transactions: normalizeConsistencyCheck(checks.archived_child_transactions),
+          cash_negative_days: normalizeCashNegativeDaysCheck(checks.cash_negative_days),
         },
       };
     }),

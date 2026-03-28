@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, RefreshCcw, XCircle } from 'lucide-react';
 import { portfolioApi, type PortfolioConsistencyAuditResponse } from '../api';
+import type { Portfolio } from '../types';
 import { extractErrorMessageFromUnknown } from '../http/response';
+import TransferModal from './modals/TransferModal';
 
 const EMPTY_AUDIT: PortfolioConsistencyAuditResponse = {
   checked_at: null,
@@ -24,18 +26,27 @@ const CHECK_LABELS: Record<string, string> = {
   orphan_transactions: 'Orphan transactions',
   interest_leaked: 'INTEREST przypisany do childa',
   archived_child_transactions: 'Transakcje po archiwizacji childa',
+  cash_negative_days: 'Ujemne saldo gotówki',
 };
 
 const AuditConsistencyPanel: React.FC = () => {
   const [audit, setAudit] = useState<PortfolioConsistencyAuditResponse>(EMPTY_AUDIT);
+  const [portfoliosTree, setPortfoliosTree] = useState<Portfolio[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferDate, setTransferDate] = useState<string | null>(null);
+  const [transferPortfolioId, setTransferPortfolioId] = useState<number | null>(null);
 
   const fetchAudit = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await portfolioApi.getConsistencyAudit();
-      setAudit(response);
+      const [auditResponse, portfoliosResponse] = await Promise.all([
+        portfolioApi.getConsistencyAudit(),
+        portfolioApi.list({ tree: 1 }),
+      ]);
+      setAudit(auditResponse);
+      setPortfoliosTree(portfoliosResponse.portfolios || []);
       setError(null);
     } catch (err) {
       setError(extractErrorMessageFromUnknown(err));
@@ -43,6 +54,27 @@ const AuditConsistencyPanel: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
+  const getParentPortfolioById = useCallback(
+    (portfolioId: number): Portfolio | null => {
+      const directParent = portfoliosTree.find((p) => p.id === portfolioId && (!p.parent_portfolio_id || p.parent_portfolio_id === null));
+      if (directParent) return directParent;
+      const parentWithChild = portfoliosTree.find((p) => (p.children || []).some((c) => c.id === portfolioId));
+      return parentWithChild || null;
+    },
+    [portfoliosTree],
+  );
+
+  const openTransferForDate = useCallback(
+    (portfolioId: number, date: string) => {
+      const parent = getParentPortfolioById(portfolioId);
+      if (!parent) return;
+      setTransferPortfolioId(parent.id);
+      setTransferDate(date);
+      setIsTransferModalOpen(true);
+    },
+    [getParentPortfolioById],
+  );
 
   useEffect(() => {
     fetchAudit();
@@ -54,6 +86,7 @@ const AuditConsistencyPanel: React.FC = () => {
   }, [fetchAudit]);
 
   return (
+    <>
     <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -107,6 +140,11 @@ const AuditConsistencyPanel: React.FC = () => {
                     ) : (
                       <div className="space-y-2">
                         {failingChecks.map(([key, result]) => (
+                          (() => {
+                            const incidents = key === 'cash_negative_days' && Array.isArray((result as { incidents?: unknown[] }).incidents)
+                              ? (result as { incidents: Array<{ date: string; balance_pln: number; triggering_transaction_id: number; triggering_type: string; triggering_amount: number }> }).incidents
+                              : [];
+                            return (
                           <details key={key} className="rounded border border-amber-200 bg-amber-50 p-2">
                             <summary className="cursor-pointer font-medium text-amber-900">
                               {CHECK_LABELS[key] || key}
@@ -119,8 +157,48 @@ const AuditConsistencyPanel: React.FC = () => {
                               {Array.isArray(result.ids) && result.ids.length > 0 && (
                                 <div>ID: {result.ids.join(', ')}</div>
                               )}
+                              {key === 'cash_negative_days' && incidents.length > 0 && (
+                                <div className="mt-2 space-y-2">
+                                  <div className="font-semibold">⚠️ {incidents.length} dni z ujemnym saldem</div>
+                                  <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs border border-amber-200">
+                                      <thead>
+                                        <tr className="bg-amber-100">
+                                          <th className="px-2 py-1 text-left">DATA</th>
+                                          <th className="px-2 py-1 text-left">SALDO</th>
+                                          <th className="px-2 py-1 text-left">TRANSAKCJA</th>
+                                          <th className="px-2 py-1 text-left">KWOTA</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {incidents.map((incident, index) => (
+                                          <tr key={`${incident.date}-${incident.triggering_transaction_id}-${index}`} className="border-t border-amber-100">
+                                            <td className="px-2 py-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => openTransferForDate(portfolio.portfolio_id, incident.date)}
+                                                className="underline hover:no-underline text-blue-700"
+                                              >
+                                                {incident.date}
+                                              </button>
+                                            </td>
+                                            <td className="px-2 py-1 text-red-700 font-medium">{incident.balance_pln.toFixed(2)} PLN</td>
+                                            <td className="px-2 py-1">#{incident.triggering_transaction_id} · {incident.triggering_type}</td>
+                                            <td className="px-2 py-1">{incident.triggering_amount.toFixed(2)} PLN</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  <div className="text-[11px] text-amber-900">
+                                    Użyj Transferu wewnętrznego aby uzupełnić brakującą gotówkę z datą wsteczną
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </details>
+                            );
+                          })()
                         ))}
                       </div>
                     )}
@@ -139,6 +217,20 @@ const AuditConsistencyPanel: React.FC = () => {
         </table>
       </div>
     </section>
+    {transferPortfolioId !== null && (
+      <TransferModal
+        isOpen={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
+        onSuccess={fetchAudit}
+        portfolioId={transferPortfolioId}
+        budgetAccounts={[]}
+        maxCash={getParentPortfolioById(transferPortfolioId)?.current_cash || 0}
+        subPortfolios={getParentPortfolioById(transferPortfolioId)?.children || []}
+        initialMode="INTERNAL_TRANSFER"
+        initialDate={transferDate || undefined}
+      />
+    )}
+    </>
   );
 };
 

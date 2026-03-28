@@ -155,6 +155,14 @@ export interface RadarItem {
   last_updated_at: string | null;
 }
 
+export interface CashNegativeDayIncident {
+  date: string;
+  balance_pln: number;
+  triggering_transaction_id: number;
+  triggering_type: 'WITHDRAW' | 'BUY';
+  triggering_amount: number;
+}
+
 export interface StockAnalysisData {
   score: number | null;
   details: {
