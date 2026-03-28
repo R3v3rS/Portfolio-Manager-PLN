@@ -1,0 +1,459 @@
+Plan wdrożenia sub-portfeli — krok po kroku
+Stack: Python (Flask/FastAPI) + React + SQLite
+Zasada: każdy etap ma checkpoint — nie przechodzimy dalej dopóki checklist nie jest zielona.
+
+ETAP 0 — Przygotowanie (przed pierwszą linią kodu)
+Checklist
+
+ Dokument spec (rekomendacje) zatwierdzony i dostępny dla całego zespołu
+ Aktualna gałąź main ma przechodzące testy
+ Zrobiony snapshot/backup bazy SQLite (plik .db) przed jakimikolwiek zmianami
+ Zainstalowane narzędzia: pytest, httpx (do testów API), alembic lub własny system migracji
+
+Prompt AI — audyt stanu obecnego
+Jesteś senior developerem Python/FastAPI + SQLite.
+Przeanalizuj poniższy kod i odpowiedz na pytania:
+
+1. Jak wygląda aktualny model Portfolio w bazie (tabela, kolumny, relacje)?
+2. Jak wygląda model Transaction — jakie ma pola, szczególnie portfolio_id?
+3. Czy istnieje jakikolwiek endpoint /portfolio/:id/value lub podobny do wyceny?
+4. Czy są jakiekolwiek testy API (pytest, httpx)?
+
+[WKLEJ: modele SQLAlchemy / definicje tabel + listę endpointów]
+
+Zwróć odpowiedzi jako krótką listę faktów, bez zbędnych komentarzy.
+
+ETAP 1 — Migracja bazy danych
+Co robimy
+Dodajemy parent_portfolio_id do tabeli portfolios i sub_portfolio_id do tabeli transactions. Żadnych zmian w logice — tylko schema.
+Checklist
+
+ Migracja napisana i przetestowana na kopii bazy (nie na produkcyjnej)
+ Dry-run migracji działa i raportuje zmiany bez ich wykonania
+ Po migracji: wszystkie istniejące portfele mają parent_portfolio_id = NULL
+ Po migracji: wszystkie istniejące transakcje mają sub_portfolio_id = NULL
+ DB constraint blokujący głębokość > 1 poziomu jest aktywny
+ DB constraint blokujący cykle jest aktywny
+ Rollback migracji przetestowany — baza wraca do stanu sprzed
+ Aplikacja startuje i wszystkie istniejące endpointy działają bez zmian
+
+Prompt AI — generowanie migracji
+Jesteś senior developerem Python + SQLite/SQLAlchemy.
+Napisz migrację bazy danych, która:
+
+1. Dodaje kolumnę `parent_portfolio_id` (INTEGER, nullable, FK → portfolios.id)
+   do tabeli `portfolios`
+2. Dodaje kolumnę `sub_portfolio_id` (INTEGER, nullable, FK → portfolios.id)
+   do tabeli `transactions`
+3. Dodaje CHECK constraint blokujący cykle:
+   `parent_portfolio_id != id`
+4. Dodaje CHECK constraint blokujący głębokość > 1:
+   portfel z ustawionym parent_portfolio_id nie może sam być parentem
+   (czyli: jeśli portfolio X ma parent_portfolio_id != NULL,
+   to żaden inny portfel nie może mieć parent_portfolio_id = X.id)
+5. Migracja jest idempotentna — ponowne uruchomienie nie zwraca błędu
+6. Migracja ma tryb dry_run=True który tylko loguje co zrobi
+7. Migracja ma funkcję rollback() przywracającą poprzedni stan
+
+Aktualna definicja tabel:
+[WKLEJ: CREATE TABLE portfolios ... i CREATE TABLE transactions ...]
+
+Użyj czystego SQLite (bez Alembic). Zwróć kompletny plik migrate.py.
+Prompt AI — skrypt walidacji po migracji
+Napisz skrypt Python validate_migration.py który po wykonaniu migracji sprawdza:
+
+1. Wszystkie rekordy w tabeli portfolios mają parent_portfolio_id = NULL
+   (żaden istniejący portfel nie został przypadkowo przypisany jako child)
+2. Wszystkie rekordy w tabeli transactions mają sub_portfolio_id = NULL
+3. Brak portfeli gdzie parent_portfolio_id = id (cykl na samym sobie)
+4. Kolumna parent_portfolio_id istnieje w tabeli portfolios
+5. Kolumna sub_portfolio_id istnieje w tabeli transactions
+
+Skrypt powinien wypisać OK lub listę błędów i wyjść z kodem 1 jeśli cokolwiek jest nie tak.
+Połączenie z bazą: SQLite, ścieżka przekazana jako argument CLI.
+
+ETAP 2 — Fixture'y testowe
+Co robimy
+Tworzymy zestaw danych testowych w pytest — zanim napiszemy jakikolwiek endpoint. Bez nich nie ma możliwości weryfikacji logiki.
+Checklist
+
+ Fixture: 1 parent + 3 children (IKE lub Stocks)
+ Fixture zawiera transakcje: BUY, SELL, DIVIDEND, DEPOSIT na różnych childach
+ Fixture zawiera własne transakcje parenta (nie przypisane do żadnego childa)
+ Fixture zawiera interest (przypisany do parenta)
+ Fixture zawiera zarchiwizowanego childa
+ Wszystkie fixture'y resetują stan przed każdym testem
+
+Prompt AI — generowanie fixtures
+Jesteś senior developerem Python/pytest + SQLite.
+Napisz fixtures pytest dla testów sub-portfeli.
+
+Kontekst biznesowy:
+- portfolio ma pola: id, name, type (IKE/Stocks/Savings/PPK/Obligacje),
+  parent_portfolio_id (nullable), is_archived (bool)
+- transaction ma pola: id, portfolio_id (zawsze = parent),
+  sub_portfolio_id (nullable = przypisanie do childa),
+  type (BUY/SELL/DIVIDEND/DEPOSIT/INTEREST),
+  ticker, amount, price, currency, date
+- sub-portfele dozwolone tylko dla typów: IKE, Stocks
+- child dziedziczy typ parenta
+- interest trafia tylko do parenta (sub_portfolio_id = NULL)
+- dywidenda może trafić do childa (sub_portfolio_id = child.id)
+
+Napisz fixtures:
+1. `parent_portfolio` — portfel IKE bez dzieci
+2. `portfolio_with_children` — portfel IKE + 3 children
+3. `transactions_mixed` — zestaw transakcji:
+   - BUY na child_1 (AAPL, USD)
+   - SELL na child_2 (CDR, PLN)
+   - DIVIDEND na child_1
+   - DEPOSIT na parenta (sub_portfolio_id=NULL)
+   - INTEREST na parenta (sub_portfolio_id=NULL)
+4. `archived_child` — child z is_archived=True
+
+Użyj pytest fixtures z scope='function'. Baza: SQLite in-memory.
+Aktualne modele: [WKLEJ modele SQLAlchemy]
+
+ETAP 3 — Backend read-path
+Co robimy
+Endpointy zwracają strukturę parent/child. Żadnego write — tylko odczyt. Dozwolone typy: IKE, Stocks.
+Checklist
+
+ GET /portfolios zwraca listę z polem children[] dla parentów
+ GET /portfolios/:id zwraca strukturę z is_parent, is_child, parent_id, children[]
+ GET /portfolios/:id/value zwraca agregat: suma children PLN + własne pozycje parenta
+ Agregator wyceny wydzielony jako osobna funkcja valuate(portfolio_id, date)
+ valuate() zwraca { value, profit, contributions, breakdown[] }
+ breakdown[] zawiera udział % każdego childa
+ Endpoint /portfolios/:id/value działa identycznie dla parenta i childa
+ Testy kontraktu struktury dla wszystkich nowych endpointów — zielone
+ Testy kontraktu wartości: suma(children) + własne = parent — zielone
+ Istniejące endpointy bez zmian — regresja zielona
+
+Prompt AI — agregator wyceny
+Jesteś senior developerem Python/FastAPI + SQLite.
+Napisz moduł valuator.py z funkcją:
+
+def valuate(portfolio_id: int, date: date, db: Session) -> ValuationResult
+
+gdzie ValuationResult to:
+{
+  "portfolio_id": int,
+  "date": date,
+  "value_pln": float,        # łączna wartość w PLN
+  "profit_pln": float,       # zysk w PLN
+  "contributions_pln": float, # suma wpłat
+  "breakdown": [             # tylko dla parentów
+    {
+      "portfolio_id": int,
+      "name": str,
+      "value_pln": float,
+      "share_pct": float,    # udział % w wartości parenta
+      "is_archived": bool
+    }
+  ]
+}
+
+Zasady:
+- każdy child przelicza swoje instrumenty do PLN samodzielnie
+  (logika FX zostaje w warstwie childa — nie w agregatorze parenta)
+- parent = suma(children value_pln) + własne pozycje parenta
+- funkcja działa identycznie dla portfela bez dzieci
+- jeden poziom głębokości — bez rekurencji
+- dodaj prosty cache in-memory (lru_cache lub dict) per (portfolio_id, date)
+- dodaj log czasu wykonania dla parenta
+
+Aktualna logika wyceny pojedynczego portfela:
+[WKLEJ istniejącą funkcję wyceny]
+
+Zwróć kompletny moduł valuator.py z typami i docstringami.
+Prompt AI — testy kontraktu read-path
+Napisz testy pytest dla nowych endpointów read-path sub-portfeli.
+Stack: FastAPI + httpx TestClient + SQLite in-memory.
+
+Testy do napisania:
+1. GET /portfolios zwraca children[] dla parenta
+2. GET /portfolios/:id zwraca is_parent=True i children[] dla parenta
+3. GET /portfolios/:id zwraca is_child=True i parent_id dla childa
+4. GET /portfolios/:id/value dla parenta = suma children + własne
+5. GET /portfolios/:id/value suma z tolerancją 0.01 PLN
+6. GET /portfolios/:id/value breakdown[] zawiera udział % każdego childa
+7. Istniejący endpoint GET /portfolios bez sub-portfeli — payload bez zmian
+   (test regresji — snapshot odpowiedzi)
+
+Użyj fixtures z etapu 2. Każdy test ma asercję na status kod i strukturę payloadu.
+
+ETAP 4 — Backend write-path
+Co robimy
+Tworzenie, edycja, przenoszenie sub-portfela. Walidacje biznesowe. Archiwizacja.
+Checklist
+
+ POST /portfolios/:id/children tworzy sub-portfel (tylko IKE/Stocks, max 1 poziom)
+ Próba stworzenia childa dla Savings/PPK/Obligacje → 422
+ Próba stworzenia childa dla childa → 422
+ PUT /portfolios/:id — edycja childa nie pozwala zmienić typu
+ DELETE /portfolios/:id — parent zwraca 422 z komunikatem
+ POST /portfolios/:id/archive — archiwizuje childa
+ Zarchiwizowany child: nowe transakcje → 422
+ PUT /transactions/:id/assign — przenosi transakcję (zmienia sub_portfolio_id)
+ Przeniesienie transakcji uruchamia asynchroniczny job historii
+ Job historii jest idempotentny
+ UI (backend) zwraca status joba: { job_id, status: "pending"|"done" }
+ Walidacja cykli aktywna — constraint DB + walidacja w endpoincie
+ Testy write-path — zielone
+ Testy regresji istniejących endpointów — zielone
+
+Prompt AI — write-path endpoints
+Jesteś senior developerem Python/FastAPI + SQLite.
+Napisz endpointy write-path dla sub-portfeli.
+
+Kontekst biznesowy (obowiązujące reguły):
+- sub-portfele dozwolone tylko dla typów: IKE, Stocks
+- maksymalnie 1 poziom głębokości — child nie może mieć dzieci
+- child dziedziczy typ parenta automatycznie
+- parent nie może być usunięty (422)
+- child nie może być usunięty — tylko archiwizacja (is_archived=True)
+- zarchiwizowany child nie przyjmuje nowych transakcji (422)
+- jedynym mechanizmem przypisania transakcji do childa jest sub_portfolio_id
+- portfolio_id na transakcji zawsze wskazuje parenta
+- przeniesienie transakcji = aktualizacja sub_portfolio_id + uruchomienie async joba
+
+Napisz:
+1. POST /portfolios/{portfolio_id}/children
+   - walidacja typu parenta (tylko IKE/Stocks)
+   - walidacja że parent nie jest już chilem
+   - child.type = parent.type automatycznie
+   - zwraca 422 z czytelnym komunikatem przy naruszeniu reguł
+
+2. DELETE /portfolios/{portfolio_id}
+   - zawsze 422 jeśli portfel jest parentem lub chilem
+   - czytelny komunikat błędu
+
+3. POST /portfolios/{portfolio_id}/archive
+   - ustawia is_archived=True
+   - tylko dla childów
+
+4. PUT /transactions/{transaction_id}/assign
+   - przyjmuje { sub_portfolio_id: int | null }
+   - waliduje że target child należy do tego samego parenta
+   - waliduje że target child nie jest zarchiwizowany
+   - po zapisie uruchamia background task recalculate_history(portfolio_id)
+   - zwraca { transaction_id, sub_portfolio_id, job_id, status: "pending" }
+
+5. GET /jobs/{job_id}
+   - zwraca { job_id, status: "pending"|"running"|"done"|"error" }
+
+Aktualne modele i router: [WKLEJ]
+Zwróć kompletny plik routers/sub_portfolios.py
+Prompt AI — testy write-path
+Napisz testy pytest dla write-path sub-portfeli.
+Stack: FastAPI + httpx TestClient + SQLite in-memory.
+
+Przypadki do przetestowania:
+1. POST child dla IKE → 201, child.type == parent.type
+2. POST child dla Savings → 422
+3. POST child dla istniejącego childa → 422
+4. DELETE parenta → 422
+5. DELETE childa → 422
+6. POST /archive dla childa → 200, is_archived=True
+7. POST transakcji do zarchiwizowanego childa → 422
+8. PUT /assign transakcji → zmienia sub_portfolio_id, zwraca job_id
+9. PUT /assign na zarchiwizowanego childa → 422
+10. GET /jobs/:id → zwraca status
+
+Użyj fixtures z etapu 2.
+
+ETAP 5 — Frontend read-only
+Co robimy
+Wyświetlamy hierarchię i KPI. Żadnych akcji edycji — tylko widok.
+Checklist
+
+ Lista portfeli pokazuje parent z rozwijaną listą children
+ Portfel-parent ma oznaczenie wizualne (ikona/badge)
+ Portfel-child ma oznaczenie wizualne + widoczny parent
+ KPI parenta pokazuje sumę + breakdown children z udziałem %
+ Zarchiwizowany child wyróżniony wizualnie (szary/przekreślony) ale widoczny
+ Benchmark (wykres porównawczy) działa niezależnie dla parenta i childa
+ Responsywność — widok działa na mobile
+ Brak akcji edycji/usuwania na tym etapie (tylko read)
+
+Prompt AI — komponenty React read-only
+Jesteś senior developerem React + TypeScript.
+Napisz komponenty do wyświetlania hierarchii sub-portfeli (tylko read-only).
+
+Typy danych z API:
+interface Portfolio {
+  id: number
+  name: string
+  type: 'IKE' | 'Stocks' | 'Savings' | 'PPK' | 'Obligacje'
+  is_archived: boolean
+  parent_id: number | null
+  children: ChildPortfolio[]
+}
+
+interface ChildPortfolio {
+  id: number
+  name: string
+  type: string
+  is_archived: boolean
+  value_pln: number
+  share_pct: number
+}
+
+interface ValuationResult {
+  value_pln: number
+  profit_pln: number
+  contributions_pln: number
+  breakdown: ChildPortfolio[]
+}
+
+Napisz:
+1. PortfolioListItem — element listy portfeli:
+   - badge "PARENT" jeśli ma children
+   - badge "SUB" jeśli ma parent_id
+   - badge "ARCHIWALNY" (szary) jeśli is_archived
+   - rozwijana lista children po kliknięciu
+
+2. PortfolioKPI — wyświetla ValuationResult:
+   - łączna wartość, zysk, wpłaty
+   - breakdown: tabela children z udziałem %
+   - zarchiwizowane children wyróżnione szarym kolorem
+
+3. PortfolioBreakdownChart — prosty wykres kołowy lub słupkowy
+   udziałów children (możesz użyć recharts lub czystego SVG)
+
+Użyj Tailwind CSS. Komponenty bez zewnętrznych zależności poza recharts.
+Zwróć każdy komponent jako osobny plik .tsx.
+
+ETAP 6 — Frontend akcje (CRUD)
+Co robimy
+Dodajemy możliwość tworzenia, archiwizacji i przypisywania transakcji.
+Checklist
+
+ Przycisk „Utwórz sub-portfel" widoczny tylko dla IKE i Stocks (ukryty dla innych)
+ Formularz tworzenia sub-portfela: tylko nazwa (typ dziedziczony, niewidoczny w formularzu)
+ Przycisk „Archiwizuj" dostępny tylko dla childów (nie dla parentów)
+ Widok transakcji parenta ma kolumnę „Portfel" (parent / nazwa childa)
+ Dropdown przypisania nie pokazuje zarchiwizowanych childów
+ Batch-select: zaznacz N transakcji → przypisz do wybranego childa
+ Po przypisaniu: komunikat „Trwa przeliczanie historii..." do czasu zakończenia joba
+ Po zakończeniu joba: automatyczne odświeżenie danych (polling co 2s lub websocket)
+ Import XTB (CSV) — endpoint bez zmian, UI bez zmian
+ Formularz dywidendy (ręczny) ma dropdown wyboru portfela (parent + children, bez archiwalnych)
+
+Prompt AI — formularz tworzenia sub-portfela
+Jesteś senior developerem React + TypeScript.
+Napisz komponent CreateSubPortfolioModal.
+
+Wymagania:
+- modal otwierany przyciskiem "Utwórz sub-portfel"
+- przycisk widoczny TYLKO gdy portfolio.type === 'IKE' || 'Stocks'
+  i portfolio.parent_id === null (nie jest już chilem)
+- formularz ma tylko jedno pole: nazwa sub-portfela
+- typ wyświetlany jako read-only (dziedziczony z parenta, nie można zmienić)
+- po submit: POST /portfolios/{parentId}/children z { name }
+- obsługa błędu 422 — wyświetl komunikat z API
+- po sukcesie: zamknij modal, odśwież listę portfeli
+
+Props: { portfolio: Portfolio, onSuccess: () => void }
+Użyj Tailwind CSS, fetch API (bez axios).
+Prompt AI — przypisywanie transakcji z async job polling
+Jesteś senior developerem React + TypeScript.
+Napisz hook useAssignTransaction i komponent TransactionAssignDropdown.
+
+Hook useAssignTransaction:
+- przyjmuje transactionId
+- wywołuje PUT /transactions/{id}/assign z { sub_portfolio_id }
+- po sukcesie dostaje { job_id, status }
+- odpytuje GET /jobs/{job_id} co 2000ms dopóki status !== 'done' || 'error'
+- eksponuje: { assign, isLoading, jobStatus, error }
+
+Komponent TransactionAssignDropdown:
+- dropdown z opcjami: "Portfel główny (parent)" + lista childów
+- nie pokazuje zarchiwizowanych childów
+- podczas ładowania (isLoading=true): disabled + spinner
+- gdy jobStatus === 'pending' lub 'running':
+  pokazuje banner "Trwa przeliczanie historii..."
+- gdy jobStatus === 'done': wywołuje onSuccess() i chowa banner
+- gdy jobStatus === 'error': pokazuje błąd
+
+Props: {
+  transactionId: number,
+  currentSubPortfolioId: number | null,
+  availableChildren: ChildPortfolio[],
+  onSuccess: () => void
+}
+Użyj Tailwind CSS.
+
+ETAP 7 — Testy regresji całościowe
+Co robimy
+Przed włączeniem na produkcji — pełna weryfikacja że nic nie zostało zepsute.
+Checklist
+
+ Wszystkie testy kontraktu API z etapu 3 — zielone
+ Wszystkie testy write-path z etapu 4 — zielone
+ Import XTB (CSV) dla istniejącego portfela bez children — działa bez zmian
+ Import XTB (CSV) dla parenta — trafia do parenta (sub_portfolio_id=NULL)
+ Interest z importu → sub_portfolio_id = NULL (zawsze parent)
+ Dywidenda dodana ręcznie do childa → widoczna w historii childa i parenta
+ Wycena parenta = suma(PLN children) + własne — z tolerancją 0.01
+ Historia miesięczna: brak luk dla parenta i childa
+ Przeniesienie transakcji → job działa → historia przeliczona wstecz
+ Zarchiwizowany child wchodzi do KPI parenta domyślnie
+ Brak zarchiwizowanych childów w selectorach przypisania
+ Portfele Savings/PPK/Obligacje — brak przycisku "Utwórz sub-portfel"
+ Snapshot payloadów wszystkich endpointów — bez niezamierzonych zmian
+
+Prompt AI — test regresji end-to-end
+Jesteś senior developerem Python/pytest.
+Napisz test end-to-end który symuluje pełny przepływ sub-portfeli:
+
+1. Utwórz portfel IKE (parent)
+2. Dodaj 3 sub-portfele (children)
+3. Wykonaj import XTB (CSV) do parenta — sprawdź że sub_portfolio_id=NULL
+4. Przypisz ręcznie 3 transakcje do różnych childów
+5. Dodaj dywidendę ręcznie do child_1
+6. Sprawdź wycenę parenta = suma children + własne parenta (tolerancja 0.01)
+7. Sprawdź breakdown[] — suma share_pct wszystkich childów ≈ 100%
+8. Przenieś transakcję z child_1 do child_2 — poczekaj na job (mock async)
+9. Sprawdź historię child_1 i child_2 po przeniesieniu
+10. Archiwizuj child_3 — sprawdź że wchodzi do KPI ale nie do selectorów
+11. Spróbuj dodać transakcję do zarchiwizowanego child_3 → 422
+12. Spróbuj usunąć parenta → 422
+13. Spróbuj stworzyć sub-portfel dla portfela Savings → 422
+
+Stack: FastAPI + httpx AsyncClient + SQLite in-memory.
+Mock dla background tasks (nie testujemy realnego async, tylko że job jest uruchamiany).
+Zwróć kompletny plik tests/test_e2e_subportfolios.py
+
+ETAP 8 — Włączenie produkcyjnie
+Checklist
+
+ Snapshot bazy produkcyjnej wykonany tuż przed
+ Migracja wykonana na produkcji (z dry-run najpierw)
+ Skrypt walidacji po migracji — zielony
+ Wszystkie testy na kodzie produkcyjnym — zielone
+ Feature flag SUBPORTFOLIOS_ENABLED=true ustawiony w configu
+ Pierwsze testy manualne na realnych danych
+ Monitorowanie logów przez pierwsze 24h (szczególnie: czas wyceny parenta, błędy 422)
+
+
+Ściągawka — reguły biznesowe (do wklejenia w każdy prompt AI)
+REGUŁY BIZNESOWE — sub-portfele (wklejaj do każdego promptu AI):
+
+1. Sub-portfele dozwolone tylko dla typów: IKE, Stocks
+2. Maksymalnie 1 poziom głębokości (child nie może mieć dzieci)
+3. Child dziedziczy typ parenta — nie można zmienić
+4. portfolio_id na transakcji ZAWSZE wskazuje parenta
+5. sub_portfolio_id na transakcji = jedyne źródło prawdy przypisania do childa
+6. sub_portfolio_id = NULL → transakcja parenta
+7. sub_portfolio_id = X → transakcja childa X
+8. Parent NIE MOŻE być usunięty (422)
+9. Child NIE MOŻE być usunięty — tylko archiwizacja
+10. Zarchiwizowany child: blokuje nowe transakcje (422),
+    widoczny w KPI, ukryty w selectorach
+11. Interest (INTEREST) → zawsze sub_portfolio_id = NULL (parent)
+12. Dywidenda (DIVIDEND) → dodawana ręcznie, użytkownik wybiera portfel
+13. Przeliczenie historii po przeniesieniu transakcji → asynchroniczny job
+14. Agregator parenta: child przelicza do PLN, parent tylko sumuje PLN
+15. Benchmark = wizualna linia na wykresie, niezależna per portfel, bez dziedziczenia
