@@ -1,0 +1,318 @@
+# Plan, prompty oraz kontekst sub-portfeli (zaktualizowane pod aktualny kod)
+
+Data aktualizacji: 2026-03-28  
+Status: **plan docelowy (feature niezaimplementowany jeszcze w kodzie)**
+
+## 0) Audyt spójności z aktualnym kodem (backend + frontend)
+
+Poniżej podsumowanie, co było niespójne i zostało poprawione w tym dokumencie:
+
+1. **Framework backendu**: w kodzie jest **Flask + sqlite3**, nie FastAPI/SQLAlchemy.
+2. **Konwencja endpointów**: w kodzie dominuje `/api/portfolio/...` (liczba pojedyncza), nie `/portfolios/...`.
+3. **Typy kont**: w kodzie są: `STANDARD`, `IKE`, `BONDS`, `SAVINGS`, `PPK`.
+4. **Aktualna baza**: brak kolumn `parent_portfolio_id`, `sub_portfolio_id`, `is_archived` (to dopiero zakres migracji).
+5. **Testy API**: aktualnie testy backendu są głównie pod `unittest`/Flask test client, nie `httpx`.
+6. **Warstwa frontend API**: korzysta ze wspólnego klienta (`createApiClient('/portfolio')`) i oczekuje ścieżek z `/api/portfolio/...`.
+
+---
+
+## 1) Kontekst aktualnego kodu (do wklejania w prompty AI)
+
+### 1.1 Stack i architektura
+- Backend: Flask, Flask-CORS, sqlite3.
+- Frontend: React + TypeScript + Vite.
+- DB schema zarządzany w `backend/database.py` (CREATE TABLE + ALTER TABLE migrations inline).
+- Główny prefix API portfeli: `app.register_blueprint(portfolio_bp, url_prefix='/api/portfolio')`.
+
+### 1.2 Aktualny model tabel (stan przed sub-portfelami)
+
+`portfolios`:
+- `id`
+- `name`
+- `account_type`
+- `current_cash`
+- `total_deposits`
+- `savings_rate`
+- `last_interest_date`
+- `created_at`
+
+`transactions`:
+- `id`
+- `portfolio_id`
+- `ticker`
+- `date`
+- `type` (`BUY`,`SELL`,`DEPOSIT`,`WITHDRAW`,`DIVIDEND`,`INTEREST`)
+- `quantity`
+- `price`
+- `total_value`
+- `realized_profit`
+- `commission` (dodawane migracją inline)
+
+`dividends`:
+- `id`
+- `portfolio_id`
+- `ticker`
+- `amount`
+- `date`
+
+### 1.3 Aktualne endpointy portfolio (stan przed sub-portfelami)
+
+Read:
+- `GET /api/portfolio/list`
+- `GET /api/portfolio/value/<portfolio_id>`
+- `GET /api/portfolio/holdings/<portfolio_id>`
+- `GET /api/portfolio/transactions/<portfolio_id>`
+- `GET /api/portfolio/transactions/all`
+- `GET /api/portfolio/dividends/<portfolio_id>`
+- `GET /api/portfolio/history/monthly/<portfolio_id>`
+
+Zachowanie `GET /api/portfolio/dividends/<portfolio_id>` po wdrożeniu sub-portfeli:
+- dla childa: zwraca tylko dywidendy gdzie `dividends.sub_portfolio_id = child.id`
+- dla parenta: zwraca dywidendy parenta (`sub_portfolio_id = NULL`) ORAZ zagregowane dywidendy wszystkich childów
+- każdy rekord zawiera dodatkowo `sub_portfolio_id` i `sub_portfolio_name`
+- stary payload (lista obiektów dywidend) zostaje — dodawane są tylko nowe pola
+
+Write:
+- `POST /api/portfolio/create`
+- `POST /api/portfolio/deposit`
+- `POST /api/portfolio/withdraw`
+- `POST /api/portfolio/buy`
+- `POST /api/portfolio/sell`
+- `POST /api/portfolio/dividend`
+- `DELETE /api/portfolio/<portfolio_id>`
+
+Import:
+- `POST /api/portfolio/<portfolio_id>/import/xtb`
+
+### 1.4 Co dziś już istnieje i nie może się „rozjechać”
+- Import XTB (`routes_imports.py`) musi dalej działać bez regresji.
+- Wycena portfela jest w `PortfolioValuationService.get_portfolio_value`.
+- Trade-flow (BUY/SELL/DEPOSIT/WITHDRAW/DIVIDEND/INTEREST) jest w `PortfolioTradeService`.
+- Frontend używa wspólnej warstwy API (`frontend/src/api.ts`) i nie powinien robić bezpośrednich fetchy.
+
+---
+
+## 2) Reguły biznesowe sub-portfeli (docelowe)
+
+1. Sub-portfele dozwolone tylko dla `IKE` i `STANDARD`.
+2. Maksymalnie 1 poziom głębokości (child nie może mieć dzieci).
+3. Child dziedziczy `account_type` parenta.
+4. `transactions.portfolio_id` zawsze wskazuje parenta.
+5. `transactions.sub_portfolio_id` jest jedynym źródłem przypisania do childa.
+6. `sub_portfolio_id = NULL` oznacza transakcję parenta.
+7. `dividends.portfolio_id` zawsze wskazuje parenta.
+8. `dividends.sub_portfolio_id` jest jedynym źródłem przypisania dywidendy do childa (`NULL` = dywidenda parenta).
+9. Transakcje typu `INTEREST` zawsze mają `sub_portfolio_id = NULL` — interest należy wyłącznie do parenta i nie może być przypisany do childa.
+10. Parent nie może być usunięty (422).
+11. Child nie może być usunięty — tylko archiwizacja (`is_archived=1`).
+12. Zarchiwizowany child blokuje nowe przypisania transakcji i dywidend (422).
+13. Wycena parenta = suma(children w PLN) + własne parenta.
+
+> Uwaga: wcześniej w roboczych notatkach pojawiało się `Stocks`/`Obligacje`. W kodzie należy trzymać się istniejącego słownika `STANDARD|IKE|BONDS|SAVINGS|PPK`.
+
+---
+
+## 3) Plan wdrożenia (spójny z obecnym kodem)
+
+## ETAP 0 — przygotowanie
+Checklist:
+- [ ] Backup pliku `backend/portfolio.db`.
+- [ ] Smoke testy przechodzą.
+- [ ] Uzgodniony kontrakt endpointów w stylu Flask (`/api/portfolio/...`).
+- [ ] Uzgodniona mapa zmian w `frontend/src/api.ts` i `frontend/src/types.ts`.
+
+## ETAP 1 — migracja bazy (SQLite inline, bez Alembic)
+Zakres:
+- dodać `portfolios.parent_portfolio_id INTEGER NULL REFERENCES portfolios(id)`
+- dodać `portfolios.is_archived BOOLEAN DEFAULT 0`
+- dodać `transactions.sub_portfolio_id INTEGER NULL REFERENCES portfolios(id)`
+- dodać `dividends.sub_portfolio_id INTEGER NULL REFERENCES portfolios(id)`
+
+Checklist:
+- [ ] migracja idempotentna (`try ALTER TABLE ... except sqlite3.OperationalError`).
+- [ ] dane historyczne mają `parent_portfolio_id = NULL`, `transactions.sub_portfolio_id = NULL` i `dividends.sub_portfolio_id = NULL`.
+- [ ] walidacje aplikacyjne blokują głębokość >1 i cykle.
+
+## ETAP 2 — backend read-path
+Nowe/zmienione endpointy (Flask):
+- `GET /api/portfolio/list` rozszerzone o pola: `parent_portfolio_id`, `is_archived`, `children[]`
+- `GET /api/portfolio/<id>` (nowy) ze strukturą parent/child
+- `GET /api/portfolio/value/<id>` rozszerzone o `breakdown[]` dla parentów
+- `GET /api/portfolio/config` (nowy) zwraca m.in. `subportfolios_allowed_types`
+
+Checklist:
+- [ ] parent zwraca agregat wartości childów + własne.
+- [ ] child zwraca standardową wycenę pojedynczego portfela.
+- [ ] `breakdown.share_pct` sumuje się ~100% (tolerancja).
+- [ ] `GET /api/portfolio/config` eksportuje backendową stałą `SUBPORTFOLIOS_ALLOWED_TYPES`.
+
+## ETAP 3 — backend write-path
+Nowe endpointy (Flask):
+- `POST /api/portfolio/<parent_id>/children`
+- `POST /api/portfolio/<portfolio_id>/archive`
+- `PUT /api/portfolio/transactions/<transaction_id>/assign`
+- `GET /api/portfolio/jobs/<job_id>`
+
+Checklist:
+- [ ] dodać jedną backendową stałą: `SUBPORTFOLIOS_ALLOWED_TYPES = ['IKE', 'STANDARD']` (np. `backend/constants.py`).
+- [ ] tworzenie child tylko dla parentów, których `account_type` jest w `SUBPORTFOLIOS_ALLOWED_TYPES`.
+- [ ] child nie może tworzyć childów.
+- [ ] usunięcie parenta/childa blokowane komunikatem (422).
+- [ ] assign transakcji waliduje zgodność parent-child i archiwizację.
+- [ ] `POST /api/portfolio/dividend` przyjmuje/obsługuje `sub_portfolio_id` i waliduje parent-child + archived child.
+
+### Sekcja techniczna — async job dla historii w Flask (bez Celery)
+Wybrany mechanizm: **`threading.Thread` + prosta kolejka/statusy in-memory**.
+
+Architektura techniczna:
+- Moduł `backend/job_registry.py` (lub analogiczny) utrzymuje globalny rejestr:
+  - `jobs: dict[str, dict]` (`status`, `progress`, `result`, `error`, `created_at`, `updated_at`),
+  - `jobs_lock = threading.Lock()` dla bezpiecznych aktualizacji.
+- Endpoint write-path (np. assign, który wymaga przeliczenia historii) tworzy `job_id` (`uuid4`), zapisuje status `queued`, uruchamia `threading.Thread(target=run_job, args=(job_id, ...), daemon=True)` i zwraca `202`.
+- Worker wątku ustawia stany: `running` → `done` albo `failed`.
+- `GET /api/portfolio/jobs/<job_id>` czyta status z `jobs` i zwraca payload joba.
+- Dodany prosty cleanup TTL (np. usuwanie jobów starszych niż 24h przy odczycie/zapisie), żeby rejestr nie rósł bez końca.
+
+Ograniczenia (jawnie akceptowane na tym etapie):
+- Statusy są **in-memory**: znikają po restarcie procesu.
+- Działa poprawnie dla pojedynczego procesu Flask (dev/small deploy); przy wielu workerach WSGI potrzebny byłby zewnętrzny broker/store.
+
+## ETAP 4 — frontend read-only
+Checklist:
+- [ ] lista portfeli pokazuje hierarchię parent → children.
+- [ ] badge dla parent/child/archive.
+- [ ] KPI parenta pokazuje breakdown childów.
+
+## ETAP 5 — frontend akcje
+Checklist:
+- [ ] modal tworzenia childa używa listy `subportfolios_allowed_types` z `GET /api/portfolio/config` (fallback: hardcode z komentarzem o synchronizacji).
+- [ ] archiwizacja childa.
+- [ ] przypisanie transakcji do childa + polling joba.
+
+## ETAP 6 — regresja i release
+Checklist:
+- [ ] import XTB działa bez regresji.
+- [ ] historia i wycena parent/child spójna.
+- [ ] payloady API stabilne (lub zmiany jawnie wersjonowane).
+
+---
+
+## 4) Prompty AI — wersje poprawione pod Flask/SQLite
+
+### Prompt A — audyt kodu (stan „as is”)
+Jesteś senior developerem Flask + SQLite.
+Przeanalizuj kod i podaj fakty:
+1) aktualne kolumny tabel `portfolios`, `transactions` i `dividends`,
+2) endpointy pod `/api/portfolio/*`,
+3) gdzie liczona jest wycena portfela,
+4) jakie testy API istnieją i w jakim frameworku.
+
+Użyj plików:
+- `backend/database.py`
+- `backend/routes_portfolios.py`
+- `backend/routes_transactions.py`
+- `backend/routes_history.py`
+- `backend/routes_imports.py`
+- `backend/portfolio_valuation_service.py`
+
+Zwróć listę punktów i potencjalne miejsca regresji.
+
+### Prompt B — migracja SQLite (inline)
+Jesteś senior developerem Flask + SQLite (bez Alembic).
+Przygotuj patch do `backend/database.py`, który:
+1) dodaje `parent_portfolio_id` i `is_archived` do `portfolios`,
+2) dodaje `sub_portfolio_id` do `transactions`,
+3) dodaje `sub_portfolio_id` do `dividends`,
+4) jest idempotentny (obsługuje ponowne uruchomienie),
+5) nie psuje istniejących danych.
+
+Dodatkowo napisz funkcję walidacyjną uruchamianą po migracji:
+- brak self-cycle,
+- brak child->child (max 1 poziom),
+- wszystkie stare rekordy mają NULL w nowych kolumnach.
+
+### Prompt C — read-path sub-portfeli
+Jesteś senior developerem Flask.
+Rozszerz `PortfolioService` i routery tak, aby:
+1) `GET /api/portfolio/list` zwracało parenty wraz z `children[]`,
+2) `GET /api/portfolio/value/<id>` dla parenta zwracało `breakdown[]`,
+3) child miał pełną zgodność z dotychczasowym payloadem `PortfolioValue`,
+4) `GET /api/portfolio/config` zwracał `subportfolios_allowed_types`.
+
+Wymagania:
+- bez zmiany starego envelope API,
+- bez regresji importu XTB,
+- tolerancja sumowania 0.01.
+
+### Prompt D — write-path sub-portfeli
+Jesteś senior developerem Flask.
+Dodaj endpointy:
+- `POST /api/portfolio/<parent_id>/children`
+- `POST /api/portfolio/<portfolio_id>/archive`
+- `PUT /api/portfolio/transactions/<transaction_id>/assign`
+- `GET /api/portfolio/jobs/<job_id>`
+
+Wymagania implementacyjne:
+- dodaj stałą `SUBPORTFOLIOS_ALLOWED_TYPES = ['IKE', 'STANDARD']` w `backend/constants.py` i użyj jej w walidacjach write-path,
+- `POST /api/portfolio/dividend` ma respektować `sub_portfolio_id` (walidacja parent-child, archived child, `NULL` dla parenta),
+- `portfolio_id` na transakcji zostaje parentem, zmienia się tylko `sub_portfolio_id`.
+
+Async job (konkret Flask):
+- utwórz in-memory rejestr jobów (`dict`) + `threading.Lock`,
+- uruchamiaj worker przez `threading.Thread(..., daemon=True)`,
+- endpoint mutujący zwraca `202` + `job_id`,
+- `GET /api/portfolio/jobs/<job_id>` zwraca `queued|running|done|failed` oraz ewentualny `error`,
+- dodaj prosty cleanup starych jobów (TTL).
+
+### Prompt E — frontend (API layer first)
+Jesteś senior developerem React + TypeScript.
+Najpierw zaktualizuj warstwę `frontend/src/api.ts` i `frontend/src/types.ts`,
+a dopiero potem komponenty UI.
+
+Wymagania:
+- endpointy muszą używać `/api/portfolio/...`,
+- brak bezpośrednich fetchy w stronach/komponentach,
+- pobierz `subportfolios_allowed_types` z `GET /api/portfolio/config` (fallback: hardcode z komentarzem o synchronizacji ze stałą backendową),
+- dropdown przypisania ukrywa archived children,
+- polling statusu joba co 2s.
+
+---
+
+## 5) Kontekst testowy (brakujące elementy uzupełnione)
+
+Minimalny zestaw testów przed mergem:
+
+1. **DB migration tests** (sqlite, idempotencja):
+   - kolumny dodane,
+   - stare rekordy mają NULL,
+   - ponowne init nie wybucha.
+
+2. **API contract tests (Flask test client)**:
+   - `GET /api/portfolio/list` zawiera children,
+   - `GET /api/portfolio/value/<parent>` ma breakdown,
+   - `PUT /api/portfolio/transactions/<id>/assign` waliduje parent-child,
+   - `POST /api/portfolio/dividend` poprawnie zapisuje `sub_portfolio_id` dla childa i blokuje archived child.
+
+3. **Regression tests**:
+   - import XTB (`POST /api/portfolio/<id>/import/xtb`) bez zmian,
+   - stare endpointy buy/sell/deposit/withdraw działają,
+   - istniejące odczyty dywidend (`GET /api/portfolio/dividends/<portfolio_id>`) pozostają kompatybilne.
+
+4. **Frontend checks**:
+   - `npm run check`
+   - `npm run build`
+
+---
+
+## 6) Definition of Done
+
+Feature sub-portfeli uznajemy za gotowy, gdy:
+- [ ] DB schema i migracje są idempotentne.
+- [ ] endpointy read + write działają i mają testy.
+- [ ] import XTB nie ma regresji.
+- [ ] UI pozwala tworzyć i archiwizować childy oraz przypisywać transakcje.
+- [ ] parent/child KPI jest poprawny (suma childów + własne = parent).
+- [ ] dokumentacja (`README`/`PROJECT_GUIDE`/ten plik) jest spójna z implementacją.
+- [ ] dywidendy przypisane ręcznie do childa widoczne w historii childa i parenta.
+- [ ] interest z importu XTB zawsze trafia do parenta (`sub_portfolio_id = NULL`).
+- [ ] `GET /api/portfolio/dividends/<id>` zwraca właściwy zakres dla parenta i childa.
