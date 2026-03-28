@@ -68,14 +68,18 @@ class AuditConsistencyTestCase(unittest.TestCase):
         response = self.client.get('/api/portfolio/audit/consistency')
         self.assertEqual(response.status_code, 200, response.get_json())
         payload = response.get_json()['payload']
-        self.assertEqual(len(payload['portfolios']), 1)
-        return payload['portfolios'][0]
+        return payload['portfolios']
+
+    @staticmethod
+    def _find_row(rows, portfolio_id):
+        return next(row for row in rows if row['portfolio_id'] == portfolio_id)
 
     def test_portfolio_ok_returns_status_ok(self):
         parent_id = self._create_parent('OK Parent')
         self._create_child(parent_id, 'OK Child')
 
-        row = self._get_consistency()
+        rows = self._get_consistency()
+        row = self._find_row(rows, parent_id)
 
         self.assertEqual(row['status'], 'ok')
         self.assertTrue(row['checks']['value_match']['ok'])
@@ -98,7 +102,8 @@ class AuditConsistencyTestCase(unittest.TestCase):
             return value
 
         with patch.object(PortfolioValuationService, 'get_portfolio_value', side_effect=fake_get_value):
-            row = self._get_consistency()
+            rows = self._get_consistency()
+            row = self._find_row(rows, parent_id)
 
         self.assertEqual(row['status'], 'warning')
         self.assertFalse(row['checks']['value_match']['ok'])
@@ -128,7 +133,8 @@ class AuditConsistencyTestCase(unittest.TestCase):
 
         self._insert_transaction(portfolio_id=parent_id, tx_type='INTEREST', sub_portfolio_id=child_id)
 
-        row = self._get_consistency()
+        rows = self._get_consistency()
+        row = self._find_row(rows, parent_id)
 
         self.assertEqual(row['status'], 'error')
         self.assertFalse(row['checks']['interest_leaked']['ok'])
@@ -148,7 +154,8 @@ class AuditConsistencyTestCase(unittest.TestCase):
             date='2026-12-31',
         )
 
-        row = self._get_consistency()
+        rows = self._get_consistency()
+        row = self._find_row(rows, parent_id)
 
         self.assertEqual(row['status'], 'error')
         self.assertFalse(row['checks']['archived_child_transactions']['ok'])
