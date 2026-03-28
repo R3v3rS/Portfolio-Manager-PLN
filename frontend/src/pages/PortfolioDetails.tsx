@@ -389,6 +389,7 @@ const PortfolioDetails: React.FC = () => {
   const [portfolioProfit30dHistory, setPortfolioProfit30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [portfolioValue30dHistory, setPortfolioValue30dHistory] = useState<{ date: string; label: string; value: number }[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
+  const [allPortfolios, setAllPortfolios] = useState<Portfolio[]>([]);
 
   // Closed Positions
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
@@ -422,6 +423,7 @@ const PortfolioDetails: React.FC = () => {
       ]);
       
       const found = pRes.find((p: Portfolio) => p.id === portfolioId) ?? null;
+      setAllPortfolios(pRes);
       setPortfolio(found || null);
       setHoldings(hRes ?? []);
       setValueData(vRes);
@@ -817,7 +819,8 @@ const PortfolioDetails: React.FC = () => {
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
   if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
 
-  const isParent = !!portfolio.children && portfolio.children.length > 0;
+  const subPortfolios = allPortfolios.filter((p) => p.parent_portfolio_id === portfolio.id);
+  const isParent = subPortfolios.length > 0;
   const isChild = !!portfolio.parent_portfolio_id;
 
   const visibleTabs: ActiveTab[] =
@@ -837,7 +840,7 @@ const PortfolioDetails: React.FC = () => {
           <ImportXtbCsvButton 
             portfolioId={portfolio.id} 
             onSuccess={fetchData} 
-            subPortfolios={portfolio.children}
+            subPortfolios={subPortfolios}
           />
           <ClearPortfolioButton portfolioId={portfolio.id} portfolioName={portfolio.name} onSuccess={fetchData} />
           <button
@@ -1540,7 +1543,7 @@ const PortfolioDetails: React.FC = () => {
               )}
 
               {/* Bulk Actions */}
-              {selectedTxIds.length > 0 && portfolio.children && portfolio.children.length > 0 && (
+              {selectedTxIds.length > 0 && subPortfolios.length > 0 && (
                 <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
                   <div className="text-sm text-gray-700">
                     Wybrano <span className="font-bold">{selectedTxIds.length}</span> transakcji
@@ -1558,7 +1561,7 @@ const PortfolioDetails: React.FC = () => {
                     >
                       <option value="" disabled>Wybierz cel...</option>
                       <option value="parent">Portfel Główny</option>
-                      {portfolio.children.map(sp => (
+                      {subPortfolios.map(sp => (
                         <option key={sp.id} value={sp.id}>{sp.name}</option>
                       ))}
                     </select>
@@ -1584,7 +1587,7 @@ const PortfolioDetails: React.FC = () => {
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
-                    {portfolio.children && portfolio.children.length > 0 && (
+                    {subPortfolios.length > 0 && (
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub-portfel</th>
                     )}
                   </tr>
@@ -1629,7 +1632,7 @@ const PortfolioDetails: React.FC = () => {
                         {t.total_value.toFixed(2)} PLN
                       </td>
                       <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", t.realized_profit >= 0 ? "text-green-600" : "text-red-600")}>{typeof t.realized_profit === 'number' ? t.realized_profit.toFixed(2) + ' PLN' : '-'}</td>
-                      {portfolio.children && portfolio.children.length > 0 && (
+                      {subPortfolios.length > 0 && (
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           <select
                             value={t.sub_portfolio_id || ''}
@@ -1641,7 +1644,7 @@ const PortfolioDetails: React.FC = () => {
                             className="text-xs border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-1 border bg-transparent"
                           >
                             <option value="">Główny</option>
-                            {portfolio.children.map(sp => (
+                            {subPortfolios.map(sp => (
                               <option key={sp.id} value={sp.id}>{sp.name}</option>
                             ))}
                           </select>
@@ -1651,7 +1654,7 @@ const PortfolioDetails: React.FC = () => {
                   ))}
                   {portfolioTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={portfolio.children && portfolio.children.length > 0 ? 9 : 8} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
+                      <td colSpan={subPortfolios.length > 0 ? 9 : 8} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
                     </tr>
                   )}
                 </tbody>
@@ -2027,7 +2030,7 @@ const PortfolioDetails: React.FC = () => {
         portfolioId={portfolio.id}
         budgetAccounts={budgetAccounts}
         maxCash={valueData.cash_value}
-        subPortfolios={portfolio.children}
+        subPortfolios={subPortfolios}
       />
 
       <TransactionModal
@@ -2038,7 +2041,7 @@ const PortfolioDetails: React.FC = () => {
         portfolioType={portfolio.account_type}
         holdings={holdings}
         dividendTickers={dividendTickers}
-        subPortfolios={portfolio.children}
+        subPortfolios={subPortfolios}
       />
 
       <SellModal
