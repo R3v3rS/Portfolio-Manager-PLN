@@ -20,6 +20,10 @@ export interface Portfolio {
   is_empty?: boolean;
 }
 
+export interface FlattenedPortfolio extends Portfolio {
+  parent_name?: string | null;
+}
+
 export interface Transaction {
   id: number;
   portfolio_id: number;
