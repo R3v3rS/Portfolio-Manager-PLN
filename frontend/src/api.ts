@@ -109,6 +109,35 @@ export interface PriceHistoryAuditResult {
   refreshed_tickers: string[];
 }
 
+export interface ConsistencyCheckResult {
+  ok: boolean;
+  count?: number;
+  ids?: number[];
+  diff_pln?: number;
+}
+
+export interface PortfolioConsistencyAuditItem {
+  portfolio_id: number;
+  portfolio_name: string;
+  status: 'ok' | 'warning' | 'error';
+  checks: {
+    value_match: ConsistencyCheckResult;
+    orphan_transactions: ConsistencyCheckResult;
+    interest_leaked: ConsistencyCheckResult;
+    archived_child_transactions: ConsistencyCheckResult;
+  };
+}
+
+export interface PortfolioConsistencyAuditResponse {
+  checked_at: string | null;
+  portfolios: PortfolioConsistencyAuditItem[];
+  summary: {
+    ok: number;
+    warning: number;
+    error: number;
+  };
+}
+
 export interface PPKPerformanceResponse {
   start_week: string | null;
   start_price: number;
@@ -448,6 +477,47 @@ const normalizePriceHistoryAuditResult = (value: unknown): PriceHistoryAuditResu
   };
 };
 
+const normalizeConsistencyCheck = (value: unknown): ConsistencyCheckResult => {
+  const source = isRecord(value) ? value : {};
+  return {
+    ok: Boolean(source.ok),
+    count: source.count === undefined ? undefined : toNumber(source.count),
+    ids: Array.isArray(source.ids) ? source.ids.map((id) => toNumber(id)) : undefined,
+    diff_pln: source.diff_pln === undefined ? undefined : toNumber(source.diff_pln),
+  };
+};
+
+const normalizePortfolioConsistencyAudit = (value: unknown): PortfolioConsistencyAuditResponse => {
+  const source = isRecord(value) ? value : {};
+  const summary = isRecord(source.summary) ? source.summary : {};
+  const portfolios = Array.isArray(source.portfolios) ? source.portfolios : [];
+
+  return {
+    checked_at: toOptionalString(source.checked_at),
+    portfolios: portfolios.map((item) => {
+      const row = isRecord(item) ? item : {};
+      const checks = isRecord(row.checks) ? row.checks : {};
+      const status = row.status === 'warning' || row.status === 'error' ? row.status : 'ok';
+      return {
+        portfolio_id: toNumber(row.portfolio_id),
+        portfolio_name: toString(row.portfolio_name),
+        status,
+        checks: {
+          value_match: normalizeConsistencyCheck(checks.value_match),
+          orphan_transactions: normalizeConsistencyCheck(checks.orphan_transactions),
+          interest_leaked: normalizeConsistencyCheck(checks.interest_leaked),
+          archived_child_transactions: normalizeConsistencyCheck(checks.archived_child_transactions),
+        },
+      };
+    }),
+    summary: {
+      ok: toNumber(summary.ok),
+      warning: toNumber(summary.warning),
+      error: toNumber(summary.error),
+    },
+  };
+};
+
 const normalizePpkTransaction = (value: unknown): PPKTransaction => {
   const source = isRecord(value) ? value : {};
   return {
@@ -647,6 +717,10 @@ export const portfolioApi = {
       headers: options?.adminToken ? { 'X-Admin-Token': options.adminToken } : undefined,
     });
     return normalizePriceHistoryAuditResult(response);
+  },
+  getConsistencyAudit: async (): Promise<PortfolioConsistencyAuditResponse> => {
+    const response = await portfolioHttp.get<unknown>('/audit/consistency');
+    return normalizePortfolioConsistencyAudit(response);
   },
   rebuild: async (portfolioId: number): Promise<{ message: string | null }> => {
     const response = await portfolioHttp.post<unknown>(`/${portfolioId}/rebuild`);

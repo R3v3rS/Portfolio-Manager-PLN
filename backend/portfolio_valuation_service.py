@@ -9,6 +9,8 @@ from portfolio_trade_service import PortfolioTradeService
 
 
 class PortfolioValuationService(PortfolioCoreService):
+    CONSISTENCY_TOLERANCE_PLN = 0.01
+
     @staticmethod
     def calculate_metrics(holdings, total_value, cash_value):
         if total_value == 0:
@@ -258,6 +260,142 @@ class PortfolioValuationService(PortfolioCoreService):
             'total_result_percent': total_result_percent,
             'breakdown': sorted(breakdown, key=lambda x: x['value'], reverse=True),
             'xirr_percent': xirr_percent 
+        }
+
+    @staticmethod
+    def get_parent_child_consistency_audit():
+        db = get_db()
+        checked_at = datetime.utcnow().replace(microsecond=0).isoformat()
+        parents = db.execute(
+            '''
+            SELECT p.id, p.name
+            FROM portfolios p
+            WHERE p.parent_portfolio_id IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM portfolios c
+                  WHERE c.parent_portfolio_id = p.id
+              )
+            ORDER BY p.id ASC
+            '''
+        ).fetchall()
+
+        portfolio_rows = []
+        summary = {'ok': 0, 'warning': 0, 'error': 0}
+
+        for parent in parents:
+            parent_id = int(parent['id'])
+            parent_name = parent['name']
+
+            parent_value_data = PortfolioValuationService.get_portfolio_value(parent_id) or {}
+            own_value_data = PortfolioValuationService._calculate_single_portfolio_value(
+                PortfolioValuationService.get_portfolio(parent_id)
+            )
+            active_children = db.execute(
+                '''
+                SELECT id
+                FROM portfolios
+                WHERE parent_portfolio_id = ? AND is_archived = 0
+                ''',
+                (parent_id,),
+            ).fetchall()
+            children_sum = 0.0
+            for child in active_children:
+                child_portfolio = PortfolioValuationService.get_portfolio(child['id'])
+                child_value_data = PortfolioValuationService._calculate_single_portfolio_value(child_portfolio)
+                children_sum += float(child_value_data.get('portfolio_value') or 0.0)
+
+            parent_total_value = float(parent_value_data.get('portfolio_value') or 0.0)
+            parent_own_value = float(own_value_data.get('portfolio_value') or 0.0)
+            expected_value = children_sum + parent_own_value
+            diff_pln = round(parent_total_value - expected_value, 2)
+            value_match_ok = abs(diff_pln) <= PortfolioValuationService.CONSISTENCY_TOLERANCE_PLN
+
+            orphan_rows = db.execute(
+                '''
+                SELECT t.id
+                FROM transactions t
+                LEFT JOIN portfolios c ON c.id = t.sub_portfolio_id
+                WHERE t.portfolio_id = ?
+                  AND t.sub_portfolio_id IS NOT NULL
+                  AND (c.id IS NULL OR c.parent_portfolio_id != ?)
+                ORDER BY t.id ASC
+                ''',
+                (parent_id, parent_id),
+            ).fetchall()
+            orphan_ids = [int(row['id']) for row in orphan_rows]
+
+            interest_rows = db.execute(
+                '''
+                SELECT id
+                FROM transactions
+                WHERE portfolio_id = ?
+                  AND type = 'INTEREST'
+                  AND sub_portfolio_id IS NOT NULL
+                ORDER BY id ASC
+                ''',
+                (parent_id,),
+            ).fetchall()
+            interest_ids = [int(row['id']) for row in interest_rows]
+
+            archived_rows = db.execute(
+                '''
+                SELECT t.id
+                FROM transactions t
+                JOIN portfolios c ON c.id = t.sub_portfolio_id
+                WHERE t.portfolio_id = ?
+                  AND c.parent_portfolio_id = ?
+                  AND c.is_archived = 1
+                  AND c.archived_at IS NOT NULL
+                  AND date(t.date) > date(c.archived_at)
+                ORDER BY t.id ASC
+                ''',
+                (parent_id, parent_id),
+            ).fetchall()
+            archived_ids = [int(row['id']) for row in archived_rows]
+
+            checks = {
+                'value_match': {
+                    'ok': value_match_ok,
+                    'diff_pln': diff_pln,
+                },
+                'orphan_transactions': {
+                    'ok': len(orphan_ids) == 0,
+                    'count': len(orphan_ids),
+                    'ids': orphan_ids,
+                },
+                'interest_leaked': {
+                    'ok': len(interest_ids) == 0,
+                    'count': len(interest_ids),
+                    'ids': interest_ids,
+                },
+                'archived_child_transactions': {
+                    'ok': len(archived_ids) == 0,
+                    'count': len(archived_ids),
+                    'ids': archived_ids,
+                },
+            }
+
+            has_error = not checks['orphan_transactions']['ok'] or not checks['interest_leaked']['ok'] or not checks['archived_child_transactions']['ok']
+            has_warning = not checks['value_match']['ok']
+            if has_error:
+                status = 'error'
+            elif has_warning:
+                status = 'warning'
+            else:
+                status = 'ok'
+            summary[status] += 1
+
+            portfolio_rows.append({
+                'portfolio_id': parent_id,
+                'portfolio_name': parent_name,
+                'status': status,
+                'checks': checks,
+            })
+
+        return {
+            'checked_at': checked_at,
+            'portfolios': portfolio_rows,
+            'summary': summary,
         }
 
     @staticmethod

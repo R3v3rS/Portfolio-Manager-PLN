@@ -223,3 +223,9 @@ def add_manual_interest():
     except ValueError as error:
         raise_portfolio_validation_error(error)
     return success_response({'message': 'Interest added successfully'})
+
+
+@portfolio_bp.route('/audit/consistency', methods=['GET'])
+def get_consistency_audit():
+    result = PortfolioService.get_parent_child_consistency_audit()
+    return success_response(result)

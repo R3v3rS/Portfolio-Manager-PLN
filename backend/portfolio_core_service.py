@@ -227,7 +227,10 @@ class PortfolioCoreService:
     def archive_portfolio(portfolio_id):
         db = get_db()
         try:
-            db.execute('UPDATE portfolios SET is_archived = 1 WHERE id = ?', (portfolio_id,))
+            db.execute(
+                'UPDATE portfolios SET is_archived = 1, archived_at = ? WHERE id = ?',
+                (datetime.utcnow().replace(microsecond=0).isoformat(), portfolio_id),
+            )
             db.commit()
             return True
         except Exception as e:

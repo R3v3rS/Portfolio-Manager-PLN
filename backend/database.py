@@ -43,6 +43,7 @@ def init_db(app):
                 last_interest_date TEXT,
                 parent_portfolio_id INTEGER REFERENCES portfolios(id),
                 is_archived BOOLEAN DEFAULT 0,
+                archived_at TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
@@ -509,6 +510,10 @@ def init_db(app):
             pass
         try:
             db.execute("ALTER TABLE portfolios ADD COLUMN is_archived BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE portfolios ADD COLUMN archived_at TEXT")
         except sqlite3.OperationalError:
             pass
         try:
