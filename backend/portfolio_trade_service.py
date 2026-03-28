@@ -2,6 +2,7 @@ from price_service import PriceService
 from database import get_db
 from datetime import datetime, date
 from portfolio_core_service import PortfolioCoreService
+from api.exceptions import ApiError
 
 
 class PortfolioTradeService(PortfolioCoreService):
@@ -58,7 +59,23 @@ class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
     def withdraw_cash(portfolio_id, amount, date_str=None, sub_portfolio_id=None):
         db = get_db()
-        
+
+        if sub_portfolio_id:
+            child = db.execute(
+                'SELECT id, parent_portfolio_id, is_archived FROM portfolios WHERE id = ?',
+                (sub_portfolio_id,),
+            ).fetchone()
+            if not child:
+                raise ApiError('INVALID_SUB_PORTFOLIO', 'Sub-portfolio not found', status=422)
+            if child['parent_portfolio_id'] != portfolio_id:
+                raise ApiError(
+                    'INVALID_SUB_PORTFOLIO_PARENT',
+                    'Sub-portfolio belongs to a different parent portfolio',
+                    status=422,
+                )
+            if child['is_archived']:
+                raise ApiError('ARCHIVED_SUB_PORTFOLIO', 'Cannot withdraw from an archived sub-portfolio', status=422)
+
         target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
         portfolio = db.execute('SELECT current_cash, account_type, last_interest_date, savings_rate FROM portfolios WHERE id = ?', (target_id,)).fetchone()
         
@@ -162,6 +179,23 @@ class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
     def sell_stock(portfolio_id, ticker, quantity, price, sell_date=None, sub_portfolio_id=None):
         db = get_db()
+
+        if sub_portfolio_id:
+            child = db.execute(
+                'SELECT id, parent_portfolio_id, is_archived FROM portfolios WHERE id = ?',
+                (sub_portfolio_id,),
+            ).fetchone()
+            if not child:
+                raise ApiError('INVALID_SUB_PORTFOLIO', 'Sub-portfolio not found', status=422)
+            if child['parent_portfolio_id'] != portfolio_id:
+                raise ApiError(
+                    'INVALID_SUB_PORTFOLIO_PARENT',
+                    'Sub-portfolio belongs to a different parent portfolio',
+                    status=422,
+                )
+            if child['is_archived']:
+                raise ApiError('ARCHIVED_SUB_PORTFOLIO', 'Cannot record sell for an archived sub-portfolio', status=422)
+
         # Find holding in the specific portfolio/sub-portfolio
         holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'), 
                             (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)).fetchone()
@@ -329,6 +363,13 @@ class PortfolioTradeService(PortfolioCoreService):
 
     @staticmethod
     def add_manual_interest(portfolio_id, amount, date_str):
+        """
+        Write-path audit (2026-03-28):
+        - sell_stock: parent-child validation = yes, is_archived validation = yes (patched).
+        - record_interest: dedicated function does not exist in this codebase;
+          interest write-path is add_manual_interest(portfolio_id, amount, date_str).
+          It accepts no sub_portfolio_id, so INTEREST is always parent-only by API contract.
+        """
         db = get_db()
         try:
             PortfolioTradeService._capitalize_savings(db, portfolio_id)
