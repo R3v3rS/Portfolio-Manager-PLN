@@ -526,7 +526,9 @@ export const portfolioApi = {
   archive: (portfolioId: number) => portfolioHttp.post(`/${portfolioId}/archive`),
   getJobStatus: (jobId: string) => portfolioHttp.get<JobStatusResponse>(`/jobs/${jobId}`),
   assignTransaction: (transactionId: number, subPortfolioId: number | null) =>
-    portfolioHttp.put(`/transactions/${transactionId}/assign`, { sub_portfolio_id: subPortfolioId }),
+    portfolioHttp.put<{ job_id: string }>(`/transactions/${transactionId}/assign`, { sub_portfolio_id: subPortfolioId }),
+  assignTransactionsBulk: (transactionIds: number[], subPortfolioId: number | null) =>
+    portfolioHttp.post<{ job_id: string }>('/transactions/assign-bulk', { transaction_ids: transactionIds, sub_portfolio_id: subPortfolioId }),
   getHoldings: async (portfolioId: number, params?: QueryParams): Promise<Holding[]> => {
     const response = await portfolioHttp.get<unknown>(`/holdings/${portfolioId}`, { params });
     const holdings = isRecord(response) ? response.holdings : undefined;

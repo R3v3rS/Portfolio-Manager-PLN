@@ -396,84 +396,11 @@ const PortfolioDetails: React.FC = () => {
   const [closedPositionCycles, setClosedPositionCycles] = useState<ClosedPositionCycle[]>([]);
   const [totalClosedCyclesProfit, setTotalClosedCyclesProfit] = useState(0);
 
-  const dividendTickers = Array.from(
-    new Set([
-      ...holdings.map((h) => h.ticker),
-      ...closedPositions.map((p) => p.ticker),
-      ...closedPositionCycles.map((p) => p.ticker),
-    ])
-  );
-
-  // Budget Integration
-  const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
-  const [subportfoliosAllowedTypes, setSubportfoliosAllowedTypes] = useState<string[]>([]);
-  const [isCreatingSubPortfolio, setIsCreatingSubPortfolio] = useState(false);
-  const [newSubPortfolioName, setNewSubPortfolioName] = useState('');
-  const [newSubPortfolioCash, setNewSubPortfolioCash] = useState('');
-
-  const initiateSell = (h: Holding) => {
-    setSelectedHoldingForSell(h);
-    setIsSellModalOpen(true);
-  };
-
-  const handleCreateSubPortfolio = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!id || !newSubPortfolioName.trim()) return;
-
-    try {
-      await portfolioApi.createChild(parseInt(id), {
-        name: newSubPortfolioName,
-        initial_cash: parseFloat(newSubPortfolioCash) || 0,
-        account_type: portfolio?.account_type || 'STANDARD',
-        created_at: new Date().toISOString().split('T')[0]
-      });
-      setNewSubPortfolioName('');
-      setNewSubPortfolioCash('');
-      setIsCreatingSubPortfolio(false);
-      fetchData();
-    } catch (err) {
-      console.error('Failed to create sub-portfolio', err);
-      alert('Nie udało się utworzyć sub-portfela');
-    }
-  };
-
-  const handleAssignTransaction = async (transactionId: number, subId: number | null) => {
-    try {
-      await portfolioApi.assignTransaction(transactionId, subId);
-      fetchData();
-    } catch (err) {
-      console.error('Failed to assign transaction', err);
-      alert('Nie udało się przypisać transakcji');
-    }
-  };
-
-  const closePositionAtLastPrice = async (holding: Holding) => {
-    if (!id) return;
-
-    if (!holding.current_price || holding.current_price <= 0) {
-      alert(`Brak aktualnej ceny dla ${holding.ticker}. Najpierw odśwież ceny.`);
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Zamknąć całą pozycję ${holding.ticker} (${Number(holding.quantity).toFixed(4)} szt.) po ${holding.current_price.toFixed(4)} ${holding.currency || 'PLN'}?`
-    );
-
-    if (!confirmed) return;
-
-    try {
-      await portfolioApi.sell({
-        portfolio_id: parseInt(id),
-        ticker: holding.ticker,
-        quantity: holding.quantity,
-        price: holding.current_price,
-      });
-      await fetchData();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Nieznany błąd';
-      alert('Nie udało się zamknąć pozycji: ' + message);
-    }
-  };
+  const [selectedTxIds, setSelectedTxIds] = useState<number[]>([]);
+  const [isBulkAssigning, setIsBulkAssigning] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<'queued' | 'running' | 'done' | 'failed' | null>(null);
+  const [jobProgress, setJobProgress] = useState(0);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -574,6 +501,140 @@ const PortfolioDetails: React.FC = () => {
       setLoading(false);
     }
   }, [id]);
+
+  const pollJobStatus = useCallback(async (jobId: string) => {
+    try {
+      const status = await portfolioApi.getJobStatus(jobId);
+      setJobStatus(status.status);
+      setJobProgress(status.progress);
+      
+      if (status.status === 'done') {
+        setActiveJobId(null);
+        fetchData();
+        setSelectedTxIds([]);
+      } else if (status.status === 'failed') {
+        alert('Job failed: ' + status.error);
+        setActiveJobId(null);
+      } else {
+        setTimeout(() => pollJobStatus(jobId), 1000);
+      }
+    } catch (err) {
+      console.error('Failed to poll job status', err);
+      setActiveJobId(null);
+    }
+  }, [fetchData]);
+
+  const handleAssignTransaction = async (transactionId: number, subId: number | null) => {
+    try {
+      const response = await portfolioApi.assignTransaction(transactionId, subId);
+      setActiveJobId(response.job_id);
+      setJobStatus('queued');
+      setJobProgress(0);
+      pollJobStatus(response.job_id);
+    } catch (err) {
+      alert('Failed to assign transaction');
+    }
+  };
+
+  const handleBulkAssign = async (subId: number | null) => {
+    if (selectedTxIds.length === 0) return;
+    try {
+      setIsBulkAssigning(true);
+      const response = await portfolioApi.assignTransactionsBulk(selectedTxIds, subId);
+      setActiveJobId(response.job_id);
+      setJobStatus('queued');
+      setJobProgress(0);
+      pollJobStatus(response.job_id);
+    } catch (err) {
+      alert('Failed to perform bulk assignment');
+    } finally {
+      setIsBulkAssigning(false);
+    }
+  };
+
+  const toggleTxSelection = (id: number) => {
+    setSelectedTxIds(prev => 
+      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllVisibleTx = () => {
+    if (selectedTxIds.length === portfolioTransactions.length && portfolioTransactions.length > 0) {
+      setSelectedTxIds([]);
+    } else {
+      setSelectedTxIds(portfolioTransactions.map(t => t.id));
+    }
+  };
+
+  const dividendTickers = Array.from(
+    new Set([
+      ...holdings.map((h) => h.ticker),
+      ...closedPositions.map((p) => p.ticker),
+      ...closedPositionCycles.map((p) => p.ticker),
+    ])
+  );
+
+  // Budget Integration
+  const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
+  const [subportfoliosAllowedTypes, setSubportfoliosAllowedTypes] = useState<string[]>([]);
+  const [isCreatingSubPortfolio, setIsCreatingSubPortfolio] = useState(false);
+  const [newSubPortfolioName, setNewSubPortfolioName] = useState('');
+  const [newSubPortfolioCash, setNewSubPortfolioCash] = useState('');
+
+  const initiateSell = (h: Holding) => {
+    setSelectedHoldingForSell(h);
+    setIsSellModalOpen(true);
+  };
+
+  const handleCreateSubPortfolio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !newSubPortfolioName.trim()) return;
+
+    try {
+      await portfolioApi.createChild(parseInt(id), {
+        name: newSubPortfolioName,
+        initial_cash: parseFloat(newSubPortfolioCash) || 0,
+        account_type: portfolio?.account_type || 'STANDARD',
+        created_at: new Date().toISOString().split('T')[0]
+      });
+      setNewSubPortfolioName('');
+      setNewSubPortfolioCash('');
+      setIsCreatingSubPortfolio(false);
+      fetchData();
+    } catch (err) {
+      console.error('Failed to create sub-portfolio', err);
+      alert('Nie udało się utworzyć sub-portfela');
+    }
+  };
+
+
+  const closePositionAtLastPrice = async (holding: Holding) => {
+    if (!id) return;
+
+    if (!holding.current_price || holding.current_price <= 0) {
+      alert(`Brak aktualnej ceny dla ${holding.ticker}. Najpierw odśwież ceny.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Zamknąć całą pozycję ${holding.ticker} (${Number(holding.quantity).toFixed(4)} szt.) po ${holding.current_price.toFixed(4)} ${holding.currency || 'PLN'}?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await portfolioApi.sell({
+        portfolio_id: parseInt(id),
+        ticker: holding.ticker,
+        quantity: holding.quantity,
+        price: holding.current_price,
+      });
+      await fetchData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nieznany błąd';
+      alert('Nie udało się zamknąć pozycji: ' + message);
+    }
+  };
 
   const refreshStockPrices = async () => {
     if (!id || !(portfolio?.account_type === 'STANDARD' || portfolio?.account_type === 'IKE')) return;
@@ -1462,9 +1523,60 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'history' && (
             <div className="overflow-x-auto">
+              {/* Job Status Banner */}
+              {activeJobId && (
+                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />
+                    <div>
+                      <p className="text-sm font-medium text-blue-900">Trwa przeliczanie portfela...</p>
+                      <p className="text-xs text-blue-700">Status: {jobStatus}, Postęp: {jobProgress}%</p>
+                    </div>
+                  </div>
+                  <div className="w-48 bg-blue-200 rounded-full h-2">
+                    <div className="bg-blue-600 h-2 rounded-full transition-all duration-500" style={{ width: `${jobProgress}%` }}></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Bulk Actions */}
+              {selectedTxIds.length > 0 && portfolio.children && portfolio.children.length > 0 && (
+                <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
+                  <div className="text-sm text-gray-700">
+                    Wybrano <span className="font-bold">{selectedTxIds.length}</span> transakcji
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">Przenieś do:</span>
+                    <select
+                      className="text-sm border-gray-300 rounded-md p-1"
+                      onChange={(e) => {
+                        const subId = e.target.value === 'parent' ? null : parseInt(e.target.value);
+                        handleBulkAssign(subId);
+                      }}
+                      disabled={isBulkAssigning}
+                      value=""
+                    >
+                      <option value="" disabled>Wybierz cel...</option>
+                      <option value="parent">Portfel Główny</option>
+                      {portfolio.children.map(sp => (
+                        <option key={sp.id} value={sp.id}>{sp.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th className="px-6 py-3 text-left">
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-gray-300 text-blue-600"
+                        checked={selectedTxIds.length === portfolioTransactions.length && portfolioTransactions.length > 0}
+                        onChange={toggleAllVisibleTx}
+                      />
+                    </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Typ</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
@@ -1479,7 +1591,15 @@ const PortfolioDetails: React.FC = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {portfolioTransactions.map((t) => (
-                    <tr key={t.id}>
+                    <tr key={t.id} className={cn(selectedTxIds.includes(t.id) && "bg-blue-50/50")}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <input 
+                          type="checkbox" 
+                          className="rounded border-gray-300 text-blue-600"
+                          checked={selectedTxIds.includes(t.id)}
+                          onChange={() => toggleTxSelection(t.id)}
+                        />
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(t.date).toLocaleDateString()}
                       </td>
@@ -1513,14 +1633,10 @@ const PortfolioDetails: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           <select
                             value={t.sub_portfolio_id || ''}
-                            onChange={async (e) => {
-                              const subId = e.target.value ? parseInt(e.target.value) : null;
-                              try {
-                                await portfolioApi.assignTransaction(t.id, subId);
-                                fetchData();
-                              } catch (err) {
-                                alert('Failed to assign transaction');
-                              }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const subId = val === "" ? null : parseInt(val);
+                              handleAssignTransaction(t.id, subId);
                             }}
                             className="text-xs border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-1 border bg-transparent"
                           >
@@ -1535,7 +1651,7 @@ const PortfolioDetails: React.FC = () => {
                   ))}
                   {portfolioTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
+                      <td colSpan={portfolio.children && portfolio.children.length > 0 ? 9 : 8} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
                     </tr>
                   )}
                 </tbody>

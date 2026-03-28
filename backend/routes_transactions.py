@@ -118,6 +118,13 @@ def assign_transaction(transaction_id):
     data = require_json_body()
     sub_portfolio_id = data.get('sub_portfolio_id') # Can be None to unassign
 
+    # Resolve portfolio_id for the job
+    db = get_db()
+    tx = db.execute('SELECT portfolio_id FROM transactions WHERE id = ?', (transaction_id,)).fetchone()
+    if not tx:
+        raise NotFoundError('Transaction not found')
+    portfolio_id = tx['portfolio_id']
+
     # Start async job to re-calculate history after assignment
     job_id = job_registry.create_job()
     
@@ -125,16 +132,28 @@ def assign_transaction(transaction_id):
         try:
             job_registry.update_job(job_id, status='running', progress=10)
             
-            # 1. Update the transaction
+            # 1. Update the transaction assignment
             PortfolioService.assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id)
-            job_registry.update_job(job_id, progress=50)
+            job_registry.update_job(job_id, progress=40)
             
-            # 2. Rebuild the portfolio state/history (placeholder for now, 
-            # in a real app this would call PortfolioAuditService.rebuild_portfolio)
-            # PortfolioService.rebuild_portfolio(portfolio_id)
+            # 2. Rebuild the portfolio state/holdings
+            # We rebuild the parent (sub_portfolio_id=None) and the specific sub-portfolio
+            PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
+            if sub_portfolio_id:
+                PortfolioService.repair_portfolio_state(sub_portfolio_id)
+            
+            job_registry.update_job(job_id, progress=80)
+            
+            # 3. Clear history cache
+            PortfolioService.clear_cache(portfolio_id)
+            # Also clear child if applicable
+            if sub_portfolio_id:
+                PortfolioService.clear_cache(sub_portfolio_id)
             
             job_registry.update_job(job_id, status='done', progress=100)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             job_registry.update_job(job_id, status='failed', error=str(e))
 
     thread = threading.Thread(target=run_recalculation, daemon=True)
@@ -143,6 +162,60 @@ def assign_transaction(transaction_id):
     return success_response({
         'job_id': job_id,
         'message': 'Transaction assignment started'
+    }, status=202)
+
+
+@portfolio_bp.route('/transactions/assign-bulk', methods=['POST'])
+def assign_transactions_bulk():
+    data = require_json_body()
+    transaction_ids = data.get('transaction_ids', [])
+    sub_portfolio_id = data.get('sub_portfolio_id')
+    
+    if not transaction_ids:
+        raise ValidationError('No transactions provided')
+
+    # Resolve portfolio_id for the job (assuming all belong to same parent as validated in service)
+    db = get_db()
+    tx = db.execute('SELECT portfolio_id FROM transactions WHERE id = ?', (transaction_ids[0],)).fetchone()
+    if not tx:
+        raise NotFoundError('Transaction not found')
+    portfolio_id = tx['portfolio_id']
+
+    # Start async job
+    job_id = job_registry.create_job()
+    
+    def run_bulk_recalculation():
+        try:
+            job_registry.update_job(job_id, status='running', progress=10)
+            
+            # 1. Update the transactions
+            PortfolioService.assign_transactions_bulk(transaction_ids, sub_portfolio_id)
+            job_registry.update_job(job_id, progress=40)
+            
+            # 2. Rebuild the portfolio state
+            PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
+            if sub_portfolio_id:
+                PortfolioService.repair_portfolio_state(sub_portfolio_id)
+                
+            job_registry.update_job(job_id, progress=80)
+            
+            # 3. Clear history cache
+            PortfolioService.clear_cache(portfolio_id)
+            if sub_portfolio_id:
+                PortfolioService.clear_cache(sub_portfolio_id)
+                
+            job_registry.update_job(job_id, status='done', progress=100)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            job_registry.update_job(job_id, status='failed', error=str(e))
+
+    thread = threading.Thread(target=run_bulk_recalculation, daemon=True)
+    thread.start()
+
+    return success_response({
+        'job_id': job_id,
+        'message': 'Bulk transaction assignment started'
     }, status=202)
 
 

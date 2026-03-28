@@ -225,6 +225,30 @@ class PortfolioTradeService(PortfolioCoreService):
             raise e
 
     @staticmethod
+    def validate_transfer_target(db, portfolio_id, target_sub_portfolio_id):
+        """
+        Validates if a target sub-portfolio is a valid transfer destination.
+        Returns the child portfolio record if valid, or None if target is parent.
+        Raises ValueError if invalid.
+        """
+        if not target_sub_portfolio_id:
+            return None
+            
+        child = db.execute(
+            'SELECT id, is_archived, parent_portfolio_id FROM portfolios WHERE id = ?', 
+            (target_sub_portfolio_id,)
+        ).fetchone()
+        
+        if not child:
+            raise ValueError("Target sub-portfolio not found")
+        if child['parent_portfolio_id'] != portfolio_id:
+            raise ValueError("Target sub-portfolio belongs to a different parent")
+        if child['is_archived']:
+            raise ValueError("Cannot assign to an archived sub-portfolio")
+            
+        return child
+
+    @staticmethod
     def assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id):
         db = get_db()
         tx = db.execute('SELECT * FROM transactions WHERE id = ?', (transaction_id,)).fetchone()
@@ -233,114 +257,75 @@ class PortfolioTradeService(PortfolioCoreService):
         
         portfolio_id = tx['portfolio_id']
         old_sub_portfolio_id = tx['sub_portfolio_id']
-        ticker = tx['ticker']
         tx_type = tx['type']
-        quantity = float(tx['quantity'])
         total_value = float(tx['total_value'])
-        realized_profit = float(tx['realized_profit'] or 0.0)
         
         if sub_portfolio_id == old_sub_portfolio_id:
             return True
 
+        if tx_type == 'INTEREST' and sub_portfolio_id is not None:
+            raise ValueError("INTEREST transactions must remain in parent portfolio")
+
         try:
-            # Validate new sub_portfolio_id if provided
-            if sub_portfolio_id:
-                child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
-                if not child:
-                    raise ValueError("Invalid sub-portfolio for this parent")
-                if child['is_archived']:
-                    raise ValueError("Cannot assign to an archived sub-portfolio")
+            # Validate target
+            PortfolioTradeService.validate_transfer_target(db, portfolio_id, sub_portfolio_id)
 
-            # --- Update Holdings Logic (for BUY/SELL) ---
-            if tx_type in ('BUY', 'SELL'):
-                # 1. Remove effect from old sub-portfolio
-                old_holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if old_sub_portfolio_id else 'NULL'), 
-                                       (portfolio_id, ticker, old_sub_portfolio_id) if old_sub_portfolio_id else (portfolio_id, ticker)).fetchone()
-                
-                if old_holding:
-                    if tx_type == 'BUY':
-                        new_old_qty = old_holding['quantity'] - quantity
-                        new_old_cost = old_holding['total_cost'] - total_value
-                    else: # SELL
-                        new_old_qty = old_holding['quantity'] + quantity
-                        # For SELL, cost_basis was used to reduce total_cost. 
-                        # We need to add it back. cost_basis = total_value - realized_profit
-                        cost_basis = total_value - realized_profit
-                        new_old_cost = old_holding['total_cost'] + cost_basis
-                    
-                    if new_old_qty > 0.000001:
-                        new_old_avg = new_old_cost / new_old_qty
-                        db.execute('UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ? WHERE id = ?', 
-                                   (new_old_qty, new_old_cost, new_old_avg, old_holding['id']))
-                    else:
-                        db.execute('DELETE FROM holdings WHERE id = ?', (old_holding['id'],))
-
-                # 2. Add effect to new sub-portfolio
-                new_holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'), 
-                                       (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)).fetchone()
-                
-                if tx_type == 'BUY':
-                    if new_holding:
-                        new_new_qty = new_holding['quantity'] + quantity
-                        new_new_cost = new_holding['total_cost'] + total_value
-                        new_new_avg = new_new_cost / new_new_qty
-                        db.execute('UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ? WHERE id = ?', 
-                                   (new_new_qty, new_new_cost, new_new_avg, new_holding['id']))
-                    else:
-                        # Copy metadata from old if possible, or fetch new
-                        meta = old_holding if old_holding else PriceService.fetch_metadata(ticker)
-                        db.execute('''INSERT INTO holdings 
-                               (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, sub_portfolio_id, company_name, sector, industry) 
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
-                               (portfolio_id, ticker, quantity, total_value / quantity, total_value, 
-                                meta['auto_fx_fees'] if old_holding else 0, 
-                                meta['currency'] if old_holding else 'PLN', 
-                                sub_portfolio_id,
-                                meta['company_name'], meta['sector'], meta['industry']))
-                else: # SELL
-                    if new_holding:
-                        new_new_qty = new_holding['quantity'] - quantity
-                        # cost_basis = quantity * new_holding['average_buy_price']
-                        # total_cost = total_cost - cost_basis
-                        cost_basis = quantity * new_holding['average_buy_price']
-                        new_new_cost = new_holding['total_cost'] - cost_basis
-                        
-                        # We also need to update the transaction's realized_profit because it might change 
-                        # if the new sub-portfolio has a different average buy price.
-                        new_realized_profit = total_value - cost_basis
-                        db.execute('UPDATE transactions SET realized_profit = ? WHERE id = ?', (new_realized_profit, transaction_id))
-                        
-                        if new_new_qty > 0.000001:
-                            db.execute('UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?', 
-                                       (new_new_qty, new_new_cost, new_holding['id']))
-                        else:
-                            db.execute('DELETE FROM holdings WHERE id = ?', (new_holding['id'],))
-                    else:
-                        # This should theoretically not happen if the user is moving a SELL to a sub-portfolio that doesn't have the stock.
-                        # But if it does, we might have to allow it or throw error.
-                        # For now, let's just record it but it might cause inconsistent state if we don't have a holding.
-                        pass
-
-            # --- Original Transaction Update Logic ---
+            # 1. Update the transaction
             db.execute('UPDATE transactions SET sub_portfolio_id = ? WHERE id = ?', (sub_portfolio_id, transaction_id))
             
+            # 2. Update dividends if applicable
             if tx_type == 'DIVIDEND':
                 db.execute('UPDATE dividends SET sub_portfolio_id = ? WHERE portfolio_id = ? AND ticker = ? AND date = ? AND amount = ?', 
                            (sub_portfolio_id, portfolio_id, tx['ticker'], tx['date'], tx['total_value']))
 
-            # Move cash
-            amount = float(tx['total_value'])
-            old_target_id = old_sub_portfolio_id if old_sub_portfolio_id else portfolio_id
-            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (amount, old_target_id))
+            # 3. Move cash between sub-portfolios
+            # Remove cash from old location (parent if old_sub_portfolio_id is NULL)
+            old_cash_target = old_sub_portfolio_id if old_sub_portfolio_id else portfolio_id
+            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (total_value, old_cash_target))
             
-            new_target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
-            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (amount, new_target_id))
+            # Add cash to new location (parent if sub_portfolio_id is NULL)
+            new_cash_target = sub_portfolio_id if sub_portfolio_id else portfolio_id
+            db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (total_value, new_cash_target))
 
             db.commit()
             return True
         except Exception as e:
             db.rollback()
             raise e
+
+    @staticmethod
+    def assign_transactions_bulk(transaction_ids, sub_portfolio_id):
+        if not transaction_ids:
+            return True
+            
+        db = get_db()
+        try:
+            # Check if all transactions belong to the same parent portfolio
+            placeholders = ', '.join(['?'] * len(transaction_ids))
+            parents = db.execute(f'SELECT DISTINCT portfolio_id FROM transactions WHERE id IN ({placeholders})', transaction_ids).fetchall()
+            
+            if not parents:
+                raise ValueError("No transactions found")
+            if len(parents) > 1:
+                raise ValueError("Bulk assignment must be for transactions within the same parent portfolio")
+                
+            portfolio_id = parents[0]['portfolio_id']
+            
+            # Validate target sub-portfolio
+            PortfolioTradeService.validate_transfer_target(db, portfolio_id, sub_portfolio_id)
+            
+            # Process each transaction to handle cash movement
+            # In a more optimized version, we could group cash movements, 
+            # but for safety and clarity we'll do them one by one or in a loop.
+            for tx_id in transaction_ids:
+                PortfolioTradeService.assign_transaction_to_subportfolio(tx_id, sub_portfolio_id)
+                
+            return True
+        except Exception as e:
+            # assign_transaction_to_subportfolio already does rollback, but we might need it here too if error happens outside
+            db.rollback()
+            raise e
+
 
     @staticmethod
     def add_manual_interest(portfolio_id, amount, date_str):

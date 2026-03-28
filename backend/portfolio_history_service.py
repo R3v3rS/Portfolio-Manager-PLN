@@ -11,6 +11,16 @@ class PortfolioHistoryService(PortfolioCoreService):
     _metrics_cache = {}
 
     @staticmethod
+    def clear_cache(portfolio_id=None):
+        if portfolio_id:
+            # Clear specific portfolio and its related benchmarks
+            keys_to_remove = [k for k in PortfolioHistoryService._metrics_cache.keys() if k[0] == portfolio_id]
+            for k in keys_to_remove:
+                del PortfolioHistoryService._metrics_cache[k]
+        else:
+            PortfolioHistoryService._metrics_cache = {}
+
+    @staticmethod
     def _build_price_context(portfolio_id, tickers, start_date, account_type, benchmark_ticker=None):
         db = get_db()
         ticker_currency: dict[str, str] = {}
