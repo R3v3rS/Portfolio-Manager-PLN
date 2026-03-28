@@ -87,14 +87,50 @@ def sell():
 @portfolio_bp.route('/transactions/<int:portfolio_id>', methods=['GET'])
 def get_transactions(portfolio_id):
     ticker = request.args.get('ticker')
-    transactions = PortfolioService.get_transactions(portfolio_id, ticker=ticker)
+    sub_portfolio_id = request.args.get('sub_portfolio_id')
+    transaction_type = request.args.get('type')
+    
+    # sub_portfolio_id can be 'none' or a number
+    if sub_portfolio_id and sub_portfolio_id != 'none':
+        try:
+            sub_portfolio_id = int(sub_portfolio_id)
+        except ValueError:
+            sub_portfolio_id = None
+            
+    transactions = PortfolioService.get_transactions(
+        portfolio_id, 
+        ticker=ticker, 
+        sub_portfolio_id=sub_portfolio_id, 
+        transaction_type=transaction_type
+    )
     return success_response({'transactions': transactions})
 
 
 @portfolio_bp.route('/transactions/all', methods=['GET'])
 def get_all_transactions():
     ticker = request.args.get('ticker')
-    transactions = PortfolioService.get_all_transactions(ticker=ticker)
+    portfolio_id = request.args.get('portfolio_id')
+    sub_portfolio_id = request.args.get('sub_portfolio_id')
+    transaction_type = request.args.get('type')
+    
+    if portfolio_id:
+        try:
+            portfolio_id = int(portfolio_id)
+        except ValueError:
+            portfolio_id = None
+            
+    if sub_portfolio_id and sub_portfolio_id != 'none':
+        try:
+            sub_portfolio_id = int(sub_portfolio_id)
+        except ValueError:
+            sub_portfolio_id = None
+            
+    transactions = PortfolioService.get_all_transactions(
+        ticker=ticker, 
+        portfolio_id=portfolio_id,
+        sub_portfolio_id=sub_portfolio_id,
+        transaction_type=transaction_type
+    )
     return success_response({'transactions': transactions})
 
 

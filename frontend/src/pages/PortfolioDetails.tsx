@@ -403,6 +403,11 @@ const PortfolioDetails: React.FC = () => {
   const [jobStatus, setJobStatus] = useState<'queued' | 'running' | 'done' | 'failed' | null>(null);
   const [jobProgress, setJobProgress] = useState(0);
 
+  // Filters for transactions
+  const [txFilterTicker, setTxFilterTicker] = useState<string>('all');
+  const [txFilterType, setTxFilterType] = useState<string>('all');
+  const [txFilterSubPortfolio, setTxFilterSubPortfolio] = useState<string>('all');
+
   const fetchData = useCallback(async () => {
     if (!id) return;
     const portfolioId = parseInt(id, 10);
@@ -551,20 +556,6 @@ const PortfolioDetails: React.FC = () => {
       alert('Failed to perform bulk assignment');
     } finally {
       setIsBulkAssigning(false);
-    }
-  };
-
-  const toggleTxSelection = (id: number) => {
-    setSelectedTxIds(prev => 
-      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
-    );
-  };
-
-  const toggleAllVisibleTx = () => {
-    if (selectedTxIds.length === portfolioTransactions.length && portfolioTransactions.length > 0) {
-      setSelectedTxIds([]);
-    } else {
-      setSelectedTxIds(portfolioTransactions.map(t => t.id));
     }
   };
 
@@ -820,6 +811,22 @@ const PortfolioDetails: React.FC = () => {
   if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
 
   const subPortfolios = allPortfolios.filter((p) => p.parent_portfolio_id === portfolio.id);
+  
+  const filteredPortfolioTransactions = portfolioTransactions.filter(t => {
+    if (txFilterTicker !== 'all' && t.ticker !== txFilterTicker) return false;
+    if (txFilterType !== 'all' && t.type !== txFilterType) return false;
+    if (txFilterSubPortfolio !== 'all') {
+      if (txFilterSubPortfolio === 'none') {
+        if (t.sub_portfolio_id !== null && t.sub_portfolio_id !== undefined) return false;
+      } else {
+        if (t.sub_portfolio_id !== parseInt(txFilterSubPortfolio)) return false;
+      }
+    }
+    return true;
+  });
+
+  const uniqueTxTickers = Array.from(new Set(portfolioTransactions.map(t => t.ticker).filter(t => t && t !== 'CASH'))).sort();
+
   const isParent = subPortfolios.length > 0;
   const isChild = !!portfolio.parent_portfolio_id;
 
@@ -831,6 +838,20 @@ const PortfolioDetails: React.FC = () => {
         : portfolio.account_type === 'PPK'
           ? ['ppk', 'ppk_history']
           : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed', 'closed_cycles'];
+
+  const toggleTxSelection = (id: number) => {
+    setSelectedTxIds(prev => 
+      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllVisibleTx = () => {
+    if (selectedTxIds.length === filteredPortfolioTransactions.length && filteredPortfolioTransactions.length > 0) {
+      setSelectedTxIds([]);
+    } else {
+      setSelectedTxIds(filteredPortfolioTransactions.map(t => t.id));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1526,6 +1547,68 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'history' && (
             <div className="overflow-x-auto">
+              {/* Filters */}
+              <div className="mb-4 flex flex-wrap gap-4 items-end bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-gray-500 uppercase">Symbol</label>
+                  <select 
+                    value={txFilterTicker} 
+                    onChange={(e) => setTxFilterTicker(e.target.value)}
+                    className="text-sm border-gray-300 rounded-md p-1.5 min-w-[120px]"
+                  >
+                    <option value="all">Wszystkie</option>
+                    {uniqueTxTickers.map(ticker => (
+                      <option key={ticker} value={ticker}>{ticker}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-gray-500 uppercase">Typ</label>
+                  <select 
+                    value={txFilterType} 
+                    onChange={(e) => setTxFilterType(e.target.value)}
+                    className="text-sm border-gray-300 rounded-md p-1.5 min-w-[120px]"
+                  >
+                    <option value="all">Wszystkie</option>
+                    <option value="BUY">Kupno</option>
+                    <option value="SELL">Sprzedaż</option>
+                    <option value="DEPOSIT">Wpłata</option>
+                    <option value="WITHDRAW">Wypłata</option>
+                    <option value="DIVIDEND">Dywidenda</option>
+                    <option value="INTEREST">Odsetki</option>
+                  </select>
+                </div>
+
+                {subPortfolios.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-gray-500 uppercase">Sub-portfel</label>
+                    <select 
+                      value={txFilterSubPortfolio} 
+                      onChange={(e) => setTxFilterSubPortfolio(e.target.value)}
+                      className="text-sm border-gray-300 rounded-md p-1.5 min-w-[150px]"
+                    >
+                      <option value="all">Wszystkie</option>
+                      <option value="none">Główny</option>
+                      {subPortfolios.map(sp => (
+                        <option key={sp.id} value={sp.id.toString()}>{sp.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
+                <button 
+                  onClick={() => {
+                    setTxFilterTicker('all');
+                    setTxFilterType('all');
+                    setTxFilterSubPortfolio('all');
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium pb-2"
+                >
+                  Wyczyść filtry
+                </button>
+              </div>
+
               {/* Job Status Banner */}
               {activeJobId && (
                 <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
@@ -1576,7 +1659,7 @@ const PortfolioDetails: React.FC = () => {
                       <input 
                         type="checkbox" 
                         className="rounded border-gray-300 text-blue-600"
-                        checked={selectedTxIds.length === portfolioTransactions.length && portfolioTransactions.length > 0}
+                        checked={selectedTxIds.length === filteredPortfolioTransactions.length && filteredPortfolioTransactions.length > 0}
                         onChange={toggleAllVisibleTx}
                       />
                     </th>
@@ -1593,7 +1676,7 @@ const PortfolioDetails: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {portfolioTransactions.map((t) => (
+                  {filteredPortfolioTransactions.map((t) => (
                     <tr key={t.id} className={cn(selectedTxIds.includes(t.id) && "bg-blue-50/50")}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <input 
@@ -1652,7 +1735,7 @@ const PortfolioDetails: React.FC = () => {
                       )}
                     </tr>
                   ))}
-                  {portfolioTransactions.length === 0 && (
+                  {filteredPortfolioTransactions.length === 0 && (
                     <tr>
                       <td colSpan={subPortfolios.length > 0 ? 9 : 8} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
                     </tr>

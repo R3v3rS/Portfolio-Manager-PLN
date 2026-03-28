@@ -260,6 +260,7 @@ const normalizeTransaction = (value: unknown): Transaction => {
     id: toNumber(source.id),
     portfolio_id: toNumber(source.portfolio_id),
     sub_portfolio_id: source.sub_portfolio_id == null ? undefined : toNumber(source.sub_portfolio_id),
+    sub_portfolio_name: source.sub_portfolio_name == null ? undefined : toString(source.sub_portfolio_name),
     ticker: toString(source.ticker, 'CASH'),
     date: toString(source.date),
     type:
@@ -516,7 +517,12 @@ export const portfolioApi = {
   limits: () => portfolioHttp.get<PortfolioLimitsResponse>('/limits'),
   create: (payload: CreatePortfolioPayload) => portfolioHttp.post('/create', payload),
   remove: (portfolioId: number) => portfolioHttp.delete(`/${portfolioId}`),
-  listTransactions: (ticker?: string) => portfolioHttp.get<TransactionsListResponse>('/transactions/all', { params: ticker ? { ticker } : undefined }),
+  listTransactions: (params?: {
+    ticker?: string;
+    portfolio_id?: number;
+    sub_portfolio_id?: number | 'none';
+    type?: string;
+  }) => portfolioHttp.get<TransactionsListResponse>('/transactions/all', { params }),
   listNormalized: async (params?: QueryParams): Promise<Portfolio[]> => {
     return (await portfolioApi.list(params)).portfolios;
   },
@@ -543,8 +549,15 @@ export const portfolioApi = {
     const response = await portfolioHttp.get<unknown>(`/value/${portfolioId}`);
     return normalizePortfolioValue(response);
   },
-  getTransactions: async (portfolioId: number): Promise<Transaction[]> => {
-    const response = await portfolioHttp.get<unknown>(`/transactions/${portfolioId}`);
+  getTransactions: async (
+    portfolioId: number,
+    params?: {
+      ticker?: string;
+      sub_portfolio_id?: number | 'none';
+      type?: string;
+    }
+  ): Promise<Transaction[]> => {
+    const response = await portfolioHttp.get<unknown>(`/transactions/${portfolioId}`, { params });
     const transactions = isRecord(response) ? response.transactions : undefined;
     return Array.isArray(transactions) ? transactions.map(normalizeTransaction) : [];
   },

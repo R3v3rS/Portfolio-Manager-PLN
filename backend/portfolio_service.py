@@ -16,27 +16,57 @@ class PortfolioService(
     PortfolioCoreService,
 ):
     @staticmethod
-    def get_transactions(portfolio_id, ticker=None):
+    def get_transactions(portfolio_id, ticker=None, sub_portfolio_id=None, transaction_type=None):
         db = get_db()
-        query = 'SELECT * FROM transactions WHERE portfolio_id = ?'
+        query = '''
+            SELECT t.*, sp.name as sub_portfolio_name
+            FROM transactions t
+            LEFT JOIN portfolios sp ON t.sub_portfolio_id = sp.id
+            WHERE t.portfolio_id = ?
+        '''
         params = [portfolio_id]
         if ticker:
-            query += ' AND ticker = ?'
+            query += ' AND t.ticker = ?'
             params.append(ticker)
-        query += ' ORDER BY date DESC'
+        if sub_portfolio_id is not None:
+            if sub_portfolio_id == 'none':
+                query += ' AND t.sub_portfolio_id IS NULL'
+            else:
+                query += ' AND t.sub_portfolio_id = ?'
+                params.append(sub_portfolio_id)
+        if transaction_type:
+            query += ' AND t.type = ?'
+            params.append(transaction_type)
+            
+        query += ' ORDER BY t.date DESC'
         transactions = db.execute(query, params).fetchall()
         return [{key: t[key] for key in t.keys()} for t in transactions]
 
     @staticmethod
-    def get_all_transactions(ticker=None):
+    def get_all_transactions(ticker=None, portfolio_id=None, sub_portfolio_id=None, transaction_type=None):
         db = get_db()
-        query = '''SELECT t.*, p.name as portfolio_name
+        query = '''SELECT t.*, p.name as portfolio_name, sp.name as sub_portfolio_name
                FROM transactions t
-               JOIN portfolios p ON t.portfolio_id = p.id'''
+               JOIN portfolios p ON t.portfolio_id = p.id
+               LEFT JOIN portfolios sp ON t.sub_portfolio_id = sp.id
+               WHERE 1=1'''
         params = []
         if ticker:
-            query += ' WHERE t.ticker = ?'
+            query += ' AND t.ticker = ?'
             params.append(ticker)
+        if portfolio_id:
+            query += ' AND t.portfolio_id = ?'
+            params.append(portfolio_id)
+        if sub_portfolio_id is not None:
+            if sub_portfolio_id == 'none':
+                query += ' AND t.sub_portfolio_id IS NULL'
+            else:
+                query += ' AND t.sub_portfolio_id = ?'
+                params.append(sub_portfolio_id)
+        if transaction_type:
+            query += ' AND t.type = ?'
+            params.append(transaction_type)
+            
         query += ' ORDER BY t.date DESC'
         transactions = db.execute(query, params).fetchall()
         return [{key: t[key] for key in t.keys()} for t in transactions]
