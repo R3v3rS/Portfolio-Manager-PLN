@@ -290,6 +290,37 @@ class CashTransferTestCase(unittest.TestCase):
         error = response.get_json()['error']
         self.assertIn('Niewystarczająca gotówka na dzień 2026-02-01', error['message'])
 
+    def test_13_backdated_transfer_repairs_cash_state_instead_of_only_applying_delta(self):
+        _parent_a, child_a1, child_a2, _parent_b, _child_b1 = self._create_tree()
+
+        deposit_response = self.client.post('/api/portfolio/deposit', json={
+            'portfolio_id': child_a1,
+            'amount': 200.0,
+            'date': '2026-03-20',
+            'sub_portfolio_id': None,
+        })
+        self.assertEqual(deposit_response.status_code, 200, deposit_response.get_json())
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute('UPDATE portfolios SET current_cash = ? WHERE id = ?', (5000.0, child_a1))
+            db.execute('UPDATE portfolios SET current_cash = ? WHERE id = ?', (50.0, child_a2))
+            db.commit()
+
+        response = self._transfer({
+            'from_portfolio_id': child_a1,
+            'from_sub_portfolio_id': None,
+            'to_portfolio_id': child_a2,
+            'to_sub_portfolio_id': None,
+            'amount': 300.0,
+            'date': '2026-02-01',
+            'note': None,
+        })
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertAlmostEqual(self._cash(child_a1), 900.0)
+        self.assertAlmostEqual(self._cash(child_a2), 800.0)
+
 
 if __name__ == '__main__':
     unittest.main()

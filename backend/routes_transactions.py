@@ -87,15 +87,62 @@ def _resolve_transfer_scope(db, *, portfolio_id, sub_portfolio_id, field_prefix)
     }
 
 
+def _legacy_cash_seed_for_child_scope(db, child_id):
+    rows = db.execute(
+        '''
+        SELECT type, total_value
+        FROM transactions
+        WHERE portfolio_id = ? AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
+        ''',
+        (child_id,),
+    ).fetchall()
+
+    cash = 0.0
+    for row in rows:
+        tx_type = row['type']
+        value = float(row['total_value'])
+        if tx_type in ('DEPOSIT', 'DIVIDEND', 'INTEREST', 'SELL'):
+            cash += value
+        elif tx_type in ('WITHDRAW', 'BUY'):
+            cash -= value
+
+    return cash
+
+
+def _repair_cash_transfer_scope(db, portfolio_id):
+    scope = db.execute('SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+    if not scope:
+        return
+
+    if scope['parent_portfolio_id']:
+        parent_id = int(scope['parent_portfolio_id'])
+        child_id = int(scope['id'])
+        PortfolioService.repair_portfolio_state(parent_id, subportfolio_id=child_id)
+
+        legacy_seed = _legacy_cash_seed_for_child_scope(db, child_id)
+        if abs(legacy_seed) > 0.0000001:
+            repaired_cash_row = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (child_id,)).fetchone()
+            repaired_cash = float(repaired_cash_row['current_cash']) if repaired_cash_row else 0.0
+            db.execute('UPDATE portfolios SET current_cash = ? WHERE id = ?', (repaired_cash + legacy_seed, child_id))
+            db.commit()
+        return
+
+    PortfolioService.repair_portfolio_state(int(scope['id']), subportfolio_id=None)
+
+
 def _run_cash_transfer_recalculation(app, job_id, affected_ids):
     with app.app_context():
         try:
             job_registry.update_job(job_id, status='running', progress=10)
             unique_ids = [portfolio_id for portfolio_id in dict.fromkeys(affected_ids) if portfolio_id]
-            for index, _portfolio_id in enumerate(unique_ids, start=1):
+
+            for index, portfolio_id in enumerate(unique_ids, start=1):
+                _repair_cash_transfer_scope(get_db(), portfolio_id)
                 job_registry.update_job(job_id, progress=min(70, 10 + int((index / max(1, len(unique_ids))) * 60)))
+
             for portfolio_id in unique_ids:
                 PortfolioService.clear_cache(portfolio_id)
+
             job_registry.update_job(job_id, status='done', progress=100)
         except Exception as e:
             import traceback
