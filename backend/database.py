@@ -100,6 +100,7 @@ def init_db(app):
                 realized_profit DECIMAL(10,2) DEFAULT 0.0,
                 commission DECIMAL(10,2) DEFAULT 0.00,
                 sub_portfolio_id INTEGER REFERENCES portfolios(id),
+                transfer_id TEXT,
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
         ''')
@@ -492,6 +493,10 @@ def init_db(app):
         # Migration: Add 'commission' to transactions
         try:
             db.execute("ALTER TABLE transactions ADD COLUMN commission DECIMAL(10,2) DEFAULT 0.00")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE transactions ADD COLUMN transfer_id TEXT")
         except sqlite3.OperationalError:
             pass
 

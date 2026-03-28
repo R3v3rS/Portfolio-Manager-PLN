@@ -29,6 +29,7 @@ export interface Transaction {
   portfolio_id: number;
   sub_portfolio_id?: number | null;
   sub_portfolio_name?: string;
+  transfer_id?: string | null;
   ticker: string;
   date: string;
   type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW' | 'DIVIDEND' | 'INTEREST';

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowLeftRight } from 'lucide-react';
 import { portfolioApi } from '../api';
 import type { FlattenedPortfolio, Portfolio, Transaction } from '../types';
 import { cn } from '../lib/utils';
@@ -169,22 +170,29 @@ const Transactions: React.FC = () => {
                       '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span
-                      className={cn(
-                        'px-2 inline-flex text-xs leading-5 font-semibold rounded-full',
-                        transaction.type === 'BUY'
-                          ? 'bg-green-100 text-green-800'
-                          : transaction.type === 'SELL'
-                            ? 'bg-red-100 text-red-800'
-                            : transaction.type === 'DEPOSIT'
-                              ? 'bg-blue-100 text-blue-800'
-                              : transaction.type === 'DIVIDEND'
-                                ? 'bg-indigo-100 text-indigo-800'
-                                : 'bg-orange-100 text-orange-800'
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          'px-2 inline-flex text-xs leading-5 font-semibold rounded-full',
+                          transaction.type === 'BUY'
+                            ? 'bg-green-100 text-green-800'
+                            : transaction.type === 'SELL'
+                              ? 'bg-red-100 text-red-800'
+                              : transaction.type === 'DEPOSIT'
+                                ? 'bg-blue-100 text-blue-800'
+                                : transaction.type === 'DIVIDEND'
+                                  ? 'bg-indigo-100 text-indigo-800'
+                                  : 'bg-orange-100 text-orange-800'
+                        )}
+                      >
+                        {transaction.type}
+                      </span>
+                      {transaction.transfer_id && (
+                        <span title="Przelew wewnętrzny" className="text-gray-500">
+                          <ArrowLeftRight className="h-4 w-4" />
+                        </span>
                       )}
-                    >
-                      {transaction.type}
-                    </span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{transaction.ticker === 'CASH' ? '-' : transaction.ticker}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{transaction.quantity}</td>
