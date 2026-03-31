@@ -384,14 +384,14 @@ class PortfolioImportService(PortfolioCoreService):
                         new_total_cost = holding['total_cost'] + tx_total
                         new_avg_price = new_total_cost / new_qty
                         cursor.execute(
-                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ?, auto_fx_fees = ? WHERE id = ?''',
-                            (new_qty, new_total_cost, new_avg_price, ticker_currency, 1 if ticker_currency != 'PLN' else holding['auto_fx_fees'], holding['id'])
+                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ?, instrument_currency = ?, auto_fx_fees = ? WHERE id = ?''',
+                            (new_qty, new_total_cost, new_avg_price, ticker_currency, ticker_currency or holding['instrument_currency'] or holding['currency'] or 'PLN', 1 if ticker_currency != 'PLN' else holding['auto_fx_fees'], holding['id'])
                         )
                     else:
                         cursor.execute(
-                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, auto_fx_fees, sub_portfolio_id)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                            (portfolio_id, ticker, qty, price, tx_total, ticker_currency, 1 if ticker_currency != 'PLN' else 0, sub_portfolio_id)
+                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, instrument_currency, auto_fx_fees, sub_portfolio_id)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                            (portfolio_id, ticker, qty, price, tx_total, ticker_currency, ticker_currency or 'PLN', 1 if ticker_currency != 'PLN' else 0, sub_portfolio_id)
                         )
                     cursor.execute(
                         '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission, sub_portfolio_id)
@@ -415,7 +415,7 @@ class PortfolioImportService(PortfolioCoreService):
                         new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
                         if new_qty > 0.000001:
                             cursor.execute(
-                                '''UPDATE holdings SET quantity = ?, total_cost = ? WHERE id = ?''',
+                                '''UPDATE holdings SET quantity = ?, total_cost = ?, instrument_currency = COALESCE(instrument_currency, currency, 'PLN') WHERE id = ?''',
                                 (new_qty, new_total_cost, holding['id'])
                             )
                         else:
