@@ -18,6 +18,23 @@ class ImportFileParsingTestCase(unittest.TestCase):
         self.assertEqual(df.iloc[0]['Time'], '2026-03-31 08:42:24')
         self.assertEqual(df.iloc[0]['Amount'], '1,28')
 
+
+    def test_read_import_dataframe_realigns_missing_symbol_header(self):
+        content = (
+            'Type,Instrument,Time,Amount,ID,Comment,Product,\n'
+            'Stock sell,DNP.PL,Dino,2026-03-31 08:42:24,"1,28",1200224326,CLOSE BUY 0.0392/0.0951 @ 32.700,IKE\n'
+        )
+
+        df = _read_import_dataframe(io.BytesIO(content.encode('utf-8')))
+
+        self.assertEqual(df.iloc[0]['Symbol'], 'DNP.PL')
+        self.assertEqual(df.iloc[0]['Instrument'], 'Dino')
+        self.assertEqual(df.iloc[0]['Time'], '2026-03-31 08:42:24')
+        self.assertEqual(df.iloc[0]['Amount'], '1,28')
+        self.assertEqual(df.iloc[0]['ID'], '1200224326')
+        self.assertEqual(df.iloc[0]['Comment'], 'CLOSE BUY 0.0392/0.0951 @ 32.700')
+        self.assertEqual(df.iloc[0]['Product'], 'IKE')
+
     def test_read_import_dataframe_supports_comma_delimiter(self):
         content = (
             'Type,Time,Amount,Comment\n'

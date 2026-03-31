@@ -1,4 +1,5 @@
 import io
+import re
 from typing import Any
 
 import pandas as pd
@@ -8,6 +9,51 @@ from api.exceptions import ApiError, ValidationError
 from api.response import success_response
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
+
+
+
+def _looks_like_datetime(value: Any) -> bool:
+    text = '' if value is None else str(value).strip()
+    return bool(re.fullmatch(r'\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?', text))
+
+
+def _realign_xtb_missing_symbol_header(df: pd.DataFrame) -> pd.DataFrame:
+    required = {'Instrument', 'Time', 'Amount', 'ID', 'Comment', 'Product'}
+    if not required.issubset(set(df.columns)):
+        return df
+
+    sample = df.head(20)
+    time_ratio = sample['Time'].map(_looks_like_datetime).mean()
+    amount_ratio = sample['Amount'].map(_looks_like_datetime).mean()
+
+    if not (time_ratio < 0.2 and amount_ratio > 0.8):
+        return df
+
+    unnamed_candidates = [col for col in df.columns if not str(col).strip() or str(col).startswith('Unnamed')]
+    trailing_col = unnamed_candidates[0] if unnamed_candidates else None
+
+    symbol_series = df['Instrument']
+    instrument_series = df['Time']
+    time_series = df['Amount']
+    amount_series = df['ID']
+    id_series = df['Comment']
+    comment_series = df['Product']
+    product_series = df[trailing_col] if trailing_col is not None else df['Product']
+
+    df = df.copy()
+    df['Symbol'] = symbol_series
+    df['Instrument'] = instrument_series
+    df['Time'] = time_series
+    df['Amount'] = amount_series
+    df['ID'] = id_series
+    df['Comment'] = comment_series
+    df['Product'] = product_series
+
+    if trailing_col is not None:
+        df = df.drop(columns=[trailing_col])
+
+    return df
+
 
 def _read_import_dataframe(file_obj: Any) -> pd.DataFrame:
     raw = file_obj.read()
@@ -31,6 +77,7 @@ def _read_import_dataframe(file_obj: Any) -> pd.DataFrame:
         df = pd.read_csv(buffer, sep='\t', dtype=str)
 
     df.columns = [str(col).strip() for col in df.columns]
+    df = _realign_xtb_missing_symbol_header(df)
     return df
 
 
