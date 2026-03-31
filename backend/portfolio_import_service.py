@@ -12,10 +12,32 @@ class PortfolioImportService(PortfolioCoreService):
     def _try_parse_float(value: Any) -> Optional[float]:
         if value is None:
             return None
+
         text = str(value).strip()
         if not text or text.lower() in {'nan', 'none', 'null'}:
             return None
-        normalized = text.replace('\u00a0', '').replace(' ', '').replace(',', '.')
+
+        # Avoid treating date/time strings as numeric values (e.g. "2026-03-31 08:42:24").
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?', text):
+            return None
+
+        normalized = text.replace('\u00a0', '').replace(' ', '').replace("'", '')
+        normalized = re.sub(r'^[^\d+\-]*', '', normalized)
+        normalized = re.sub(r'[^\d.,+\-]*$', '', normalized)
+        if not normalized:
+            return None
+
+        if ',' in normalized and '.' in normalized:
+            if normalized.rfind(',') > normalized.rfind('.'):
+                normalized = normalized.replace('.', '').replace(',', '.')
+            else:
+                normalized = normalized.replace(',', '')
+        elif ',' in normalized:
+            normalized = normalized.replace(',', '.')
+        elif normalized.count('.') > 1:
+            parts = normalized.split('.')
+            normalized = ''.join(parts[:-1]) + '.' + parts[-1]
+
         try:
             return float(normalized)
         except (TypeError, ValueError):
