@@ -9,6 +9,51 @@ import hashlib
 
 class PortfolioImportService(PortfolioCoreService):
     @staticmethod
+    def _try_parse_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text or text.lower() in {'nan', 'none', 'null'}:
+            return None
+        normalized = text.replace('\u00a0', '').replace(' ', '').replace(',', '.')
+        try:
+            return float(normalized)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _select_column(
+        normalized_columns: dict[str, str],
+        aliases: list[str],
+        df: Optional[pd.DataFrame] = None,
+        numeric_preferred: bool = False,
+    ) -> Optional[str]:
+        candidates: list[str] = []
+        for alias in aliases:
+            col = normalized_columns.get(alias)
+            if col is not None:
+                candidates.append(col)
+
+        if not candidates:
+            return None
+        if len(candidates) == 1 or not numeric_preferred or df is None:
+            return candidates[0]
+
+        best_col = candidates[0]
+        best_score = -1.0
+        for col in candidates:
+            series = df[col].dropna().head(20)
+            if series.empty:
+                continue
+            parseable = sum(1 for value in series if PortfolioImportService._try_parse_float(value) is not None)
+            score = parseable / len(series)
+            if score > best_score:
+                best_score = score
+                best_col = col
+
+        return best_col
+
+    @staticmethod
     def _generate_row_hash(date: str, ticker: str, amount: float, type: str, quantity: float) -> str:
         """Generuje hash dla wiersza transakcji w celu identyfikacji duplikatów."""
         # Normalizacja danych do hasha:
@@ -67,8 +112,6 @@ class PortfolioImportService(PortfolioCoreService):
 
     @staticmethod
     def import_xtb_csv(portfolio_id: int, df: pd.DataFrame, confirmed_hashes: Optional[list[str]] = None, sub_portfolio_id: Optional[int] = None) -> dict[str, Any]:
-        df = df.sort_values('Time')
-
         db = get_db()
         cursor = db.cursor()
         missing_symbols: list[str] = []
@@ -90,16 +133,42 @@ class PortfolioImportService(PortfolioCoreService):
         prepared_transactions = []
 
         normalized_columns = {str(col).strip().lower(): col for col in df.columns}
-        symbol_column = normalized_columns.get('symbol')
-        instrument_column = normalized_columns.get('instrument')
+        time_column = PortfolioImportService._select_column(normalized_columns, ['time', 'date', 'close time'])
+        type_column = PortfolioImportService._select_column(normalized_columns, ['type', 'transaction type'])
+        amount_column = PortfolioImportService._select_column(
+            normalized_columns,
+            ['amount', 'profit', 'p/l', 'profit/loss', 'result'],
+            df=df,
+            numeric_preferred=True,
+        )
+        comment_column = PortfolioImportService._select_column(normalized_columns, ['comment', 'description', 'details'])
+        symbol_column = PortfolioImportService._select_column(normalized_columns, ['symbol'])
+        instrument_column = PortfolioImportService._select_column(normalized_columns, ['instrument'])
+
+        missing_required: list[str] = []
+        if time_column is None:
+            missing_required.append('Time')
+        if type_column is None:
+            missing_required.append('Type')
+        if amount_column is None:
+            missing_required.append('Amount')
+        if missing_required:
+            raise ValueError(f"Missing required columns: {', '.join(missing_required)}")
+
+        df = df.sort_values(time_column)
 
         # ETAP 1: Walidacja i przygotowanie danych
         for idx, row in df.iterrows():
-            typ = row['Type']
+            typ = row[type_column]
             typ_lower = str(typ).strip().lower()
-            time = row['Time']
-            amount = float(str(row['Amount']).replace(',', '.'))
-            comment = str(row['Comment']) if not pd.isna(row['Comment']) else ''
+            time = str(row[time_column]).strip()
+            amount_value = PortfolioImportService._try_parse_float(row[amount_column])
+            if amount_value is None:
+                raise ValueError(f"Invalid numeric value in column '{amount_column}' at row {idx + 1}: {row[amount_column]}")
+            amount = amount_value
+            comment = ''
+            if comment_column is not None and not pd.isna(row[comment_column]):
+                comment = str(row[comment_column])
 
             ticker: Optional[str] = None
             ticker_currency = 'PLN'
