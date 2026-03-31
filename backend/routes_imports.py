@@ -1,3 +1,6 @@
+import io
+from typing import Any
+
 import pandas as pd
 from flask import request
 
@@ -5,6 +8,30 @@ from api.exceptions import ApiError, ValidationError
 from api.response import success_response
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
+
+def _read_import_dataframe(file_obj: Any) -> pd.DataFrame:
+    raw = file_obj.read()
+    if isinstance(raw, str):
+        text = raw
+    else:
+        for encoding in ('utf-8-sig', 'utf-8', 'cp1250', 'latin1'):
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raise UnicodeDecodeError('utf-8', b'', 0, 1, 'Unable to decode import file')
+
+    buffer = io.StringIO(text)
+    df = pd.read_csv(buffer, sep=None, engine='python', dtype=str)
+
+    if len(df.columns) == 1 and '\t' in text:
+        buffer = io.StringIO(text)
+        df = pd.read_csv(buffer, sep='\t', dtype=str)
+
+    df.columns = [str(col).strip() for col in df.columns]
+    return df
 
 
 @portfolio_bp.route('/<int:portfolio_id>/import/xtb', methods=['POST'])
@@ -35,7 +62,7 @@ def import_xtb_csv(portfolio_id):
         raise ValidationError('No selected file', details={'field': 'file'})
 
     try:
-        df = pd.read_csv(file)
+        df = _read_import_dataframe(file)
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as error:
         raise ApiError(
             'xtb_import_invalid_csv',
