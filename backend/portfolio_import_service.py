@@ -5,6 +5,10 @@ from difflib import get_close_matches
 import pandas as pd
 import re
 import hashlib
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioImportService(PortfolioCoreService):
@@ -197,6 +201,15 @@ class PortfolioImportService(PortfolioCoreService):
             tx_ticker = ticker or 'CASH'
             tx_qty = 1.0
             tx_total = abs(amount)
+            if tx_total < 0:
+                raise ValueError(f"Transaction total must be non-negative, got: {tx_total} for row {idx + 1}")
+            logger.debug(
+                "Prepared transaction values row=%s typ=%s amount=%s tx_total=%s",
+                idx + 1,
+                typ_lower,
+                amount,
+                tx_total
+            )
 
             if typ_lower in {'deposit', 'ike deposit'}:
                 tx_type = 'DEPOSIT'
@@ -402,7 +415,7 @@ class PortfolioImportService(PortfolioCoreService):
                     price = tx_total / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (amount, target_portfolio_id)
+                        (tx_total, target_portfolio_id)
                     )
                     holding = cursor.execute(
                         'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'),
