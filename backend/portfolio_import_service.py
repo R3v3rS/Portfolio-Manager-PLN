@@ -68,6 +68,33 @@ class PortfolioImportService(PortfolioCoreService):
         return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
     @staticmethod
+    def _parse_xtb_quantity(comment: str, row_number: int) -> float:
+        normalized_comment = str(comment or '').strip()
+        if not normalized_comment:
+            raise ValueError(f"Could not parse quantity from empty comment at row {row_number}")
+
+        qty_match = re.search(r'@\s*[\d\.,]+\s*$', normalized_comment)
+        prefix = normalized_comment[:qty_match.start()] if qty_match else normalized_comment
+        prefix = re.sub(r'\b(?:OPEN|CLOSE)\b', ' ', prefix, flags=re.IGNORECASE)
+        prefix = re.sub(r'\b(?:BUY|SELL)\b', ' ', prefix, flags=re.IGNORECASE)
+
+        fraction_match = re.search(r'(\d+(?:[.,]\d+)?)\s*/\s*(\d+(?:[.,]\d+)?)', prefix)
+        if fraction_match:
+            qty_text = fraction_match.group(1)
+        else:
+            number_matches = re.findall(r'\d+(?:[.,]\d+)?', prefix)
+            if not number_matches:
+                raise ValueError(f"Could not parse quantity from comment at row {row_number}: {comment}")
+            qty_text = number_matches[-1]
+
+        qty = PortfolioImportService._try_parse_float(qty_text)
+        if qty is None:
+            raise ValueError(f"Invalid quantity value in comment at row {row_number}: {comment}")
+        if qty <= 0:
+            raise ValueError(f"Quantity must be greater than 0 at row {row_number}: {qty}")
+        return qty
+
+    @staticmethod
     def resolve_symbol_mapping(symbol_input: str) -> Optional[SymbolMapping]:
         normalized_symbol = PortfolioImportService._normalize_symbol_input(symbol_input)
         if not normalized_symbol:
@@ -219,16 +246,10 @@ class PortfolioImportService(PortfolioCoreService):
                 tx_type = 'WITHDRAW'
             elif typ_lower == 'stock purchase':
                 tx_type = 'BUY'
-                m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                if not m:
-                    raise ValueError(f"Could not parse purchase comment: {comment}")
-                tx_qty = float(str(m.group(1)).replace(',', '.'))
+                tx_qty = PortfolioImportService._parse_xtb_quantity(comment, idx + 1)
             elif typ_lower == 'stock sell':
                 tx_type = 'SELL'
-                m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                if not m:
-                    raise ValueError(f"Could not parse sell comment: {comment}")
-                tx_qty = float(str(m.group(1)).replace(',', '.'))
+                tx_qty = PortfolioImportService._parse_xtb_quantity(comment, idx + 1)
 
             if not tx_type:
                 continue # Nieobsługiwany typ
