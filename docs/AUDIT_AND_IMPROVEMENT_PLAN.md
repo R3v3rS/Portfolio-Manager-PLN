@@ -1,100 +1,153 @@
-# Audit & Plan Usprawnień – API / Frontend / Backend Integration
+# Documentation Audit and Improvement Plan
 
-**Data aktualizacji:** 2026-03-26  
-**Status:** W trakcie realizacji (Etap 4, aktualizacja po zmianach historii i importu)
+**Date:** 2026-04-02  
+**Status:** Completed documentation audit + remediation plan aligned to current backend behavior.
 
-Ten dokument łączy wcześniejszy audyt integracji oraz plan usprawnień, stanowiąc jedyne źródło prawdy o stanie technicznym i kierunkach rozwoju projektu.
-
----
-
-## 1. Snapshot Stanu Projektu (Audit 2026-03-25)
-
-### 1.1 Status Końcowy
-- **Quality Gate:** Zielony. `npm run lint`, `npm run build`, `npm run check` przechodzą poprawnie.
-- **Backend:** Pełny podział na serwisy domenowe i routery tematyczne zakończony. Dodano dedykowany moduł PPK.
-- **Integracja:** Frontend korzysta z ujednoliconej warstwy API (`api.ts`, `api_budget.ts`, itd.) z normalizacją typów.
-- **Obsługa Błędów:** Wprowadzono ujednolicony system wyjątków (`ApiError`, `ValidationError`, `NotFoundError`) z globalnym handlerem.
-- **Testy:** Istnieją smoke testy krytycznych endpointów oraz testy kontraktu API (envelope `payload/error`).
-- **Historia wartości i zysku:** Końcowy punkt bieżącego miesiąca jest wyrównywany do live wyceny portfela, aby wykres historii był spójny z aktualnym KPI.
-- **Import XTB:** Działa dwuetapowa walidacja duplikatów (w bazie + wewnątrz pliku) z potwierdzaniem konfliktów przez `confirmed_hashes`.
-
-### 1.2 Wyniki Quality Gate
-- **Lint (Frontend):** PASS (0 błędów).
-- **Build (Frontend):** PASS.
-- **Check (TypeScript):** PASS.
-- **Smoke Tests (Backend):** PASS.
-- **API Contract Tests:** PASS.
+This document records: (1) detected documentation defects, (2) root causes, (3) prioritized corrective actions, and (4) technical recommendations.
 
 ---
 
-## 2. Architektura Integracji (Zrealizowane)
+## 1. Audit Scope
+Files audited:
+- `docs/AUDIT_AND_IMPROVEMENT_PLAN.md` (previous version)
+- `docs/PROJECT_GUIDE.md` (previous version)
 
-### 2.1 Warstwa HTTP & API
-- **Frontend:** Centralny klient `http.ts` z obsługą błędów i unwrapem payloadu. Normalizacja DTO (`unknown -> T`) w `api.ts`.
-- **Backend:** Canonical helpers `success_response` i `error_response` w `backend/api/response.py`.
-- **Obsługa Błędów:** Globalny exception handling w `app.py` mapujący wyjątki na ustandaryzowany format JSON.
-- **Kontrakt:** Standard `{ payload: T, error: { code, message, details } }`.
-
-### 2.2 Podział Odpowiedzialności (Backend)
-- **Routery:** Modułowe podejście (`routes_portfolios.py`, `routes_ppk.py`, itd.).
-- **Serwisy:** Rozbite na serwisy domenowe (Core, Trade, Valuation, History, Audit, PPK).
-- **Fasada:** `portfolio_service.py` jako punkt wejścia.
+Reference logic used for alignment:
+- transaction write paths (`deposit/withdraw/buy/sell/dividend/import`)
+- holdings and deterministic rebuild rules
+- parent/child aggregation behavior
+- valuation and FX conversion flows
 
 ---
 
-## 3. Plan Usprawnień (Roadmap)
+## 2. Detected Issues
 
-### Etap 1 — Stabilizacja Podstaw (ZAKOŃCZONY)
-- [x] Minimalny Quality Gate (check, build, compileall).
-- [x] Smoke testy krytycznych endpointów.
-- [x] Testy kontraktu API.
-- [x] Zielony lint na frontendzie.
+## A) Logical errors
 
-### Etap 2 — Ujednolicenie Komunikacji (ZAKOŃCZONY)
-- [x] Wspólny klient HTTP i parser odpowiedzi.
-- [x] Przepięcie głównych ekranów na moduły API.
-- [x] **ZREALIZOWANE:** Rozszerzenie normalizacji danych (mapping `unknown -> DTO`) na wszystkie główne moduły API.
-- [x] **ZREALIZOWANE:** Ujednolicona obsługa błędów na poziomie API (canonical response helpers).
+1. **Ownership model under-specified and partially misleading**  
+   Prior docs did not consistently enforce that transaction ownership is parent-based with child scope in `sub_portfolio_id`.
 
-### Etap 3 — Porządki w Backendzie (ZAKOŃCZONY)
-- [x] Rozbicie `routes.py` na mniejsze moduły.
-- [x] Rozbicie `portfolio_service.py` na serwisy domenowe.
-- [x] Ustandaryzowanie formatu odpowiedzi (envelope).
-- [x] **ZREALIZOWANE:** Globalny mechanizm exception handling w Flask (app.py).
+2. **Aggregation rules were descriptive but not deterministic**  
+   Parent aggregation of holdings was not expressed as an explicit formula (`SUM(total_cost)/SUM(quantity)`).
 
-### Etap 4 — Wydajność i Nowe Funkcjonalności (W TRAKCIE)
-- [x] **Moduł PPK:** Pełna implementacja (backend/frontend) obsługi transakcji, wyników i wyceny PPK.
-- [x] **Optymalizacja Historii:** Wprowadzenie cache'owania metryk historycznych (`_metrics_cache` w `PortfolioHistoryService`).
-- [x] **Walidacja Requestów:** Wprowadzenie `ValidationError` i wstępna walidacja schematów wejściowych w routerach.
-- [x] **Import / Duplikaty:** Dwuetapowy przepływ importu XTB (`warning` -> potwierdzenie konfliktów -> finalny zapis), hashowanie wierszy i detekcja duplikatów (`database_duplicate`, `file_internal_duplicate`).
-- [ ] **Testy Regresji:** Rozszerzenie testów o scenariusze biznesowe (np. skomplikowane cykle kupna/sprzedaży, nadpłaty kredytów).
-- [ ] **E2E Smoke Test:** Automatyczny test przejścia przez główne ścieżki użytkownika.
+3. **Holdings vs transactions source-of-truth ambiguity**  
+   Prior text did not clearly separate transactions as primary ledger and holdings as derived/materialized state.
 
-### Etap 5 — Kontrakt Danych i OpenAPI (PLANOWANE)
-- [ ] Formalna dokumentacja API (OpenAPI/Swagger) — obecnie istnieje zalążek w `docs/openapi.yaml`.
-- [ ] Współdzielenie typów między backendem a frontendem (np. generowanie typów TS z DTO Pythona).
+4. **SELL cost basis rule not explicit**  
+   Documentation lacked an explicit mandatory equation for average-cost reduction during partial sells.
+
+5. **Import quantity parsing edge case undocumented**  
+   XTB fraction parsing behavior (`"1/5" -> 1`) was not documented as a contract.
+
+6. **Cash-flow normalization not stated as hard rule**  
+   Import normalization `tx_total = abs(amount)` was present in code paths but not specified as canonical behavior.
+
+## B) Inconsistencies between documents
+
+1. **Mixed terminology** (`subportfolio`, `sub-portfolio`, parent/main/main scope) without dictionary-level normalization.
+2. **Narrative mismatch**: one doc acted as roadmap/status log, the other as architecture guide, but neither was authoritative for deterministic accounting rules.
+3. **Different granularity**: behavioral formulas appeared in fragments and were absent in corresponding sections in the other document.
+
+## C) Missing critical information
+
+1. Explicit SELL reduction rule:
+   - `total_cost -= sold_qty * avg_price`
+2. Explicit parent aggregated avg formula:
+   - `SUM(total_cost) / SUM(quantity)`
+3. Explicit transaction ownership rule:
+   - `portfolio_id = parent`, `sub_portfolio_id = child scope`
+4. Explicit XTB quantity fraction handling:
+   - `"1/5" -> qty = 1`
+5. Explicit normalization rule:
+   - `tx_total = abs(amount)`
+6. Explicit statement that holdings are rebuildable derived state from ledger transactions.
+7. Risk notes around mixed float/decimal precision boundaries.
+
+## D) Duplications
+
+1. Repeated architecture summaries without deterministic behavioral rules.
+2. Repeated high-level route/service descriptions that did not add operational semantics.
+3. Overlap in history/value narratives that were not linked to precise invariants.
+
+## E) Technical debt / risk areas highlighted by audit
+
+1. **Precision debt (HIGH):** mixed `float` runtime logic and decimal-based audit/rebuild can diverge.
+2. **FX interpretation ambiguity (MEDIUM):** valuation and fee application are deterministic but historical broker-consistent FX mapping is not fully documented end-to-end.
+3. **Aggregation drift risk (MEDIUM):** parent totals assembled in multiple services.
+4. **Rounding accumulation (MEDIUM):** repeated partial sells may create cent-level drift.
+5. **History compute cost (LOW/MEDIUM):** dynamic daily reconstruction can become expensive at scale.
 
 ---
 
-## 4. Priorytety (P1 - P3)
+## 3. Root Cause Analysis
 
-### P1: Jakość Danych i Walidacja
-- Pełna migracja walidacji wejścia na backendzie na dedykowane schematy lub pomocniki rzucające `ValidationError`.
-- Rozszerzenie testów kontraktu na 100% endpointów API.
-- Dodanie testów automatycznych dla importu z konfliktami (w tym przypadków mieszanych: część konfliktów potwierdzona, część odrzucona).
+1. **Documentation intent drift**  
+   Existing docs mixed changelog, roadmap, onboarding, and specification roles in the same pages.
 
-### P2: Typowanie i DTO
-- Usunięcie `any` z modułów API na frontendzie (pozostały nieliczne wystąpienia).
-- Wprowadzenie jawnych interfejsów dla każdej odpowiedzi z backendu.
+2. **Spec-by-narrative, not spec-by-rules**  
+   Critical accounting behavior was described narratively rather than as formulas/invariants.
 
-### P3: Optymalizacja i Monitoring
-- Przyspieszenie generowania historii dziennej (30D/N dni) — dalsza optymalizacja cache'owania.
-- Lepsze logowanie błędów integracji z zewnętrznymi dostawcami (yfinance).
+3. **Insufficient cross-file governance**  
+   No explicit “source of truth” hierarchy between docs caused inconsistent wording and omitted hard constraints.
+
+4. **Backend evolution outpaced docs**  
+   Parent/child and repair/rebuild behavior evolved faster than final documentation cleanup.
 
 ---
 
-## 5. Pozostałe Red Flagi (Do Obserwacji)
-- **Wielkość Chunków:** Build frontendu ostrzega o dużych plikach (potrzebny code splitting).
-- **Zależność od yfinance:** Ryzyko zmian w nieoficjalnym API, wymagany solidny fallback na dane historyczne z bazy.
-- **Brak ORM:** Bezpośrednie zapytania SQL wymagają dużej dyscypliny przy zmianach schematu bazy.
-- **Import CSV i format czasu:** Detekcja duplikatów opiera się na dokładnej zgodności `date/time`; potrzebna ostrożność przy zmianie formatu daty lub strefy czasowej w źródłowych plikach CSV.
+## 4. Prioritized Fix Plan
+
+## HIGH priority (must hold for correctness)
+1. Define canonical ownership model (`portfolio_id` parent + `sub_portfolio_id` child scope).
+2. Define deterministic BUY/SELL formulas including mandatory SELL cost-basis equation.
+3. Define parent aggregation formula for weighted average cost.
+4. Define import normalization and XTB quantity parsing contract.
+5. Establish one authoritative guide as source of truth.
+
+## MEDIUM priority (stability and maintainability)
+1. Normalize terminology across all docs.
+2. Add explicit derived-state statement for holdings and repair/audit behavior.
+3. Document critical edge cases (partial sell, archived child, parent-own + child same ticker).
+4. Record precision/FX/rounding risks and expected mitigation direction.
+
+## LOW priority (future quality improvements)
+1. Add operational examples for API request/response payloads in dedicated API docs.
+2. Add “invariant checklist” section for regression test authors.
+3. Add traceability table mapping each rule to tests.
+
+---
+
+## 5. Implemented Documentation Improvements (this pass)
+
+1. Rewrote `docs/PROJECT_GUIDE.md` into an authoritative specification-oriented guide.
+2. Added deterministic formulas for BUY/SELL/aggregation/cash-flow semantics.
+3. Added explicit ownership and scope model for parent/child behavior.
+4. Added explicit XTB quantity and amount normalization rules.
+5. Added consolidated edge cases and risk register.
+6. Reframed this file into an actionable audit document with root causes and prioritized actions.
+
+---
+
+## 6. Technical Recommendations
+
+1. **Adopt decimal-first accounting policy** (target: eliminate float in book-cost/cash mutation paths).
+2. **Centralize aggregation primitives** (single helper for parent aggregate formulas).
+3. **Introduce invariant-based test suite** for:
+   - parent/child ownership constraints,
+   - partial sell cost basis,
+   - aggregate weighted average,
+   - import quantity and abs-amount normalization.
+4. **Document FX accounting policy explicitly** (transaction-time vs valuation-time conversion fields and rounding).
+5. **Add a doc QA gate** requiring terminology checks and cross-file rule consistency before merge.
+
+---
+
+## 7. Acceptance Criteria for Documentation Quality
+
+Documentation is acceptable when:
+1. All critical accounting behaviors are expressed as explicit formulas/rules.
+2. No contradiction exists between `PROJECT_GUIDE` and audit plan.
+3. Ownership and aggregation semantics are deterministic and testable from text alone.
+4. Critical risks are listed with mitigation direction.
+5. A new maintainer can implement or validate behavior without reading source code first.
+
