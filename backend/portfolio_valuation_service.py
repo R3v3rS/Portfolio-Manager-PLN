@@ -114,22 +114,44 @@ class PortfolioValuationService(PortfolioCoreService):
     def get_cash_balance_on_date(portfolio_id, as_of_date, sub_portfolio_id=None):
         db = get_db()
         if sub_portfolio_id is None:
-            row = db.execute(
-                '''
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
-                        WHEN type = 'WITHDRAW' THEN -total_value
-                        ELSE 0
-                    END
-                ), 0) AS cash_balance
-                FROM transactions
-                WHERE portfolio_id = ?
-                  AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
-                  AND date(date) <= date(?)
-                ''',
-                (portfolio_id, as_of_date),
-            ).fetchone()
+            # Check if this is a parent portfolio
+            portfolio = db.execute('SELECT parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
+            
+            if portfolio and portfolio['parent_portfolio_id'] is None:
+                # It's a parent - aggregate ALL cash transactions for this portfolio_id
+                row = db.execute(
+                    '''
+                    SELECT COALESCE(SUM(
+                        CASE
+                            WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
+                            WHEN type = 'WITHDRAW' THEN -total_value
+                            ELSE 0
+                        END
+                    ), 0) AS cash_balance
+                    FROM transactions
+                    WHERE portfolio_id = ?
+                      AND date(date) <= date(?)
+                    ''',
+                    (portfolio_id, as_of_date),
+                ).fetchone()
+            else:
+                # It's a single/child portfolio (legacy behavior or direct access)
+                row = db.execute(
+                    '''
+                    SELECT COALESCE(SUM(
+                        CASE
+                            WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
+                            WHEN type = 'WITHDRAW' THEN -total_value
+                            ELSE 0
+                        END
+                    ), 0) AS cash_balance
+                    FROM transactions
+                    WHERE portfolio_id = ?
+                      AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
+                      AND date(date) <= date(?)
+                    ''',
+                    (portfolio_id, as_of_date),
+                ).fetchone()
         else:
             row = db.execute(
                 '''
@@ -205,7 +227,7 @@ class PortfolioValuationService(PortfolioCoreService):
         return allocation
 
     @staticmethod
-    def get_holdings(portfolio_id, force_price_refresh=False, sub_portfolio_id=None):
+    def get_holdings(portfolio_id, force_price_refresh=False, sub_portfolio_id=None, aggregate=True):
         db = get_db()
         
         # Check if the provided portfolio_id is actually a child
@@ -225,7 +247,27 @@ class PortfolioValuationService(PortfolioCoreService):
         if actual_sub_portfolio_id is not None:
             holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id = ?', 
                                  (actual_portfolio_id, actual_sub_portfolio_id)).fetchall()
+        elif aggregate:
+            # It's a parent portfolio and we want AGGREGATED view.
+            # Aggregate holdings by ticker and currency.
+            # Sum quantity and calculate weighted average buy price and total cost.
+            holdings = db.execute('''
+                SELECT 
+                    ticker, 
+                    currency,
+                    company_name,
+                    sector,
+                    industry,
+                    SUM(quantity) as quantity,
+                    SUM(total_cost) as total_cost,
+                    CASE WHEN SUM(quantity) > 0 THEN SUM(total_cost) / SUM(quantity) ELSE 0 END as average_buy_price,
+                    MAX(id) as id -- Just for reference
+                FROM holdings 
+                WHERE portfolio_id = ? 
+                GROUP BY ticker, currency
+            ''', (actual_portfolio_id,)).fetchall()
         else:
+            # It's a parent portfolio but we want ONLY its own holdings (where sub_portfolio_id IS NULL)
             holdings = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND sub_portfolio_id IS NULL', 
                                  (actual_portfolio_id,)).fetchall()
             
@@ -630,7 +672,7 @@ class PortfolioValuationService(PortfolioCoreService):
             extra_data = ppk_summary
         else:
             # For standard/IKE, we only get OWN holdings (sub_portfolio_id IS NULL)
-            holdings = PortfolioValuationService.get_holdings(portfolio_id)
+            holdings = PortfolioValuationService.get_holdings(portfolio_id, aggregate=False)
             holdings_value = sum(float(h.get('current_value', 0.0) or 0.0) for h in holdings)
             open_positions_result = sum(float(h.get('profit_loss', 0.0) or 0.0) for h in holdings)
             total_value = current_cash + holdings_value

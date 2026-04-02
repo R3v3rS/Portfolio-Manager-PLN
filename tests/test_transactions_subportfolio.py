@@ -146,9 +146,10 @@ class TransactionsSubportfolioTestCase(unittest.TestCase):
         parent_response = self.client.get(f'/api/portfolio/holdings/{parent_id}')
         self.assertEqual(parent_response.status_code, 200, parent_response.get_json())
         parent_holdings = parent_response.get_json()['payload']['holdings']
-        self.assertEqual(len(parent_holdings), 1)
-        self.assertEqual(parent_holdings[0]['ticker'], 'AAPL')
-        self.assertIsNone(parent_holdings[0]['sub_portfolio_id'])
+        # Parent now sees both its own holdings and child's holdings
+        self.assertEqual(len(parent_holdings), 2)
+        tickers = sorted([h['ticker'] for h in parent_holdings])
+        self.assertEqual(tickers, ['AAPL', 'MSFT'])
 
         child_response = self.client.get(f'/api/portfolio/holdings/{child_id}')
         self.assertEqual(child_response.status_code, 200, child_response.get_json())
@@ -172,7 +173,8 @@ class TransactionsSubportfolioTestCase(unittest.TestCase):
         self.assertGreaterEqual(len(parent_history), 1)
         parent_jan = next((entry for entry in parent_history if entry['date'] == '2026-01'), None)
         self.assertIsNotNone(parent_jan)
-        self.assertEqual(parent_jan['value'], 100.0)
+        # Parent now aggregates all deposits (100 + 300 = 400)
+        self.assertEqual(parent_jan['value'], 400.0)
 
         child_response = self.client.get(f'/api/portfolio/history/monthly/{child_id}')
         self.assertEqual(child_response.status_code, 200, child_response.get_json())
@@ -195,9 +197,11 @@ class TransactionsSubportfolioTestCase(unittest.TestCase):
         parent_response = self.client.get(f'/api/portfolio/{parent_id}/closed-positions')
         self.assertEqual(parent_response.status_code, 200, parent_response.get_json())
         parent_payload = parent_response.get_json()['payload']
-        self.assertEqual(len(parent_payload['positions']), 1)
-        self.assertEqual(parent_payload['positions'][0]['ticker'], 'AAPL')
-        self.assertEqual(parent_payload['total_historical_profit'], 200.0)
+        # Parent now aggregates closed positions from child too
+        self.assertEqual(len(parent_payload['positions']), 2)
+        tickers = sorted([p['ticker'] for p in parent_payload['positions']])
+        self.assertEqual(tickers, ['AAPL', 'MSFT'])
+        self.assertEqual(parent_payload['total_historical_profit'], 700.0)
 
         child_response = self.client.get(f'/api/portfolio/{child_id}/closed-positions')
         self.assertEqual(child_response.status_code, 200, child_response.get_json())
