@@ -102,6 +102,20 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             self.assertIn('details', error, f'{route_key} error missing details: {body!r}')
             self.assertIsInstance(error['details'], dict, f'{route_key} error details must be an object: {body!r}')
 
+    def assert_monitoring_contract(self, response, route_key):
+        route, _method = route_key
+        if route == '/monitoring':
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('text/html', response.content_type)
+            self.assertIn(b'<!DOCTYPE html>', response.data)
+            return
+
+        self.assertEqual(route, '/monitoring/stats')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_json, f'{route_key} did not return JSON: {response.status_code} {response.data!r}')
+        body = response.get_json()
+        self.assertIsInstance(body, dict, f'{route_key} did not return a JSON object: {body!r}')
+
     def create_budget_account(self, name, balance):
         with self.app.app_context():
             db = get_db()
@@ -236,6 +250,46 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 'pricePerUnit': 45.0,
             },
         )
+
+        create_child_response = self.client.post(
+            f'/api/portfolio/{self.portfolio_id}/children',
+            json={'name': 'Child Portfolio', 'initial_cash': 5.0, 'created_at': '2026-03-07'},
+        )
+        self.assertEqual(create_child_response.status_code, 201, create_child_response.get_json())
+        self.assert_contract(create_child_response, ('/api/portfolio/<int:parent_id>/children', 'POST'))
+        child_portfolio_id = create_child_response.get_json()['payload']['id']
+
+        transfer_response = self.client.post(
+            '/api/portfolio/transfer/cash',
+            json={
+                'from_portfolio_id': self.portfolio_id,
+                'to_portfolio_id': self.portfolio_id,
+                'to_sub_portfolio_id': child_portfolio_id,
+                'amount': 2.0,
+                'date': '2026-03-08',
+                'note': 'contract transfer seed',
+            },
+        )
+        self.assertEqual(transfer_response.status_code, 200, transfer_response.get_json())
+        self.assert_contract(transfer_response, ('/api/portfolio/transfer/cash', 'POST'))
+        transfer_payload = transfer_response.get_json()['payload']
+        transfer_id = transfer_payload['transfer_id']
+        transfer_job_id = transfer_payload['job_id']
+
+        with self.app.app_context():
+            db = get_db()
+            buy_transactions = db.execute(
+                '''
+                SELECT id
+                FROM transactions
+                WHERE portfolio_id = ? AND type = 'BUY'
+                ORDER BY id ASC
+                ''',
+                (self.portfolio_id,),
+            ).fetchall()
+            assign_transaction_id = buy_transactions[0]['id']
+            assign_bulk_transaction_ids = [row['id'] for row in buy_transactions[:2]]
+
         self.add_watchlist_ticker('AAPL')
 
         return {
@@ -372,6 +426,9 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/portfolio/<int:portfolio_id>/audit', 'GET'): lambda: self.client.get(
                 f'/api/portfolio/{self.portfolio_id}/audit'
             ),
+            ('/api/portfolio/<int:portfolio_id>/archive', 'POST'): lambda: self.client.post(
+                f'/api/portfolio/{child_portfolio_id}/archive'
+            ),
             ('/api/portfolio/<int:portfolio_id>/clear', 'POST'): lambda: self.client.post(
                 f'/api/portfolio/{self.create_disposable_portfolio()}/clear'
             ),
@@ -392,6 +449,17 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/portfolio/<int:portfolio_id>/rebuild', 'POST'): lambda: self.client.post(
                 f'/api/portfolio/{self.portfolio_id}/rebuild'
             ),
+            ('/api/portfolio/<int:parent_id>/children', 'POST'): lambda: self.client.post(
+                f'/api/portfolio/{self.portfolio_id}/children',
+                json={'name': 'Contract Child', 'initial_cash': 3.0, 'created_at': '2026-03-23'},
+            ),
+            ('/api/portfolio/admin/price-history-audit', 'GET'): lambda: self.client.get(
+                '/api/portfolio/admin/price-history-audit'
+            ),
+            ('/api/portfolio/allocation/<int:portfolio_id>', 'GET'): lambda: self.client.get(
+                f'/api/portfolio/allocation/{self.portfolio_id}'
+            ),
+            ('/api/portfolio/audit/consistency', 'GET'): lambda: self.client.get('/api/portfolio/audit/consistency'),
             ('/api/portfolio/bonds', 'POST'): lambda: self.client.post(
                 '/api/portfolio/bonds',
                 json={
@@ -424,6 +492,7 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                     'created_at': '2026-03-17',
                 },
             ),
+            ('/api/portfolio/config', 'GET'): lambda: self.client.get('/api/portfolio/config'),
             ('/api/portfolio/deposit', 'POST'): lambda: self.client.post(
                 '/api/portfolio/deposit',
                 json={'portfolio_id': self.portfolio_id, 'amount': 200.0, 'date': '2026-03-18'},
@@ -458,6 +527,12 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ),
             ('/api/portfolio/limits', 'GET'): lambda: self.client.get('/api/portfolio/limits'),
             ('/api/portfolio/list', 'GET'): lambda: self.client.get('/api/portfolio/list'),
+            ('/api/portfolio/jobs/<string:job_id>', 'GET'): lambda: self.client.get(
+                f'/api/portfolio/jobs/{transfer_job_id}'
+            ),
+            ('/api/portfolio/ppk/performance/<int:portfolio_id>', 'GET'): lambda: self.client.get(
+                f'/api/portfolio/ppk/performance/{self.ppk_portfolio_id}?fund_id=61777738'
+            ),
             ('/api/portfolio/ppk/transactions', 'POST'): lambda: self.client.post(
                 '/api/portfolio/ppk/transactions',
                 json={
@@ -492,7 +567,28 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/portfolio/transactions/<int:portfolio_id>', 'GET'): lambda: self.client.get(
                 f'/api/portfolio/transactions/{self.portfolio_id}'
             ),
+            ('/api/portfolio/transactions/<int:transaction_id>/assign', 'PUT'): lambda: self.client.put(
+                f'/api/portfolio/transactions/{assign_transaction_id}/assign',
+                json={'sub_portfolio_id': child_portfolio_id},
+            ),
             ('/api/portfolio/transactions/all', 'GET'): lambda: self.client.get('/api/portfolio/transactions/all'),
+            ('/api/portfolio/transactions/assign-bulk', 'POST'): lambda: self.client.post(
+                '/api/portfolio/transactions/assign-bulk',
+                json={'transaction_ids': assign_bulk_transaction_ids, 'sub_portfolio_id': child_portfolio_id},
+            ),
+            ('/api/portfolio/transfer/cash', 'POST'): lambda: self.client.post(
+                '/api/portfolio/transfer/cash',
+                json={
+                    'from_portfolio_id': self.portfolio_id,
+                    'to_portfolio_id': self.portfolio_id,
+                    'to_sub_portfolio_id': child_portfolio_id,
+                    'amount': 1.0,
+                    'date': '2026-03-23',
+                },
+            ),
+            ('/api/portfolio/transfer/cash/<string:transfer_id>', 'DELETE'): lambda: self.client.delete(
+                f'/api/portfolio/transfer/cash/{transfer_id}'
+            ),
             ('/api/portfolio/value/<int:portfolio_id>', 'GET'): lambda: self.client.get(
                 f'/api/portfolio/value/{self.portfolio_id}'
             ),
@@ -505,6 +601,8 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/radar/refresh', 'POST'): lambda: self.client.post('/api/radar/refresh', json={}),
             ('/api/radar/watchlist', 'POST'): lambda: self.client.post('/api/radar/watchlist', json={'ticker': 'MSFT'}),
             ('/api/radar/watchlist/<ticker>', 'DELETE'): lambda: self.client.delete('/api/radar/watchlist/AAPL'),
+            ('/monitoring', 'GET'): lambda: self.client.get('/monitoring'),
+            ('/monitoring/stats', 'GET'): lambda: self.client.get('/monitoring/stats'),
             ('/api/symbol-map', 'GET'): lambda: self.client.get('/api/symbol-map'),
             ('/api/symbol-map', 'POST'): lambda: self.client.post(
                 '/api/symbol-map',
@@ -520,6 +618,9 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
         }
 
     def test_all_registered_endpoints_follow_the_api_contract(self):
+        # Guard rail:
+        # this intentionally covers every registered Flask route (except static),
+        # so every new @route must be reflected in contract_request_builders.
         expected_routes = {
             (rule.rule, method)
             for rule in self.app.url_map.iter_rules()
@@ -536,7 +637,10 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
         for route_key, request_builder in sorted(self.contract_request_builders.items()):
             with self.subTest(route=route_key):
                 response = request_builder()
-                self.assert_contract(response, route_key)
+                if route_key[0].startswith('/monitoring'):
+                    self.assert_monitoring_contract(response, route_key)
+                else:
+                    self.assert_contract(response, route_key)
 
 
 if __name__ == '__main__':
