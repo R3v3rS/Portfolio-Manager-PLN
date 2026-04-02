@@ -121,8 +121,9 @@ class TransactionsSubportfolioTestCase(unittest.TestCase):
         parent_response = self.client.get(f'/api/portfolio/transactions/{parent_id}')
         self.assertEqual(parent_response.status_code, 200, parent_response.get_json())
         parent_txs = parent_response.get_json()['payload']['transactions']
-        self.assertEqual([tx['ticker'] for tx in parent_txs], ['AAPL', 'CASH'])
-        self.assertTrue(all(tx['sub_portfolio_id'] is None for tx in parent_txs))
+        self.assertEqual([tx['ticker'] for tx in parent_txs], ['MSFT', 'AAPL', 'CASH'])
+        self.assertEqual(parent_txs[0]['sub_portfolio_id'], child_id)
+        self.assertTrue(all(tx['portfolio_id'] == parent_id for tx in parent_txs))
 
         child_response = self.client.get(f'/api/portfolio/transactions/{child_id}')
         self.assertEqual(child_response.status_code, 200, child_response.get_json())
