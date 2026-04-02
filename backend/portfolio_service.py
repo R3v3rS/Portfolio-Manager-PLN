@@ -29,8 +29,17 @@ class PortfolioService(
             where_clause = 't.portfolio_id = ? AND t.sub_portfolio_id = ?'
             params = [portfolio['parent_portfolio_id'], portfolio['id']]
         else:
-            where_clause = 't.portfolio_id = ? AND t.sub_portfolio_id IS NULL'
+            where_clause = '''
+                t.portfolio_id = ?
+                AND (
+                    t.sub_portfolio_id IS NULL
+                    OR t.sub_portfolio_id IN (
+                        SELECT id FROM portfolios WHERE parent_portfolio_id = ?
+                    )
+                )
+            '''
             params = [portfolio['id']]
+            params.append(portfolio['id'])
 
         query = '''
             SELECT t.*, sp.name as sub_portfolio_name
