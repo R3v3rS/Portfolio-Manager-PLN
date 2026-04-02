@@ -35,6 +35,22 @@ class PortfolioImportServiceHelpersTestCase(unittest.TestCase):
 
         self.assertEqual(selected, 'Profit')
 
+    def test_parse_xtb_quantity_standard_format(self):
+        qty = PortfolioImportService._parse_xtb_quantity('OPEN BUY 0.0089 @ 32.660', 1)
+        self.assertEqual(qty, 0.0089)
+
+    def test_parse_xtb_quantity_fractional_close_uses_numerator_only(self):
+        qty = PortfolioImportService._parse_xtb_quantity('CLOSE BUY 1/5 @ 35.000', 2)
+        self.assertEqual(qty, 1.0)
+
+    def test_parse_xtb_quantity_handles_spaces_and_commas(self):
+        qty = PortfolioImportService._parse_xtb_quantity(' CLOSE  BUY   1,25 / 10 @ 35,000 ', 3)
+        self.assertEqual(qty, 1.25)
+
+    def test_parse_xtb_quantity_raises_for_invalid_comment(self):
+        with self.assertRaisesRegex(ValueError, 'Could not parse quantity'):
+            PortfolioImportService._parse_xtb_quantity('OPEN BUY @ 32.660', 4)
+
 
 if __name__ == '__main__':
     unittest.main()

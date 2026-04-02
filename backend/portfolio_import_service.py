@@ -5,6 +5,10 @@ from difflib import get_close_matches
 import pandas as pd
 import re
 import hashlib
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioImportService(PortfolioCoreService):
@@ -62,6 +66,33 @@ class PortfolioImportService(PortfolioCoreService):
         # - ticker i typ wielkimi literami
         payload = f"{date}|{ticker.strip().upper()}|{amount:.2f}|{type.strip().upper()}|{quantity:.8f}"
         return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def _parse_xtb_quantity(comment: str, row_number: int) -> float:
+        normalized_comment = str(comment or '').strip()
+        if not normalized_comment:
+            raise ValueError(f"Could not parse quantity from empty comment at row {row_number}")
+
+        qty_match = re.search(r'@\s*[\d\.,]+\s*$', normalized_comment)
+        prefix = normalized_comment[:qty_match.start()] if qty_match else normalized_comment
+        prefix = re.sub(r'\b(?:OPEN|CLOSE)\b', ' ', prefix, flags=re.IGNORECASE)
+        prefix = re.sub(r'\b(?:BUY|SELL)\b', ' ', prefix, flags=re.IGNORECASE)
+
+        fraction_match = re.search(r'(\d+(?:[.,]\d+)?)\s*/\s*(\d+(?:[.,]\d+)?)', prefix)
+        if fraction_match:
+            qty_text = fraction_match.group(1)
+        else:
+            number_matches = re.findall(r'\d+(?:[.,]\d+)?', prefix)
+            if not number_matches:
+                raise ValueError(f"Could not parse quantity from comment at row {row_number}: {comment}")
+            qty_text = number_matches[-1]
+
+        qty = PortfolioImportService._try_parse_float(qty_text)
+        if qty is None:
+            raise ValueError(f"Invalid quantity value in comment at row {row_number}: {comment}")
+        if qty <= 0:
+            raise ValueError(f"Quantity must be greater than 0 at row {row_number}: {qty}")
+        return qty
 
     @staticmethod
     def resolve_symbol_mapping(symbol_input: str) -> Optional[SymbolMapping]:
@@ -197,6 +228,15 @@ class PortfolioImportService(PortfolioCoreService):
             tx_ticker = ticker or 'CASH'
             tx_qty = 1.0
             tx_total = abs(amount)
+            if tx_total < 0:
+                raise ValueError(f"Transaction total must be non-negative, got: {tx_total} for row {idx + 1}")
+            logger.debug(
+                "Prepared transaction values row=%s typ=%s amount=%s tx_total=%s",
+                idx + 1,
+                typ_lower,
+                amount,
+                tx_total
+            )
 
             if typ_lower in {'deposit', 'ike deposit'}:
                 tx_type = 'DEPOSIT'
@@ -206,16 +246,10 @@ class PortfolioImportService(PortfolioCoreService):
                 tx_type = 'WITHDRAW'
             elif typ_lower == 'stock purchase':
                 tx_type = 'BUY'
-                m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                if not m:
-                    raise ValueError(f"Could not parse purchase comment: {comment}")
-                tx_qty = float(str(m.group(1)).replace(',', '.'))
+                tx_qty = PortfolioImportService._parse_xtb_quantity(comment, idx + 1)
             elif typ_lower == 'stock sell':
                 tx_type = 'SELL'
-                m = re.search(r'(?:OPEN|CLOSE) BUY ([\d\.,]+)(?:/[\d\.,]+)? @ ([\d\.,]+)', comment)
-                if not m:
-                    raise ValueError(f"Could not parse sell comment: {comment}")
-                tx_qty = float(str(m.group(1)).replace(',', '.'))
+                tx_qty = PortfolioImportService._parse_xtb_quantity(comment, idx + 1)
 
             if not tx_type:
                 continue # Nieobsługiwany typ
@@ -402,7 +436,7 @@ class PortfolioImportService(PortfolioCoreService):
                     price = tx_total / qty if qty else 0.0
                     cursor.execute(
                         'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (amount, target_portfolio_id)
+                        (tx_total, target_portfolio_id)
                     )
                     holding = cursor.execute(
                         'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'),
