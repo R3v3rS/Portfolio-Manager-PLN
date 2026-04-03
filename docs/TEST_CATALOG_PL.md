@@ -209,3 +209,19 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 2. Backend concurrency + idempotencja dla operacji finansowych.
 3. Rozszerzenie contract/error tests na pełną mapę endpointów.
 4. E2E smoke (minimum) i testy wydajnościowe historii/wyceny.
+
+### `tests/test_cash_consistency.py`
+- `test_cash_consistency_after_operations` — Tier 1: weryfikuje spójność gotówki po sekwencji `DEPOSIT -> BUY -> SELL -> WITHDRAW` (kierunek wpływu BUY/SELL oraz brak driftu salda).
+
+### `tests/test_aggregation_parent_child.py`
+- `test_parent_equals_sum_of_children` — Tier 1: sprawdza zgodność wyceny parenta z sumą child oraz agregację holdings (`SUM(qty)`, `SUM(cost)`, średnia cena).
+
+### `tests/test_rebuild_consistency.py`
+- `test_rebuild_matches_holdings_state` — Tier 1: porównuje snapshot `holdings` z wynikiem deterministycznego rebuilda z tabeli `transactions` (ilość, koszt całkowity, średnia cena).
+
+### `tests/test_idempotency.py`
+- `test_buy_idempotency` — Tier 1: retry tego samego BUY (endpoint) nie powinien podwajać pozycji.
+- `test_import_idempotency` — Tier 1: dwukrotny import identycznego CSV nie powinien duplikować transakcji ani zmieniać holdings po drugim imporcie.
+
+### `tests/test_history_consistency.py`
+- `test_history_matches_current_portfolio_value` — Tier 1: ostatni punkt historii dziennej ma być równy bieżącej wartości portfela, bez użycia cen z przyszłości i przy poprawnym kapitale wpłaconym netto.
