@@ -6,6 +6,7 @@ from portfolio_trade_service import PortfolioTradeService
 from portfolio_valuation_service import PortfolioValuationService
 from inflation_service import InflationService
 import logging
+from bisect import bisect_right
 
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,36 @@ logger = logging.getLogger(__name__)
 
 class PortfolioHistoryService(PortfolioCoreService):
     _metrics_cache = {}
+
+    @staticmethod
+    def _to_date(value):
+        if isinstance(value, datetime):
+            return value.date()
+        raw = str(value).split(' ')[0].split('T')[0]
+        return datetime.strptime(raw, '%Y-%m-%d').date()
+
+    @staticmethod
+    def _build_price_lookup(price_history):
+        indexed = {}
+        for ticker, history in price_history.items():
+            if not history:
+                indexed[ticker] = ([], [])
+                continue
+            dates = sorted(history.keys())
+            prices = [history[d] for d in dates]
+            indexed[ticker] = (dates, prices)
+
+        def get_price_at_date(ticker, target_date):
+            dates, prices = indexed.get(ticker, ([], []))
+            if not dates:
+                return 0
+            target_str = target_date.strftime('%Y-%m-%d')
+            idx = bisect_right(dates, target_str) - 1
+            if idx < 0:
+                return 0
+            return prices[idx]
+
+        return get_price_at_date
 
     @staticmethod
     def clear_cache(portfolio_id=None):
@@ -137,46 +168,49 @@ class PortfolioHistoryService(PortfolioCoreService):
         inf_series = InflationService.get_inflation_series(start_date.strftime('%Y-%m'), today.strftime('%Y-%m'))
         inflation_map = {item['date']: item['index_value'] for item in inf_series}
 
+        get_market_price_at_date = PortfolioHistoryService._build_price_lookup(price_history)
+        inflation_months = sorted(inflation_map.keys())
+
         def get_price_at_date(ticker, target_date):
             if ticker == '__INFLATION__':
                 month_key = target_date.strftime('%Y-%m')
-                if month_key in inflation_map:
-                    return inflation_map[month_key]
-                past_months = sorted([m for m in inflation_map.keys() if m <= month_key])
-                if past_months:
-                    return inflation_map[past_months[-1]]
-                return 0
-
-            if ticker not in price_history or not price_history[ticker]:
-                return 0
-            target_str = target_date.strftime('%Y-%m-%d')
-            if target_str in price_history[ticker]:
-                return price_history[ticker][target_str]
-            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
-            if past_dates:
-                return price_history[ticker][max(past_dates)]
-            return 0
+                idx = bisect_right(inflation_months, month_key) - 1
+                if idx < 0:
+                    return 0
+                return inflation_map[inflation_months[idx]]
+            return get_market_price_at_date(ticker, target_date)
 
         monthly_data = {}
+        normalized_transactions = []
+        for t in transactions:
+            normalized_transactions.append({
+                'date': PortfolioHistoryService._to_date(t['date']),
+                'type': t['type'],
+                'ticker': t['ticker'],
+                'quantity': float(t['quantity']),
+                'total_value': float(t['total_value']),
+            })
+
+        tx_idx = 0
+        tx_count = len(normalized_transactions)
+        current_cash = 0.0
+        invested_capital = 0.0
+        holdings_qty = {}
+        benchmark_shares = 0.0
+        inflation_shares = 0.0
         for end_date in month_ends:
-            current_cash = 0.0
-            invested_capital = 0.0
-            holdings_qty = {}
-            benchmark_shares = 0.0
-            inflation_shares = 0.0
-            for t in transactions:
-                t_date_str = str(t['date']).split(' ')[0].split('T')[0]
-                t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
-                if t_date > end_date:
-                    continue
-                t_val = float(t['total_value'])
-                t_qty = float(t['quantity'])
+            while tx_idx < tx_count and normalized_transactions[tx_idx]['date'] <= end_date:
+                t = normalized_transactions[tx_idx]
+                t_date = t['date']
+                t_val = t['total_value']
+                t_qty = t['quantity']
                 t_ticker = t['ticker']
-                if t['type'] in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
+                t_type = t['type']
+                if t_type in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
                     current_cash += t_val
-                elif t['type'] in ['WITHDRAW', 'BUY']:
+                elif t_type in ['WITHDRAW', 'BUY']:
                     current_cash -= t_val
-                if t['type'] == 'DEPOSIT':
+                if t_type == 'DEPOSIT':
                     invested_capital += t_val
                     if benchmark_ticker and benchmark_ticker != '__INFLATION__':
                         bp = get_price_at_date(benchmark_ticker, t_date)
@@ -187,7 +221,7 @@ class PortfolioHistoryService(PortfolioCoreService):
                     if ip > 0:
                         inflation_shares += (t_val / ip)
 
-                elif t['type'] == 'WITHDRAW':
+                elif t_type == 'WITHDRAW':
                     invested_capital -= t_val
                     if benchmark_ticker and benchmark_ticker != '__INFLATION__':
                         bp = get_price_at_date(benchmark_ticker, t_date)
@@ -199,10 +233,11 @@ class PortfolioHistoryService(PortfolioCoreService):
                         inflation_shares -= (t_val / ip)
                 
                 if t_ticker != 'CASH':
-                    if t['type'] == 'BUY':
+                    if t_type == 'BUY':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
-                    elif t['type'] == 'SELL':
+                    elif t_type == 'SELL':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
+                tx_idx += 1
 
             holdings_value = 0.0
             if account_type not in ['SAVINGS', 'BONDS']:
@@ -328,43 +363,44 @@ class PortfolioHistoryService(PortfolioCoreService):
             portfolio_id, tickers, start_date, account_type
         )
 
-        def get_price_at_date(ticker, target_date):
-            if ticker not in price_history or not price_history[ticker]:
-                return 0
-            target_str = target_date.strftime('%Y-%m-%d')
-            if target_str in price_history[ticker]:
-                return price_history[ticker][target_str]
-            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
-            if past_dates:
-                return price_history[ticker][max(past_dates)]
-            return 0
+        get_price_at_date = PortfolioHistoryService._build_price_lookup(price_history)
 
         result = []
+        normalized_transactions = []
+        for t in transactions:
+            normalized_transactions.append({
+                'date': PortfolioHistoryService._to_date(t['date']),
+                'type': t['type'],
+                'ticker': t['ticker'],
+                'quantity': float(t['quantity']),
+                'total_value': float(t['total_value']),
+            })
+        tx_idx = 0
+        tx_count = len(normalized_transactions)
+        current_cash = 0.0
+        invested_capital = 0.0
+        holdings_qty = {}
         for point_date in date_points:
-            current_cash = 0.0
-            invested_capital = 0.0
-            holdings_qty = {}
-            for t in transactions:
-                t_date_str = str(t['date']).split(' ')[0].split('T')[0]
-                t_date = datetime.strptime(t_date_str, '%Y-%m-%d').date()
-                if t_date > point_date:
-                    continue
-                t_val = float(t['total_value'])
-                t_qty = float(t['quantity'])
+            while tx_idx < tx_count and normalized_transactions[tx_idx]['date'] <= point_date:
+                t = normalized_transactions[tx_idx]
+                t_val = t['total_value']
+                t_qty = t['quantity']
                 t_ticker = t['ticker']
-                if t['type'] in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
+                t_type = t['type']
+                if t_type in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
                     current_cash += t_val
-                elif t['type'] in ['WITHDRAW', 'BUY']:
+                elif t_type in ['WITHDRAW', 'BUY']:
                     current_cash -= t_val
-                if t['type'] == 'DEPOSIT':
+                if t_type == 'DEPOSIT':
                     invested_capital += t_val
-                elif t['type'] == 'WITHDRAW':
+                elif t_type == 'WITHDRAW':
                     invested_capital -= t_val
                 if t_ticker != 'CASH':
-                    if t['type'] == 'BUY':
+                    if t_type == 'BUY':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) + t_qty
-                    elif t['type'] == 'SELL':
+                    elif t_type == 'SELL':
                         holdings_qty[t_ticker] = holdings_qty.get(t_ticker, 0.0) - t_qty
+                tx_idx += 1
 
             total_value = current_cash
             if account_type not in ['SAVINGS', 'BONDS']:
