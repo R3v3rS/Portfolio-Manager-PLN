@@ -239,7 +239,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
                 'total_value': 10.0,
                 'date': (start + timedelta(days=i % points)).isoformat(),
             })
-        price_lookup = PortfolioHistoryService._build_price_lookup({})
+        price_index = PortfolioHistoryService._build_sorted_price_index({})
         date_points = [start + timedelta(days=i) for i in range(points)]
 
         legacy_start = perf_counter()
@@ -254,15 +254,123 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         tx_idx = 0
         ordered = sorted(transactions, key=lambda x: x['date'])
         _cash = 0.0
+        cache = {}
         for point in date_points:
             while tx_idx < len(ordered) and date.fromisoformat(ordered[tx_idx]['date']) <= point:
                 _cash += ordered[tx_idx]['total_value']
                 tx_idx += 1
-            _ = price_lookup('NONE', point)
+            _ = PortfolioHistoryService._price_at(price_index, 'NONE', point, cache)
         rolling_elapsed = perf_counter() - rolling_start
         print(f"time_before={legacy_elapsed:.6f}s time_after={rolling_elapsed:.6f}s")
 
         self.assertLess(rolling_elapsed, legacy_elapsed)
+
+    @patch('portfolio_history_service.date')
+    @patch('portfolio_history_service.PortfolioValuationService.get_portfolio_value', return_value=None)
+    @patch('portfolio_history_service.PortfolioHistoryService._build_price_context')
+    @patch('portfolio_history_service.get_db')
+    def test_long_sparse_daily_history(self, mock_get_db, mock_build_price_context, _mock_live, mock_date):
+        fixed_today = date(2026, 4, 3)
+        mock_date.today.return_value = fixed_today
+        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+        portfolio_row = {'id': 11, 'account_type': 'STANDARD', 'parent_portfolio_id': None}
+        transactions = [{'id': 1, 'ticker': 'CASH', 'type': 'DEPOSIT', 'quantity': 0, 'total_value': 1000, 'date': '2023-01-01'}]
+        db = MagicMock()
+        mock_get_db.return_value = db
+        p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
+        t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
+        db.execute.side_effect = [p_cur, t_cur]
+        mock_build_price_context.return_value = ({}, {})
+
+        data = PortfolioHistoryService.get_portfolio_profit_history_daily(11, days=365, metric='value')
+        self.assertEqual(len(data), 365)
+        self.assertTrue(all(item['value'] == 1000 for item in data))
+
+    @patch('portfolio_history_service.date')
+    @patch('portfolio_history_service.PortfolioValuationService.get_portfolio_value', return_value=None)
+    @patch('portfolio_history_service.PortfolioHistoryService._build_price_context')
+    @patch('portfolio_history_service.get_db')
+    def test_multi_ticker_daily_runs_and_returns_points(self, mock_get_db, mock_build_price_context, _mock_live, mock_date):
+        fixed_today = date(2026, 4, 3)
+        mock_date.today.return_value = fixed_today
+        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+        portfolio_row = {'id': 12, 'account_type': 'STANDARD', 'parent_portfolio_id': None}
+        tickers = [f"T{i}" for i in range(25)]
+        transactions = [{'id': 1, 'ticker': 'CASH', 'type': 'DEPOSIT', 'quantity': 0, 'total_value': 50000, 'date': '2026-01-01'}]
+        tx_id = 2
+        for i, ticker in enumerate(tickers):
+            transactions.append({'id': tx_id, 'ticker': ticker, 'type': 'BUY', 'quantity': 1, 'total_value': 100 + i, 'date': '2026-01-02'})
+            tx_id += 1
+        db = MagicMock()
+        mock_get_db.return_value = db
+        p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
+        t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
+        db.execute.side_effect = [p_cur, t_cur]
+        price_history = {ticker: {'2026-01-02': 100 + i, '2026-04-03': 110 + i} for i, ticker in enumerate(tickers)}
+        mock_build_price_context.return_value = ({ticker: 'PLN' for ticker in tickers}, price_history)
+
+        data = PortfolioHistoryService.get_portfolio_profit_history_daily(12, days=90, metric='value')
+        self.assertEqual(len(data), 90)
+        self.assertGreater(data[-1]['value'], data[0]['value'])
+
+    @patch('portfolio_history_service.date')
+    @patch('portfolio_history_service.PortfolioValuationService.get_portfolio_value', return_value=None)
+    @patch('portfolio_history_service.PortfolioHistoryService._build_price_context')
+    @patch('portfolio_history_service.get_db')
+    def test_fx_consistency_uses_latest_rate_without_future_leakage(self, mock_get_db, mock_build_price_context, _mock_live, mock_date):
+        fixed_today = date(2026, 4, 3)
+        mock_date.today.return_value = fixed_today
+        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+        portfolio_row = {'id': 13, 'account_type': 'STANDARD', 'parent_portfolio_id': None}
+        transactions = [
+            {'id': 1, 'ticker': 'CASH', 'type': 'DEPOSIT', 'quantity': 0, 'total_value': 1000, 'date': '2026-03-25'},
+            {'id': 2, 'ticker': 'ABC', 'type': 'BUY', 'quantity': 1, 'total_value': 1000, 'date': '2026-03-25'},
+        ]
+        db = MagicMock()
+        mock_get_db.return_value = db
+        p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
+        t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
+        db.execute.side_effect = [p_cur, t_cur]
+        price_history = {
+            'ABC': {'2026-03-25': 100, '2026-04-03': 100},
+            'USDPLN=X': {'2026-03-25': 4.0, '2026-03-30': 4.2, '2026-04-03': 4.1},
+        }
+        mock_build_price_context.return_value = ({'ABC': 'USD'}, price_history)
+        data = PortfolioHistoryService.get_portfolio_profit_history_daily(13, days=10, metric='value')
+        day_2026_03_29 = [x for x in data if x['date'] == '2026-03-29'][0]
+        day_2026_03_31 = [x for x in data if x['date'] == '2026-03-31'][0]
+        expected_29 = 100 * 4.0 - PortfolioTradeService._calculate_fx_fee(100 * 4.0, 'USD')
+        expected_31 = 100 * 4.2 - PortfolioTradeService._calculate_fx_fee(100 * 4.2, 'USD')
+        self.assertAlmostEqual(day_2026_03_29['value'], expected_29, places=2)
+        self.assertAlmostEqual(day_2026_03_31['value'], expected_31, places=2)
+
+    @patch('portfolio_history_service.date')
+    @patch('portfolio_history_service.PortfolioValuationService.get_portfolio_value', return_value=None)
+    @patch('portfolio_history_service.PortfolioHistoryService._build_price_context')
+    @patch('portfolio_history_service.get_db')
+    def test_buy_before_window_sell_inside_window(self, mock_get_db, mock_build_price_context, _mock_live, mock_date):
+        fixed_today = date(2026, 4, 3)
+        mock_date.today.return_value = fixed_today
+        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+        portfolio_row = {'id': 14, 'account_type': 'STANDARD', 'parent_portfolio_id': None}
+        transactions = [
+            {'id': 1, 'ticker': 'CASH', 'type': 'DEPOSIT', 'quantity': 0, 'total_value': 1000, 'date': '2026-03-15'},
+            {'id': 2, 'ticker': 'AAA', 'type': 'BUY', 'quantity': 10, 'total_value': 500, 'date': '2026-03-16'},
+            {'id': 3, 'ticker': 'AAA', 'type': 'SELL', 'quantity': 4, 'total_value': 240, 'date': '2026-04-01'},
+        ]
+        db = MagicMock()
+        mock_get_db.return_value = db
+        p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
+        t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
+        db.execute.side_effect = [p_cur, t_cur]
+        mock_build_price_context.return_value = ({'AAA': 'PLN'}, {'AAA': {'2026-03-31': 60, '2026-04-03': 60}})
+        data = PortfolioHistoryService.get_portfolio_profit_history_daily(14, days=7, metric='value')
+        before_sell = [x for x in data if x['date'] == '2026-03-31'][0]
+        after_sell = [x for x in data if x['date'] == '2026-04-01'][0]
+        self.assertAlmostEqual(before_sell['value'], 1100.0, places=2)
+        self.assertAlmostEqual(after_sell['value'], 1100.0, places=2)
 
 
 if __name__ == '__main__':
