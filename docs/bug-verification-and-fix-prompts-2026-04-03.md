@@ -61,7 +61,7 @@ Poniżej zostawiam wyłącznie tytuły błędów oznaczonych jako ukończone/zam
 | ID | Obszar | Priorytet | Status |
 |---|---|---|---|
 | CT-01 | `get_tax_limits`: IKE query łapie IKZE | Krytyczny | Zrobione |
-| CT-02 | `assign_transactions_bulk`: commit per transakcja | Wysoki | Otwarte |
+| CT-02 | `assign_transactions_bulk`: commit per transakcja | Wysoki | Zrobione |
 | CT-03 | `rebuild_holdings_from_transactions`: `ValueError` dla nowego typu | Średni | Otwarte |
 | CT-04 | `unconfirmed_conflicts` w imporcie | Wysoki | Otwarte |
 | CT-05 | `repair_portfolio_state(sub_portfolio_id)` w routes (nieczytelny call-site) | Średni | Otwarte |
