@@ -154,11 +154,26 @@ class PortfolioTradeService(PortfolioCoreService):
             existing_holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'), 
                                          (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)).fetchone()
             
-            currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else None)
-            if not currency:
+            # Determine instrument currency (pobranie z symbol_mappings lub metadata)
+            instrument_currency = None
+            # 1. Check symbol_mappings table (najbardziej wiarygodne źródło dla użytkownika)
+            mapping = db.execute('SELECT currency FROM symbol_mappings WHERE ticker = ?', (ticker,)).fetchone()
+            if mapping and mapping['currency']:
+                instrument_currency = mapping['currency'].upper()
+            
+            # 2. Check metadata if mapping not found
+            if not instrument_currency:
                 meta = PriceService.fetch_metadata(ticker)
-                currency = (meta.get('currency') if meta else None) or 'PLN'
+                instrument_currency = (meta.get('currency') if meta else 'PLN').upper()
+            
+            # 3. Fallback to PLN
+            if not instrument_currency:
+                instrument_currency = 'PLN'
+
+            # Set account/display currency (compatible with existing logic)
+            currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else instrument_currency)
             currency = currency.upper()
+
             unit_price_pln = float(price)
             base_commission = float(commission or 0.0)
             total_commission = base_commission
@@ -184,14 +199,42 @@ class PortfolioTradeService(PortfolioCoreService):
                 new_quantity = holding['quantity'] + quantity
                 new_total_cost = holding['total_cost'] + total_cost
                 new_avg_price = new_total_cost / new_quantity
+                
+                # Update existing holding including technical columns if they were missing or need sync
                 db.execute('''UPDATE holdings 
-                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?, currency = ?
-                       WHERE id = ?''', (new_quantity, new_total_cost, new_avg_price, 1 if (auto_fx_fees or currency != 'PLN') else holding['auto_fx_fees'], currency, holding['id']))
+                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?, currency = ?,
+                           instrument_currency = ?, avg_buy_price_native = ?, avg_buy_fx_rate = ?
+                       WHERE id = ?''', (
+                           new_quantity, 
+                           new_total_cost, 
+                           new_avg_price, 
+                           1 if (auto_fx_fees or currency != 'PLN') else holding['auto_fx_fees'], 
+                           currency,
+                           holding['instrument_currency'] or instrument_currency,
+                           holding['avg_buy_price_native'] or new_avg_price, # Default to PLN price if native is missing
+                           holding['avg_buy_fx_rate'] or 1.0,                 # Default to 1.0 if FX rate is missing
+                           holding['id']
+                       ))
                 PortfolioTradeService._assert_holding_consistency(db, holding['id'])
             else:
+                # INSERT new holding with all technical columns to avoid NOT NULL constraint errors
+                avg_price = total_cost / quantity
                 inserted = db.execute('''INSERT INTO holdings 
-                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, sub_portfolio_id) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency, sub_portfolio_id))
+                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, sub_portfolio_id,
+                        instrument_currency, avg_buy_price_native, avg_buy_fx_rate) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                           portfolio_id, 
+                           ticker, 
+                           quantity, 
+                           avg_price, 
+                           total_cost, 
+                           1 if (auto_fx_fees or currency != 'PLN') else 0, 
+                           currency, 
+                           sub_portfolio_id,
+                           instrument_currency, # Waluta instrumentu (np. USD)
+                           avg_price,           # Domyślnie cena w PLN jako native (brak FX w tym kontekście)
+                           1.0                  # Domyślny kurs FX = 1.0
+                       ))
                 PortfolioTradeService._assert_holding_consistency(db, inserted.lastrowid)
             db.commit()
             return True
