@@ -133,6 +133,42 @@ class PriceServiceScenarioTestCase(unittest.TestCase):
         )
         self.assertIsNone(analysis["technicals"]["rsi14"])
 
+    def test_sync_stock_history_logs_upserted_rows_message(self):
+        db_mock = Mock()
+        initial_range_row = {"min_date": None, "max_date": None}
+        final_max_row = {"max_date": "2024-01-04"}
+
+        first_query = Mock()
+        first_query.fetchone.return_value = initial_range_row
+        second_query = Mock()
+        second_query.fetchone.return_value = final_max_row
+        db_mock.execute.side_effect = [first_query, second_query]
+
+        cursor_mock = Mock()
+        cursor_mock.rowcount = 1
+        db_mock.cursor.return_value = cursor_mock
+
+        history_df = pd.DataFrame(
+            {"Close": [100.12, 101.34]},
+            index=pd.to_datetime(["2024-01-03", "2024-01-04"]),
+        )
+
+        with patch("price_service.get_db", return_value=db_mock), patch.object(
+            PriceService, "_download_with_retry", return_value=history_df
+        ), patch.object(PriceService, "_normalize_yf_dataframe", return_value=history_df), patch.object(
+            PriceService, "_log_provider_event"
+        ) as log_event:
+            result = PriceService.sync_stock_history("AAPL")
+
+        self.assertEqual(result, "2024-01-04")
+        messages = [
+            call.kwargs.get("message")
+            for call in log_event.call_args_list
+            if call.kwargs.get("operation") == "sync_stock_history"
+        ]
+        self.assertIn("Upserted 2 history rows (new + refreshed)", messages)
+        self.assertTrue(all("Inserted " not in (message or "") for message in messages))
+
 
 if __name__ == "__main__":
     unittest.main()
