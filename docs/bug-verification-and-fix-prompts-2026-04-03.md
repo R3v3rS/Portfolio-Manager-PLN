@@ -11,7 +11,7 @@ Nie zmieniano kodu aplikacji produkcyjnej.
 | 2 | `warmup_cache` i ticker `CASH` |✅ Ukonczone | `warmup_cache` pobiera także `CASH`. |
 | 3 | `get_quotes` fallback po błędzie bulk | Potwierdzone | Gałąź fallback jest placeholderem (`pass`) i nie uzupełnia braków. |
 | 4 | `get_quotes` zwraca `price: 0.0` przy braku danych | Potwierdzone | W kilku miejscach brak danych oznaczany jest jako `0.0` zamiast `None`. |
-| 5 | `inserted_rows` zawiera także UPDATE | Potwierdzone | Log „Inserted ... new history rows” jest semantycznie nieprecyzyjny przy UPSERT. |
+| 5 | `inserted_rows` zawiera także UPDATE | ✅ Ukonczone | Log „Inserted ... new history rows” jest semantycznie nieprecyzyjny przy UPSERT. |
 | 6 | Thread safety cache | Potwierdzone | Cache class-level modyfikowany bez dedykowanego locka. |
 | 7 | `datetime.utcnow()` |  Potwierdzone | Występuje użycie `utcnow`; zalecana wersja timezone-aware. |
 | 8 | `datetime.fromtimestamp()` bez `tz` |  Potwierdzone | Konwersja zależna od lokalnej strefy serwera. |
@@ -46,14 +46,6 @@ Nie zmieniano kodu aplikacji produkcyjnej.
 **Rekomendacja:**
 - Dla „brak danych” zwracać `price: None`.
 - Utrzymać spójność z innymi polami (`change_*`), które już są `None`.
-
-### 5) `inserted_rows` i log UPSERT
-- W sync historii stosowane jest `INSERT ... ON CONFLICT ... DO UPDATE`.
-- `cursor.rowcount` inkrementuje się także dla UPDATE.
-- Komunikat „Inserted X new history rows” jest mylący przy odświeżaniu istniejących rekordów.
-
-**Rekomendacja:**
-- Zmienić komunikat logu na „Upserted X history rows (new + refreshed)”.
 
 ### 6) Thread safety cache
 - `_price_cache`, `_price_cache_updated_at`, `_metadata_cache`, `_metadata_cache_updated_at` są słownikami class-level.
@@ -118,17 +110,6 @@ Wymagania:
 3) Dodaj/zmień testy, aby rozróżniały brak danych od prawidłowej liczby.
 4) Sprawdź, czy serializacja/API kontrakt nadal działa poprawnie.
 Uruchom testy i przedstaw ewentualne miejsca zależne od starej semantyki 0.0.
-```
-
-### Prompt 5 — precyzyjny log UPSERT
-```text
-Popraw komunikat logowania w backend/price_service.py::sync_stock_history.
-Wymagania:
-1) Ponieważ używany jest UPSERT (INSERT + UPDATE), komunikat nie może mówić "Inserted ... new history rows".
-2) Zmień tekst na "Upserted {n} history rows (new + refreshed)" albo równoważny.
-3) Nie zmieniaj logiki liczenia rowcount.
-4) Dodaj test/asercję logu jeśli istnieje infrastruktura testów logowania.
-Uruchom testy związane z sync_stock_history.
 ```
 
 ### Prompt 6 — thread safety cache
@@ -215,7 +196,7 @@ Zakres: **weryfikacja realnych bugów z routes_transactions.py i portfolio_histo
 | # | Obszar | Status weryfikacji | Wniosek |
 |---|---|---|---|
 | 1 | `_legacy_cash_seed_for_child_scope` i `sub_portfolio_id = 0` | ✅ Potwierdzone | Fallback faktycznie szuka `sub_portfolio_id = 0` i w praktyce najczęściej zwraca `0.0`; dziś to dead/legacy bridge. |
-| 2 | `assign_transaction` / `run_bulk_recalculation` i błędny argument `repair_portfolio_state` | ✅ Potwierdzone | Do funkcji przekazywany jest `sub_portfolio_id` jako `portfolio_id` (parent slot), co jest niezgodne z sygnaturą. |
+| 2 | `assign_transaction` / `run_bulk_recalculation` i błędny argument `repair_portfolio_state` | ✅ Ukonczone | Do funkcji przekazywany jest `sub_portfolio_id` jako `portfolio_id` (parent slot), co jest niezgodne z sygnaturą. |
 | 3 | Brak walidacji `sub_portfolio_id` w GET query-string | ✅ Potwierdzone | GET używa gołego `int()`, więc `0` i liczby ujemne przechodzą; niespójne względem POST. |
 | 4 | `print()` zamiast loggera | ✅ Ukoczone| W `_build_price_context` wyjątek sync historii idzie do stdout przez `print`, bez strukturalnego logowania. |
 | 6 | `validate_assign_payload` zwraca różne typy | ✅ Potwierdzone | Zależnie od flagi funkcja zwraca `int|None` albo `tuple`, co zwiększa ryzyko błędów integracyjnych. |
@@ -233,17 +214,6 @@ Zakres: **weryfikacja realnych bugów z routes_transactions.py i portfolio_histo
 - Preferowane: usunąć fallback i całą ścieżkę legacy seed.
 - Alternatywa: zostawić, ale wyraźnie oznaczyć jako tymczasowy most migracyjny (komentarz + TODO z datą/usunięciem).
 
-### 2) Błędne wywołanie `repair_portfolio_state` po assign/bulk assign
-- Sygnatura serwisu: `repair_portfolio_state(portfolio_id, subportfolio_id=None)`.
-- W `assign_transaction` i `run_bulk_recalculation` występuje:
-  - `PortfolioService.repair_portfolio_state(sub_portfolio_id)`
-  - `PortfolioService.repair_portfolio_state(old_sub_portfolio_id)`
-- To przekazuje child ID jako `portfolio_id` (parent scope), zamiast jako `subportfolio_id` przy właściwym parent ID.
-
-**Rekomendacja:**
-- Ujednolicić wszystkie wywołania do postaci:
-  - `PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=<child_id>)`.
-- Dla parent scope pozostać przy `PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)`.
 
 ### 3) GET `sub_portfolio_id` bez walidacji dodatniości
 - W GET `/transactions/<portfolio_id>` i `/transactions/all` jest `int(sub_portfolio_id)` w `try/except`.
@@ -293,20 +263,6 @@ Zakres:
 4) Nie zmieniaj logiki repair_portfolio_state poza tym zakresem.
 5) Dodaj test(y) regresyjne dla _repair_cash_transfer_scope (z i bez rekordów legacy).
 Uruchom testy endpointów transakcyjnych i pokaż diff.
-```
-
-### Prompt B — poprawne argumenty `repair_portfolio_state` w assign i bulk
-```text
-Napraw backend/routes_transactions.py: wywołania PortfolioService.repair_portfolio_state w assign_transaction i assign_transactions_bulk.
-Wymagania:
-1) Zachowaj parent rebuild: PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None).
-2) Dla child scopes przekazuj parent_id jako pierwszy argument i child jako named argument:
-   - PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=sub_portfolio_id)
-   - PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=old_sub_portfolio_id)
-3) Nie przekazuj child ID jako portfolio_id.
-4) Dodaj testy, które wykryją błędny porządek argumentów (mock/spies).
-5) Nie zmieniaj API endpointów.
-Uruchom testy routes_transactions.
 ```
 
 ### Prompt C — walidacja `sub_portfolio_id` w GET
