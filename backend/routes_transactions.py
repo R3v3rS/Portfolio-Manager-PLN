@@ -530,9 +530,9 @@ def assign_transaction(transaction_id):
                 # Rebuild affected scopes after assignment was already committed
                 PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
                 if sub_portfolio_id:
-                    PortfolioService.repair_portfolio_state(sub_portfolio_id)
+                    PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=sub_portfolio_id)
                 if old_sub_portfolio_id and old_sub_portfolio_id != sub_portfolio_id:
-                    PortfolioService.repair_portfolio_state(old_sub_portfolio_id)
+                    PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=old_sub_portfolio_id)
 
                 job_registry.update_job(job_id, progress=80)
                 PortfolioService.clear_cache(portfolio_id)
@@ -638,10 +638,10 @@ def assign_transactions_bulk():
 
                 PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=None)
                 if sub_portfolio_id:
-                    PortfolioService.repair_portfolio_state(sub_portfolio_id)
+                    PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=sub_portfolio_id)
                 for old_id in old_sub_portfolio_ids:
                     if old_id != sub_portfolio_id:
-                        PortfolioService.repair_portfolio_state(old_id)
+                        PortfolioService.repair_portfolio_state(portfolio_id, subportfolio_id=old_id)
 
                 job_registry.update_job(job_id, progress=80)
                 PortfolioService.clear_cache(portfolio_id)

@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 BACKEND_DIR = Path(__file__).resolve().parents[1] / 'backend'
 if str(BACKEND_DIR) not in sys.path:
@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from database import get_db, init_db  # noqa: E402
+from routes_transactions import PortfolioService  # noqa: E402
 
 
 class AssignTransactionsIntegrationTestCase(unittest.TestCase):
@@ -236,6 +237,45 @@ class AssignTransactionsIntegrationTestCase(unittest.TestCase):
 
         self.assertEqual(after_b['portfolio_id'], before_b['portfolio_id'])
         self.assertEqual(after_b['sub_portfolio_id'], before_b['sub_portfolio_id'])
+
+    def test_assign_single_rebuilds_parent_and_children_with_correct_argument_order(self):
+        parent_id = self._create_parent()
+        old_child_id = self._create_child(parent_id, name='Old Child')
+        new_child_id = self._create_child(parent_id, name='New Child')
+        tx_id = self._insert_transaction(parent_id, tx_type='BUY', sub_portfolio_id=old_child_id, ticker='ORDER1')
+
+        with patch.object(PortfolioService, 'repair_portfolio_state', wraps=PortfolioService.repair_portfolio_state) as repair_spy:
+            response = self._assign_single(tx_id, new_child_id)
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        expected_calls = [
+            call(parent_id, subportfolio_id=None),
+            call(parent_id, subportfolio_id=new_child_id),
+            call(parent_id, subportfolio_id=old_child_id),
+        ]
+        self.assertEqual(repair_spy.call_args_list, expected_calls)
+        self.assertTrue(all(call.args[0] == parent_id for call in repair_spy.call_args_list))
+
+    def test_assign_bulk_rebuilds_parent_and_children_with_correct_argument_order(self):
+        parent_id = self._create_parent()
+        old_child_a_id = self._create_child(parent_id, name='Old Child A')
+        old_child_b_id = self._create_child(parent_id, name='Old Child B')
+        target_child_id = self._create_child(parent_id, name='Target Child')
+
+        tx_a_id = self._insert_transaction(parent_id, tx_type='BUY', sub_portfolio_id=old_child_a_id, ticker='ORDER2A')
+        tx_b_id = self._insert_transaction(parent_id, tx_type='BUY', sub_portfolio_id=old_child_b_id, ticker='ORDER2B')
+
+        with patch.object(PortfolioService, 'repair_portfolio_state', wraps=PortfolioService.repair_portfolio_state) as repair_spy:
+            response = self._assign_bulk([tx_a_id, tx_b_id], target_child_id)
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        expected_subportfolio_scopes = {
+            call.kwargs.get('subportfolio_id')
+            for call in repair_spy.call_args_list
+        }
+        self.assertEqual(expected_subportfolio_scopes, {None, target_child_id, old_child_a_id, old_child_b_id})
+        self.assertEqual(len(repair_spy.call_args_list), 4)
+        self.assertTrue(all(call.args[0] == parent_id for call in repair_spy.call_args_list))
 
 
 if __name__ == '__main__':
