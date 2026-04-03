@@ -11,6 +11,7 @@ from routes_portfolio_base import (
     portfolio_bp,
     optional_bool,
     optional_number,
+    optional_positive_int,
     optional_string,
     raise_portfolio_validation_error,
     require_json_body,
@@ -181,13 +182,8 @@ def transfer_cash_between_scopes():
     data = require_json_body()
     db = get_db()
 
-    raw_from_sub_portfolio_id = data.get('from_sub_portfolio_id')
-    raw_to_sub_portfolio_id = data.get('to_sub_portfolio_id')
-
-    if raw_from_sub_portfolio_id is not None and (isinstance(raw_from_sub_portfolio_id, bool) or not isinstance(raw_from_sub_portfolio_id, int) or raw_from_sub_portfolio_id <= 0):
-        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'from_sub_portfolio_id must be a positive integer or null', status=422)
-    if raw_to_sub_portfolio_id is not None and (isinstance(raw_to_sub_portfolio_id, bool) or not isinstance(raw_to_sub_portfolio_id, int) or raw_to_sub_portfolio_id <= 0):
-        raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'to_sub_portfolio_id must be a positive integer or null', status=422)
+    raw_from_sub_portfolio_id = optional_positive_int(data, 'from_sub_portfolio_id')
+    raw_to_sub_portfolio_id = optional_positive_int(data, 'to_sub_portfolio_id')
 
     amount = require_number(data, 'amount')
     if amount <= 0:
@@ -344,7 +340,7 @@ def deposit():
             require_positive_int(data, 'portfolio_id'),
             require_number(data, 'amount', positive=True),
             optional_string(data, 'date'),
-            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
+            sub_portfolio_id=optional_positive_int(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -359,7 +355,7 @@ def withdraw():
             require_positive_int(data, 'portfolio_id'),
             require_number(data, 'amount', positive=True),
             optional_string(data, 'date'),
-            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
+            sub_portfolio_id=optional_positive_int(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -378,7 +374,7 @@ def buy():
             optional_string(data, 'date'),
             optional_number(data, 'commission', default=0.0, non_negative=True),
             optional_bool(data, 'auto_fx_fees', default=False),
-            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
+            sub_portfolio_id=optional_positive_int(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -395,7 +391,7 @@ def sell():
             require_number(data, 'quantity', positive=True),
             require_number(data, 'price', positive=True),
             optional_string(data, 'date'),
-            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
+            sub_portfolio_id=optional_positive_int(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
@@ -461,7 +457,7 @@ def record_dividend():
             require_non_empty_string(data, 'ticker'),
             require_number(data, 'amount', positive=True),
             require_non_empty_string(data, 'date'),
-            sub_portfolio_id=optional_number(data, 'sub_portfolio_id')
+            sub_portfolio_id=optional_positive_int(data, 'sub_portfolio_id')
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)

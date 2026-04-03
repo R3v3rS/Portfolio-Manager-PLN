@@ -55,6 +55,21 @@ def require_positive_int(data: dict, field: str) -> int:
     return parsed
 
 
+def optional_positive_int(data: dict, field: str) -> int | None:
+    if field not in data or data[field] is None:
+        return None
+    value = data[field]
+    if isinstance(value, bool):
+        raise ValidationError(f'Field {field} must be a positive integer', details={'field': field})
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f'Field {field} must be a positive integer', details={'field': field}) from exc
+    if parsed <= 0:
+        raise ValidationError(f'Field {field} must be a positive integer', details={'field': field})
+    return parsed
+
+
 def require_number(data: dict, field: str, *, positive: bool = False, non_negative: bool = False) -> float:
     value = require_field(data, field)
     if isinstance(value, bool):
