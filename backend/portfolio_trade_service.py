@@ -283,8 +283,8 @@ class PortfolioTradeService(PortfolioCoreService):
         return child
 
     @staticmethod
-    def assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id):
-        db = get_db()
+    def assign_transaction_to_subportfolio(transaction_id, sub_portfolio_id, db=None, autocommit=True):
+        db = db or get_db()
         tx = db.execute('SELECT * FROM transactions WHERE id = ?', (transaction_id,)).fetchone()
         if not tx:
             raise ValueError("Transaction not found")
@@ -321,10 +321,12 @@ class PortfolioTradeService(PortfolioCoreService):
             # HOWEVER, if we are NOT in a repair job context, we might want to update it.
             # Given the current architecture, repair_portfolio_state is the source of truth.
             
-            db.commit()
+            if autocommit:
+                db.commit()
             return True
         except Exception as e:
-            db.rollback()
+            if autocommit:
+                db.rollback()
             raise e
 
     @staticmethod
@@ -348,15 +350,18 @@ class PortfolioTradeService(PortfolioCoreService):
             # Validate target sub-portfolio
             PortfolioTradeService.validate_transfer_target(db, portfolio_id, sub_portfolio_id)
             
-            # Process each transaction to handle cash movement
-            # In a more optimized version, we could group cash movements, 
-            # but for safety and clarity we'll do them one by one or in a loop.
+            # Process all assignments inside one transaction (all-or-nothing).
             for tx_id in transaction_ids:
-                PortfolioTradeService.assign_transaction_to_subportfolio(tx_id, sub_portfolio_id)
-                
+                PortfolioTradeService.assign_transaction_to_subportfolio(
+                    tx_id,
+                    sub_portfolio_id,
+                    db=db,
+                    autocommit=False,
+                )
+
+            db.commit()
             return True
         except Exception as e:
-            # assign_transaction_to_subportfolio already does rollback, but we might need it here too if error happens outside
             db.rollback()
             raise e
 
