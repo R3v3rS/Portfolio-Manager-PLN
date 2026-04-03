@@ -608,7 +608,14 @@ class PriceService:
     def warmup_cache(cls):
         db = get_db()
         try:
-            holdings = db.execute('SELECT DISTINCT ticker FROM holdings').fetchall()
+            holdings = db.execute(
+                """
+                SELECT DISTINCT ticker
+                FROM holdings
+                WHERE ticker IS NOT NULL
+                  AND ticker != 'CASH'
+                """
+            ).fetchall()
             tickers = [h['ticker'] for h in holdings]
             if tickers:
                 cls._log_verbose_provider_event(

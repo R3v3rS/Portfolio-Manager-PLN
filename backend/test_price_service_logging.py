@@ -134,6 +134,21 @@ class PriceServiceLoggingTestCase(unittest.TestCase):
             emitted_levels = [call.args[0] for call in logger_log.call_args_list]
             self.assertEqual(emitted_levels, [logging.INFO, logging.WARNING, logging.ERROR])
 
+    def test_warmup_cache_excludes_cash_and_null_tickers_from_query(self):
+        holdings_rows = [{"ticker": "AAPL"}, {"ticker": "MSFT"}]
+        db_mock = unittest.mock.Mock()
+        db_mock.execute.return_value.fetchall.return_value = holdings_rows
+
+        with patch("price_service.get_db", return_value=db_mock):
+            with patch.object(PriceService, "get_prices") as get_prices_mock:
+                PriceService.warmup_cache()
+
+        db_mock.execute.assert_called_once()
+        executed_sql = db_mock.execute.call_args.args[0]
+        self.assertIn("WHERE ticker IS NOT NULL", executed_sql)
+        self.assertIn("ticker != 'CASH'", executed_sql)
+        get_prices_mock.assert_called_once_with(["AAPL", "MSFT"])
+
     def test_classify_error_known_and_unknown_paths(self):
         test_cases = [
             (TimeoutError("Read timeout"), "network_timeout"),
