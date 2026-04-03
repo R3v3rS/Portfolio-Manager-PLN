@@ -49,7 +49,9 @@ class PortfolioCoreService:
         ikze_limit = year_limits['IKZE']
 
         ike_deposited = 0.0
-        portfolios = db.execute("SELECT id FROM portfolios WHERE upper(name) LIKE '%IKE%'").fetchall()
+        portfolios = db.execute(
+            "SELECT id FROM portfolios WHERE upper(name) LIKE '%IKE%' AND upper(name) NOT LIKE '%IKZE%'"
+        ).fetchall()
         for p in portfolios:
             res = db.execute("""
                 SELECT SUM(total_value) as total

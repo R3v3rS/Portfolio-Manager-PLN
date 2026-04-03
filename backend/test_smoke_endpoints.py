@@ -248,6 +248,31 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(error['code'], 'validation_error')
         self.assertEqual(error['details']['field'], 'quantity')
 
+    def test_tax_limits_does_not_count_ikze_portfolios_as_ike(self):
+        ike_response = self.client.post('/api/portfolio/create', json={
+            'name': 'IKE długoterminowe',
+            'initial_cash': 1000.0,
+            'account_type': 'IKE',
+            'created_at': '2026-01-10',
+        })
+        self.assertEqual(ike_response.status_code, 201, ike_response.get_json())
+
+        ikze_response = self.client.post('/api/portfolio/create', json={
+            'name': 'IKZE bezpieczeństwo',
+            'initial_cash': 2000.0,
+            'account_type': 'STANDARD',
+            'created_at': '2026-01-11',
+        })
+        self.assertEqual(ikze_response.status_code, 201, ikze_response.get_json())
+
+        limits_response = self.client.get('/api/portfolio/limits')
+        self.assertEqual(limits_response.status_code, 200, limits_response.get_json())
+
+        limits = limits_response.get_json()['payload']['limits']
+        self.assertEqual(limits['year'], 2026)
+        self.assertEqual(limits['IKE']['deposited'], 1000.0)
+        self.assertEqual(limits['IKZE']['deposited'], 2000.0)
+
     def test_invalid_budget_transfer_payload_returns_validation_error(self):
         account_id, _category_id = self.seed_budget_account()
         portfolio_id = self.seed_portfolio_with_cash()
