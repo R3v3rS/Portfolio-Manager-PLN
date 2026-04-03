@@ -845,7 +845,7 @@ class PriceService:
                     operation="sync_stock_history",
                     status="success",
                     ticker=ticker,
-                    message=f"Inserted {inserted_rows} new history rows",
+                    message=f"Upserted {inserted_rows} history rows (new + refreshed)",
                 )
 
         except Exception as e:
