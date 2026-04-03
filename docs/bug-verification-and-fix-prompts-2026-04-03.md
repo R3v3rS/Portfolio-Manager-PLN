@@ -46,7 +46,7 @@ Poniżej zostawiam wyłącznie tytuły błędów oznaczonych jako ukończone/zam
 
 | ID | Obszar | Priorytet | Status |
 |---|---|---|---|
-| PV-01 | `DIVIDEND` pominięty w `tx_delta` | Wysoki | Otwarte |
+| PV-01 | `DIVIDEND` pominięty w `tx_delta` | Wysoki | Zrobione |
 | PV-02 | `legacy_row` w `get_cash_balance_on_date` | Wysoki | Otwarte |
 | PV-03 | `get_holdings` i aktualizacja metadanych tylko po `MAX(id)` | Średni | Otwarte |
 | PV-04 | Legacy warunki `sub_portfolio_id = 0` | Niski | Otwarte |
