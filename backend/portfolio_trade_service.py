@@ -7,6 +7,27 @@ from api.exceptions import ApiError
 
 class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
+    def _assert_holding_consistency(db, holding_id):
+        if not holding_id:
+            return
+        row = db.execute(
+            'SELECT quantity, total_cost, average_buy_price FROM holdings WHERE id = ?',
+            (holding_id,),
+        ).fetchone()
+        if not row:
+            return
+        quantity = float(row['quantity'] or 0.0)
+        total_cost = float(row['total_cost'] or 0.0)
+        average_buy_price = float(row['average_buy_price'] or 0.0)
+        assert quantity >= -0.000001
+        assert total_cost >= -0.000001
+        if quantity <= 0:
+            return
+        assert average_buy_price > 0
+        recomputed_avg = total_cost / quantity
+        assert abs(recomputed_avg - average_buy_price) < 0.001
+
+    @staticmethod
     def _capitalize_savings(db, portfolio_id):
         portfolio = db.execute('SELECT * FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         if not portfolio or portfolio['account_type'] != 'SAVINGS':
@@ -166,10 +187,12 @@ class PortfolioTradeService(PortfolioCoreService):
                 db.execute('''UPDATE holdings 
                        SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?, currency = ?
                        WHERE id = ?''', (new_quantity, new_total_cost, new_avg_price, 1 if (auto_fx_fees or currency != 'PLN') else holding['auto_fx_fees'], currency, holding['id']))
+                PortfolioTradeService._assert_holding_consistency(db, holding['id'])
             else:
-                db.execute('''INSERT INTO holdings 
+                inserted = db.execute('''INSERT INTO holdings 
                        (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, sub_portfolio_id) 
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, quantity, total_cost / quantity, total_cost, 1 if (auto_fx_fees or currency != 'PLN') else 0, currency, sub_portfolio_id))
+                PortfolioTradeService._assert_holding_consistency(db, inserted.lastrowid)
             db.commit()
             return True
         except Exception as e:
@@ -222,6 +245,7 @@ class PortfolioTradeService(PortfolioCoreService):
                 db.execute('''UPDATE holdings 
                        SET quantity = ?, total_cost = ?
                        WHERE id = ?''', (new_quantity, new_total_cost, holding['id']))
+                PortfolioTradeService._assert_holding_consistency(db, holding['id'])
             else:
                 db.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
             db.commit()

@@ -48,6 +48,7 @@ Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adno
 - `test_critical_backend_smoke_endpoints` — smoke test kluczowych endpointów backendu.
 - `test_invalid_buy_payload_returns_validation_error` — walidacja błędnego payloadu dla BUY.
 - `test_invalid_sell_payload_returns_validation_error` — walidacja błędnego payloadu dla SELL.
+- `test_avg_price_stability_after_sell` — regresja stabilności `average_buy_price` po częściowym SELL (BUY 5 @ 100, SELL 1, oczekiwane avg=100).
 - `test_tax_limits_does_not_count_ikze_portfolios_as_ike` — poprawna logika limitów podatkowych IKE/IKZE.
 - `test_invalid_budget_transfer_payload_returns_validation_error` — walidacja niepoprawnego transferu budżetowego.
 - `test_missing_budget_transfer_field_returns_validation_error` — brak wymaganych pól zwraca błąd walidacji.
