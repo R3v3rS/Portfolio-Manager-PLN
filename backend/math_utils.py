@@ -1,4 +1,5 @@
-from datetime import date
+import math
+from datetime import date, datetime
 
 def xirr(transactions, guess=0.1):
     """
@@ -13,21 +14,52 @@ def xirr(transactions, guess=0.1):
 
     Returns:
         The annualized rate of return as a percentage (e.g., 12.5 for 12.5%).
-        Returns 0.0 if calculation fails or is not applicable.
+
+    Raises:
+        TypeError: If input structure or types are invalid.
+        ValueError: If XIRR cannot be computed or does not converge.
     """
-    if not transactions or len(transactions) < 2:
-        return 0.0
+    if not isinstance(guess, (int, float)) or isinstance(guess, bool):
+        raise TypeError("guess must be int or float")
+    if math.isnan(guess) or math.isinf(guess):
+        raise TypeError("guess must be a finite number")
+
+    # Validate top-level input is iterable cash-flow data.
+    if isinstance(transactions, (str, bytes)):
+        raise TypeError("transactions must be an iterable of (date, amount) tuples")
+    try:
+        txns_input = list(transactions)
+    except TypeError as exc:
+        raise TypeError("transactions must be an iterable of (date, amount) tuples") from exc
+
+    if len(txns_input) < 2:
+        raise ValueError("xirr requires at least two transactions")
+
+    # Validate each transaction tuple and its element types.
+    for idx, txn in enumerate(txns_input):
+        if not isinstance(txn, tuple) or len(txn) != 2:
+            raise TypeError(f"transaction at index {idx} must be a tuple of (date, amount)")
+        txn_date, amount = txn
+        if isinstance(txn_date, datetime):
+            txn_date = txn_date.date()
+        elif not isinstance(txn_date, date):
+            raise TypeError(f"transaction date at index {idx} must be datetime.date")
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool):
+            raise TypeError(f"transaction amount at index {idx} must be int or float")
+        if math.isnan(amount) or math.isinf(amount):
+            raise TypeError(f"transaction amount at index {idx} must be a finite number")
+        txns_input[idx] = (txn_date, amount)
 
     # Sort transactions by date
     # Make a copy to avoid modifying the original list
-    txns = sorted(transactions, key=lambda x: x[0])
+    txns = sorted(txns_input, key=lambda x: x[0])
 
     dates = [t[0] for t in txns]
     amounts = [t[1] for t in txns]
 
     # Check if we have at least one positive and one negative cash flow
     if not (any(a > 0 for a in amounts) and any(a < 0 for a in amounts)):
-        return 0.0
+        raise ValueError("xirr requires at least one positive and one negative cash flow")
 
     min_date = dates[0]
     
@@ -36,14 +68,15 @@ def xirr(transactions, guess=0.1):
 
     def xnpv(rate):
         if rate <= -1.0:
-            # If rate is -100% or less, the value is undefined or infinite for fractional powers
-            return float('inf')
+            # Reject invalid rates explicitly instead of propagating infinity/NaN.
+            raise ValueError("xirr failed: rate below -100% is invalid")
         
         return sum(amount / ((1.0 + rate) ** y) for amount, y in zip(amounts, years))
 
     def xnpv_prime(rate):
         if rate <= -1.0:
-            return float('inf')
+            # Reject invalid rates explicitly instead of propagating infinity/NaN.
+            raise ValueError("xirr failed: rate below -100% is invalid")
         
         # Derivative of amount * (1+rate)^(-y) is amount * (-y) * (1+rate)^(-y-1)
         return sum(-y * amount / ((1.0 + rate) ** (y + 1.0)) for amount, y in zip(amounts, years))
@@ -58,8 +91,8 @@ def xirr(transactions, guess=0.1):
             f_prime = xnpv_prime(rate)
 
             if abs(f_prime) < 1e-10:
-                # Derivative too small, try to perturb or just stop
-                return 0.0
+                # Stop with explicit failure instead of returning a sentinel value.
+                raise ValueError("xirr failed to converge: derivative too close to zero")
 
             new_rate = rate - f_val / f_prime
             
@@ -72,8 +105,9 @@ def xirr(transactions, guess=0.1):
             if rate <= -1.0:
                 rate = -0.99
                 
-        except (OverflowError, ZeroDivisionError):
-            return 0.0
+        except (OverflowError, ZeroDivisionError) as exc:
+            # Propagate numerical failure as an explicit convergence error.
+            raise ValueError("xirr failed due to numerical instability") from exc
 
-    # If no convergence, return 0.0
-    return 0.0
+    # Explicitly report non-convergence after the iteration budget is exhausted.
+    raise ValueError("xirr did not converge within the maximum number of iterations")
