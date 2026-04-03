@@ -113,6 +113,13 @@ class PortfolioHistoryService(PortfolioCoreService):
         state['invested_capital'] = round(state['invested_capital'], 10)
 
     @staticmethod
+    def _row_id_or_zero(row):
+        try:
+            return row['id'] if 'id' in row.keys() else 0
+        except Exception:
+            return 0
+
+    @staticmethod
     def clear_cache(portfolio_id=None):
         if portfolio_id:
             # Clear specific portfolio and its related benchmarks
@@ -263,7 +270,7 @@ class PortfolioHistoryService(PortfolioCoreService):
         monthly_data = {}
         normalized_transactions = sorted(({
                 'date': PortfolioHistoryService._to_date(t['date']),
-                'id': t.get('id', 0),
+                'id': PortfolioHistoryService._row_id_or_zero(t),
                 'type': t['type'],
                 'ticker': t['ticker'],
                 'quantity': float(t['quantity']),
@@ -419,7 +426,7 @@ class PortfolioHistoryService(PortfolioCoreService):
         result = []
         normalized_transactions = sorted(({
                 'date': PortfolioHistoryService._to_date(t['date']),
-                'id': t.get('id', 0),
+                'id': PortfolioHistoryService._row_id_or_zero(t),
                 'type': t['type'],
                 'ticker': t['ticker'],
                 'quantity': float(t['quantity']),

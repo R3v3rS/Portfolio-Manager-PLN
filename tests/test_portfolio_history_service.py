@@ -57,6 +57,16 @@ class PortfolioHistoryServiceLoggingTestCase(unittest.TestCase):
 
 
 class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
+    class _RowLike:
+        def __init__(self, data):
+            self._data = data
+
+        def __getitem__(self, key):
+            return self._data[key]
+
+        def keys(self):
+            return self._data.keys()
+
     def _legacy_daily(self, transactions, price_history, ticker_currency, days, account_type, live_value):
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
@@ -371,6 +381,29 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         after_sell = [x for x in data if x['date'] == '2026-04-01'][0]
         self.assertAlmostEqual(before_sell['value'], 1100.0, places=2)
         self.assertAlmostEqual(after_sell['value'], 1100.0, places=2)
+
+    @patch('portfolio_history_service.date')
+    @patch('portfolio_history_service.PortfolioValuationService.get_portfolio_value', return_value=None)
+    @patch('portfolio_history_service.PortfolioHistoryService._build_price_context')
+    @patch('portfolio_history_service.get_db')
+    def test_daily_accepts_row_like_transactions_without_get(self, mock_get_db, mock_build_price_context, _mock_live, mock_date):
+        fixed_today = date(2026, 4, 3)
+        mock_date.today.return_value = fixed_today
+        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+        portfolio_row = self._RowLike({'id': 20, 'account_type': 'STANDARD', 'parent_portfolio_id': None})
+        transactions = [
+            self._RowLike({'id': 1, 'ticker': 'CASH', 'type': 'DEPOSIT', 'quantity': 0, 'total_value': 1000, 'date': '2026-03-25'}),
+            self._RowLike({'id': 2, 'ticker': 'AAA', 'type': 'BUY', 'quantity': 1, 'total_value': 500, 'date': '2026-03-26'}),
+        ]
+        db = MagicMock()
+        mock_get_db.return_value = db
+        p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
+        t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
+        db.execute.side_effect = [p_cur, t_cur]
+        mock_build_price_context.return_value = ({'AAA': 'PLN'}, {'AAA': {'2026-03-26': 500, '2026-04-03': 500}})
+
+        data = PortfolioHistoryService.get_portfolio_profit_history_daily(20, days=5, metric='value')
+        self.assertEqual(len(data), 5)
 
 
 if __name__ == '__main__':
