@@ -7,30 +7,23 @@ Nie zmieniano kodu aplikacji produkcyjnej.
 
 | # | Obszar | Status weryfikacji | Wniosek |
 |---|---|---|---|
-| 1 | RSI i dzielenie przez zero | ✅ Potwierdzone | Komentarz nie odpowiada implementacji; `loss == 0` daje RSI=100 zamiast `NaN/None`. |
-| 2 | `warmup_cache` i ticker `CASH` | ✅ Potwierdzone | `warmup_cache` pobiera także `CASH`. |
-| 3 | `get_quotes` fallback po błędzie bulk | ✅ Potwierdzone | Gałąź fallback jest placeholderem (`pass`) i nie uzupełnia braków. |
-| 4 | `get_quotes` zwraca `price: 0.0` przy braku danych | ✅ Potwierdzone | W kilku miejscach brak danych oznaczany jest jako `0.0` zamiast `None`. |
-| 5 | `inserted_rows` zawiera także UPDATE | ✅ Potwierdzone | Log „Inserted ... new history rows” jest semantycznie nieprecyzyjny przy UPSERT. |
-| 6 | Thread safety cache | ✅ Potwierdzone | Cache class-level modyfikowany bez dedykowanego locka. |
-| 7 | `datetime.utcnow()` | ✅ Potwierdzone | Występuje użycie `utcnow`; zalecana wersja timezone-aware. |
-| 8 | `datetime.fromtimestamp()` bez `tz` | ✅ Potwierdzone | Konwersja zależna od lokalnej strefy serwera. |
-| 9 | `_latest_expected_market_day` i święta | ✅ Potwierdzone (niski priorytet) | Funkcja pomija tylko weekendy, nie kalendarz świąt giełdowych. |
-|10| `change_1y` i długość historii | ✅ Potwierdzone | Liczenie 1Y używa pierwszej dostępnej ceny nawet przy krótszym oknie niż 1 rok. |
+| 1 | RSI i dzielenie przez zero | ✅ Ukonczone | Komentarz nie odpowiada implementacji; `loss == 0` daje RSI=100 zamiast `NaN/None`. |
+| 2 | `warmup_cache` i ticker `CASH` |✅ Ukonczone | `warmup_cache` pobiera także `CASH`. |
+| 3 | `get_quotes` fallback po błędzie bulk | Potwierdzone | Gałąź fallback jest placeholderem (`pass`) i nie uzupełnia braków. |
+| 4 | `get_quotes` zwraca `price: 0.0` przy braku danych | Potwierdzone | W kilku miejscach brak danych oznaczany jest jako `0.0` zamiast `None`. |
+| 5 | `inserted_rows` zawiera także UPDATE | Potwierdzone | Log „Inserted ... new history rows” jest semantycznie nieprecyzyjny przy UPSERT. |
+| 6 | Thread safety cache | Potwierdzone | Cache class-level modyfikowany bez dedykowanego locka. |
+| 7 | `datetime.utcnow()` |  Potwierdzone | Występuje użycie `utcnow`; zalecana wersja timezone-aware. |
+| 8 | `datetime.fromtimestamp()` bez `tz` |  Potwierdzone | Konwersja zależna od lokalnej strefy serwera. |
+| 9 | `_latest_expected_market_day` i święta |  Potwierdzone (niski priorytet) | Funkcja pomija tylko weekendy, nie kalendarz świąt giełdowych. |
+|10| `change_1y` i długość historii | Potwierdzone | Liczenie 1Y używa pierwszej dostępnej ceny nawet przy krótszym oknie niż 1 rok. |
 
 ---
 
 ## Szczegóły weryfikacji i rekomendacja
 
 ### 1) RSI: obsługa dzielenia przez zero
-- W kodzie jest:
-  - `rs = gain / loss`
-  - `hist['RSI'] = 100 - (100 / (1 + rs))`
-  - komentarz: „Handle division by zero or NaN if loss is 0”.
-- Przy `loss == 0`, `rs` staje się `inf`, co daje RSI=100. To nie realizuje semantyki „brak danych”, tylko „skrajnie wykupiony”.
-
-**Rekomendacja:**
-- Zastąpić dzielenie przez `loss.replace(0, float('nan'))`, a wynikowe `NaN` mapować na `None` dla API.
+[ukonczone]
 
 ### 2) `warmup_cache` wysyła `CASH` do providerów
 - `warmup_cache` pobiera tickery z `SELECT DISTINCT ticker FROM holdings` bez filtra `CASH`.
@@ -102,28 +95,6 @@ Nie zmieniano kodu aplikacji produkcyjnej.
 ## Gotowe prompty do wdrożenia poprawek (po kolei)
 
 Poniższe prompty są przygotowane tak, aby można je wykonywać sekwencyjnie jako osobne taski.
-
-### Prompt 1 — RSI division by zero
-```text
-Napraw backend/price_service.py w logice RSI (sekcja technicals), aby loss=0 nie dawał RSI=100 przez inf.
-Wymagania:
-1) Użyj dzielenia przez loss.replace(0, float('nan')).
-2) Zachowaj aktualny interfejs wyjściowy technicals (rsi14/sma50/sma200).
-3) Upewnij się, że wynik NaN jest mapowany do None dla technicals["rsi14"].
-4) Dodaj/uzupełnij test jednostkowy pokrywający przypadek loss=0.
-5) Nie zmieniaj innych zachowań biznesowych.
-Po zmianach uruchom testy związane z PriceService i pokaż diff.
-```
-
-### Prompt 2 — warmup_cache bez CASH
-```text
-Popraw backend/price_service.py: warmup_cache ma ignorować CASH i puste tickery.
-Wymagania:
-1) Zmień SQL w warmup_cache na wersję filtrującą ticker IS NOT NULL oraz ticker != 'CASH'.
-2) Zachowaj dotychczasowe logowanie.
-3) Dodaj test (lub zaktualizuj istniejący), który potwierdza, że get_prices nie dostaje CASH z warmup_cache.
-4) Nie wprowadzaj zmian poza tym zakresem.
-Uruchom odpowiednie testy i pokaż wynik.
 ```
 
 ### Prompt 3 — get_quotes fallback po błędzie bulk
@@ -246,7 +217,7 @@ Zakres: **weryfikacja realnych bugów z routes_transactions.py i portfolio_histo
 | 1 | `_legacy_cash_seed_for_child_scope` i `sub_portfolio_id = 0` | ✅ Potwierdzone | Fallback faktycznie szuka `sub_portfolio_id = 0` i w praktyce najczęściej zwraca `0.0`; dziś to dead/legacy bridge. |
 | 2 | `assign_transaction` / `run_bulk_recalculation` i błędny argument `repair_portfolio_state` | ✅ Potwierdzone | Do funkcji przekazywany jest `sub_portfolio_id` jako `portfolio_id` (parent slot), co jest niezgodne z sygnaturą. |
 | 3 | Brak walidacji `sub_portfolio_id` w GET query-string | ✅ Potwierdzone | GET używa gołego `int()`, więc `0` i liczby ujemne przechodzą; niespójne względem POST. |
-| 4 | `print()` zamiast loggera | ✅ Potwierdzone | W `_build_price_context` wyjątek sync historii idzie do stdout przez `print`, bez strukturalnego logowania. |
+| 4 | `print()` zamiast loggera | ✅ Ukoczone| W `_build_price_context` wyjątek sync historii idzie do stdout przez `print`, bez strukturalnego logowania. |
 | 6 | `validate_assign_payload` zwraca różne typy | ✅ Potwierdzone | Zależnie od flagi funkcja zwraca `int|None` albo `tuple`, co zwiększa ryzyko błędów integracyjnych. |
 | 7 | Złożoność `O(days × transactions)` w daily/monthly history | ✅ Potwierdzone | Obie ścieżki liczą stan od zera dla każdego punktu czasu; koszt rośnie kwadratowo względem horyzontu. |
 
@@ -284,8 +255,7 @@ Zakres: **weryfikacja realnych bugów z routes_transactions.py i portfolio_histo
 - Dla niepoprawnych wartości zwracać 422 z kodem walidacyjnym (zamiast milczącego `None`).
 
 ### 4) `print()` zamiast loggera w `portfolio_history_service.py`
-- W `_build_price_context` jest `print(f"Failed to sync history for {ticker}: {e}")`.
-- To omija system logowania i utrudnia monitoring, agregację i alerting.
+[Ukoczone]
 
 **Rekomendacja:**
 - Zamienić na logger (`current_app.logger` lub dedykowany logger modułu) z tickerem i stack/exception context.
@@ -353,16 +323,6 @@ Wymagania:
 Uruchom testy endpointów transakcji.
 ```
 
-### Prompt D — logger zamiast print w history sync
-```text
-Popraw backend/portfolio_history_service.py: zastąp print w _build_price_context.
-Wymagania:
-1) Zamień print(f"Failed to sync history...") na logger (current_app.logger lub modułowy logger).
-2) Log ma zawierać ticker i treść wyjątku; preferowany logger.exception lub exc_info=True.
-3) Nie przerywaj pętli sync po pojedynczym błędzie (zachowaj best-effort behavior).
-4) Dodaj test, który asertywnie sprawdza że błąd jest logowany (nie printowany).
-Uruchom testy portfolio_history_service.
-```
 
 ### Prompt E — stabilny kontrakt `validate_assign_payload`
 ```text
