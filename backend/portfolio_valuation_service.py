@@ -43,7 +43,7 @@ class PortfolioValuationService(PortfolioCoreService):
             return {'ok': True, 'incidents': []}
 
         def tx_delta(tx_type, amount):
-            if tx_type in ('DEPOSIT', 'INTEREST', 'SELL'):
+            if tx_type in ('DEPOSIT', 'INTEREST', 'SELL', 'DIVIDEND'):
                 return amount
             if tx_type in ('WITHDRAW', 'BUY'):
                 return -amount

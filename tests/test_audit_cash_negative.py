@@ -151,6 +151,20 @@ class AuditCashNegativeDaysTestCase(unittest.TestCase):
         self.assertFalse(child_row['checks']['cash_negative_days']['ok'])
         self.assertGreaterEqual(len(child_row['checks']['cash_negative_days']['incidents']), 1)
 
+    def test_dividend_counts_as_credit_and_prevents_negative_balance(self):
+        parent_id = self._create_parent('Dividend prevents negative')
+        self._create_child(parent_id)
+
+        self._insert_transaction(portfolio_id=parent_id, tx_type='DEPOSIT', total_value=100.0, date='2026-03-01')
+        self._insert_transaction(portfolio_id=parent_id, tx_type='DIVIDEND', total_value=50.0, date='2026-03-02')
+        self._insert_transaction(portfolio_id=parent_id, tx_type='BUY', total_value=130.0, date='2026-03-03')
+
+        row = self._get_row(parent_id)
+        check = row['checks']['cash_negative_days']
+
+        self.assertTrue(check['ok'])
+        self.assertEqual(check['incidents'], [])
+
 
 if __name__ == '__main__':
     unittest.main()
