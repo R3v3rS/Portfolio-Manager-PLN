@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 def xirr(transactions, guess=0.1):
     """
@@ -34,10 +34,13 @@ def xirr(transactions, guess=0.1):
         if not isinstance(txn, tuple) or len(txn) != 2:
             raise TypeError(f"transaction at index {idx} must be a tuple of (date, amount)")
         txn_date, amount = txn
-        if not isinstance(txn_date, date):
+        if isinstance(txn_date, datetime):
+            txn_date = txn_date.date()
+        elif not isinstance(txn_date, date):
             raise TypeError(f"transaction date at index {idx} must be datetime.date")
         if not isinstance(amount, (int, float)) or isinstance(amount, bool):
             raise TypeError(f"transaction amount at index {idx} must be int or float")
+        txns_input[idx] = (txn_date, amount)
 
     # Sort transactions by date
     # Make a copy to avoid modifying the original list
