@@ -13,6 +13,27 @@ logger = logging.getLogger(__name__)
 
 class PortfolioImportService(PortfolioCoreService):
     @staticmethod
+    def _assert_holding_consistency(cursor, holding_id: Optional[int]) -> None:
+        if not holding_id:
+            return
+        row = cursor.execute(
+            'SELECT quantity, total_cost, average_buy_price FROM holdings WHERE id = ?',
+            (holding_id,),
+        ).fetchone()
+        if not row:
+            return
+        quantity = float(row['quantity'] or 0.0)
+        total_cost = float(row['total_cost'] or 0.0)
+        average_buy_price = float(row['average_buy_price'] or 0.0)
+        assert quantity >= -0.000001
+        assert total_cost >= -0.000001
+        if quantity <= 0:
+            return
+        assert average_buy_price > 0
+        recomputed_avg = total_cost / quantity
+        assert abs(recomputed_avg - average_buy_price) < 0.001
+
+    @staticmethod
     def _try_parse_float(value: Any) -> Optional[float]:
         if value is None:
             return None
@@ -421,12 +442,14 @@ class PortfolioImportService(PortfolioCoreService):
                             '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ?, instrument_currency = ?, avg_buy_price_native = ?, avg_buy_fx_rate = ?, auto_fx_fees = ? WHERE id = ?''',
                             (new_qty, new_total_cost, new_avg_price, ticker_currency, ticker_currency or holding['instrument_currency'] or holding['currency'] or 'PLN', new_avg_price, holding['avg_buy_fx_rate'] or 1.0, 1 if ticker_currency != 'PLN' else holding['auto_fx_fees'], holding['id'])
                         )
+                        PortfolioImportService._assert_holding_consistency(cursor, holding['id'])
                     else:
-                        cursor.execute(
+                        inserted = cursor.execute(
                             '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, instrument_currency, avg_buy_price_native, avg_buy_fx_rate, auto_fx_fees, sub_portfolio_id)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                             (portfolio_id, ticker, qty, price, tx_total, ticker_currency, ticker_currency or 'PLN', price, 1.0, 1 if ticker_currency != 'PLN' else 0, sub_portfolio_id)
                         )
+                        PortfolioImportService._assert_holding_consistency(cursor, inserted.lastrowid)
                     cursor.execute(
                         '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission, sub_portfolio_id)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -452,6 +475,7 @@ class PortfolioImportService(PortfolioCoreService):
                                 '''UPDATE holdings SET quantity = ?, total_cost = ?, instrument_currency = COALESCE(instrument_currency, currency, 'PLN'), avg_buy_price_native = COALESCE(avg_buy_price_native, average_buy_price, 0), avg_buy_fx_rate = COALESCE(avg_buy_fx_rate, 1) WHERE id = ?''',
                                 (new_qty, new_total_cost, holding['id'])
                             )
+                            PortfolioImportService._assert_holding_consistency(cursor, holding['id'])
                         else:
                             cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
                     cursor.execute(

@@ -248,6 +248,39 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         self.assertEqual(error['code'], 'validation_error')
         self.assertEqual(error['details']['field'], 'quantity')
 
+    def test_avg_price_stability_after_sell(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        buy_response = self.client.post('/api/portfolio/buy', json={
+            'portfolio_id': portfolio_id,
+            'ticker': 'AAPL',
+            'quantity': 5,
+            'price': 100.0,
+            'date': '2026-03-02',
+        })
+        self.assertEqual(buy_response.status_code, 200, buy_response.get_json())
+
+        sell_response = self.client.post('/api/portfolio/sell', json={
+            'portfolio_id': portfolio_id,
+            'ticker': 'AAPL',
+            'quantity': 1,
+            'price': 120.0,
+            'date': '2026-03-03',
+        })
+        self.assertEqual(sell_response.status_code, 200, sell_response.get_json())
+
+        with self.app.app_context():
+            db = get_db()
+            holding = db.execute(
+                'SELECT quantity, total_cost, average_buy_price FROM holdings WHERE portfolio_id = ? AND ticker = ?',
+                (portfolio_id, 'AAPL'),
+            ).fetchone()
+
+        self.assertIsNotNone(holding)
+        self.assertAlmostEqual(float(holding['quantity']), 4.0)
+        self.assertAlmostEqual(float(holding['total_cost']), 400.0, places=6)
+        self.assertAlmostEqual(float(holding['average_buy_price']), 100.0, places=6)
+
     def test_tax_limits_does_not_count_ikze_portfolios_as_ike(self):
         ike_response = self.client.post('/api/portfolio/create', json={
             'name': 'IKE długoterminowe',
