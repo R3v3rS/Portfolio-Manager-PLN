@@ -5,6 +5,10 @@ from portfolio_core_service import PortfolioCoreService
 from portfolio_trade_service import PortfolioTradeService
 from portfolio_valuation_service import PortfolioValuationService
 from inflation_service import InflationService
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioHistoryService(PortfolioCoreService):
@@ -61,7 +65,7 @@ class PortfolioHistoryService(PortfolioCoreService):
                 try:
                     PriceService.sync_stock_history(ticker, start_date)
                 except Exception as e:
-                    print(f"Failed to sync history for {ticker}: {e}")
+                    logger.exception("Failed to sync history for %s: %s", ticker, e)
 
         price_history = {}
         if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
