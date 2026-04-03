@@ -118,6 +118,21 @@ class PriceServiceScenarioTestCase(unittest.TestCase):
         ]
         self.assertEqual(len(fallback_summary), 1)
 
+    def test_get_stock_analysis_sets_rsi14_to_none_when_loss_is_zero(self):
+        ticker_obj = Mock()
+        ticker_obj.info = {}
+        ticker_obj.history.return_value = pd.DataFrame({"Close": [float(i) for i in range(1, 61)]})
+
+        with patch("price_service.yf.Ticker", return_value=ticker_obj):
+            analysis = PriceService.get_stock_analysis("AAPL")
+
+        self.assertIn("technicals", analysis)
+        self.assertEqual(
+            set(analysis["technicals"].keys()),
+            {"sma50", "sma200", "rsi14"},
+        )
+        self.assertIsNone(analysis["technicals"]["rsi14"])
+
 
 if __name__ == "__main__":
     unittest.main()
