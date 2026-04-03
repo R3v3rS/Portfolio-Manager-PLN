@@ -1,3 +1,4 @@
+import math
 from datetime import date, datetime
 
 def xirr(transactions, guess=0.1):
@@ -18,6 +19,11 @@ def xirr(transactions, guess=0.1):
         TypeError: If input structure or types are invalid.
         ValueError: If XIRR cannot be computed or does not converge.
     """
+    if not isinstance(guess, (int, float)) or isinstance(guess, bool):
+        raise TypeError("guess must be int or float")
+    if math.isnan(guess) or math.isinf(guess):
+        raise TypeError("guess must be a finite number")
+
     # Validate top-level input is iterable cash-flow data.
     if isinstance(transactions, (str, bytes)):
         raise TypeError("transactions must be an iterable of (date, amount) tuples")
@@ -40,6 +46,8 @@ def xirr(transactions, guess=0.1):
             raise TypeError(f"transaction date at index {idx} must be datetime.date")
         if not isinstance(amount, (int, float)) or isinstance(amount, bool):
             raise TypeError(f"transaction amount at index {idx} must be int or float")
+        if math.isnan(amount) or math.isinf(amount):
+            raise TypeError(f"transaction amount at index {idx} must be a finite number")
         txns_input[idx] = (txn_date, amount)
 
     # Sort transactions by date
