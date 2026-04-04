@@ -374,7 +374,7 @@ Taka kolejność najpierw eliminuje ryzyka biznesowe i integralność danych, a 
 
 | ID | Źródło | Problem | Priorytet | Status |
 |---|---|---|---|---|
-| NEW-39 | audit_data_consistency | `get_cash_balance_on_date` ignoruje `BUY`/`SELL`/`DIVIDEND` — inny model cash niż reszta systemu, transfer validation działa na błędnych danych | Wysoki | Otwarte |
+| NEW-39 | audit_data_consistency | `get_cash_balance_on_date` ignoruje `BUY`/`SELL`/`DIVIDEND` — inny model cash niż reszta systemu, transfer validation działa na błędnych danych | Wysoki | Zamknięte (2026-04-04) |
 | NEW-40 | audit_edge_cases | Import `SELL` bez istniejącego holdingu — cash rośnie, holding nie maleje, cicha inflacja gotówki | Wysoki | Otwarte |
 | NEW-41 | audit_edge_cases | `assert` w `_assert_holding_consistency` — wyłączane przez Python `-O`, brak ochrony w produkcji | Wysoki | Otwarte |
 | NEW-42 | financial_calculations | `get_holdings` — SQL agreguje `company_name`, `sector`, `industry` bez `MAX()`; SQLite może zwrócić losowy wiersz | Wysoki | Otwarte |
@@ -401,7 +401,7 @@ Taka kolejność najpierw eliminuje ryzyka biznesowe i integralność danych, a 
 
 | ID | Źródło | Problem | Priorytet | Status |
 |---|---|---|---|---|
-| NEW-56 | audit_data_consistency | Brak współdzielonego helpera `cash_delta(tx)` — wiele niezależnych implementacji logiki cash | Niski | Otwarte |
+| NEW-56 | audit_data_consistency | Brak współdzielonego helpera `cash_delta(tx)` — wiele niezależnych implementacji logiki cash | Niski | Zamknięte (2026-04-04) |
 | NEW-57 | audit_edge_cases | Pola dat nie są walidowane jako ISO — np. `2026-99-99` przechodzi do DB | Niski | Otwarte |
 | NEW-58 | error_handling | Migracje w `database.py` — `except: pass` nie rozróżnia „kolumna już istnieje” od realnego błędu | Niski | Otwarte |
 | NEW-59 | error_handling | Async recalculation może paść po udanym commicie — brak retry, stan może dryfować | Niski | Otwarte |
