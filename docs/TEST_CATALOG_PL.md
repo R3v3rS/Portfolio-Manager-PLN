@@ -384,6 +384,24 @@ Weryfikacja krytycznych flow użytkownika na poziomie kilku komponentów naraz, 
 - Testy krótkie, stabilne i uruchamiane na każdym CI (PR + main).
 - Stabilizacja przez deterministic fixtures oraz kontrolę czasu (mock daty), gdy wpływa na wyniki.
 
+**Status wdrożenia (backend E2E smoke API)**
+- Scenariusz 1: start aplikacji + dashboard + załadowanie danych startowych  
+  `backend/test_smoke_endpoints.py::test_e2e_smoke_bootstrap_dashboard_and_seed_data`
+- Scenariusz 2: utworzenie portfela -> BUY -> SELL  
+  `backend/test_smoke_endpoints.py::test_e2e_smoke_create_portfolio_buy_sell_cycle`
+- Scenariusz 3: transfer środków + weryfikacja historii i podsumowania  
+  `backend/test_smoke_endpoints.py::test_e2e_smoke_transfer_updates_history_and_summary`
+
+**Deterministyczność**
+- Wszystkie scenariusze używają jawnych dat transakcji (`2026-03-02` ... `2026-03-05`).
+- Dashboard smoke ma zamrożoną datę przez patch `routes_dashboard.date` (kontrola czasu w asercjach summary).
+
+**Uruchamianie w CI (krótki pakiet smoke)**
+- `python -m unittest backend.test_smoke_endpoints.BackendSmokeEndpointsTestCase.test_e2e_smoke_bootstrap_dashboard_and_seed_data`
+- `python -m unittest backend.test_smoke_endpoints.BackendSmokeEndpointsTestCase.test_e2e_smoke_create_portfolio_buy_sell_cycle`
+- `python -m unittest backend.test_smoke_endpoints.BackendSmokeEndpointsTestCase.test_e2e_smoke_transfer_updates_history_and_summary`
+- lub cały plik: `python -m unittest backend/test_smoke_endpoints.py`
+
 ---
 
 ## Proponowana kolejność wdrożenia (frontend)
