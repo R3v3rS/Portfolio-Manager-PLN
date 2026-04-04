@@ -2,7 +2,54 @@
 
 ## Frontend
 
-Obecnie w repozytorium **nie ma dedykowanych plików testowych frontendu** (brak plików typu `*.test.*` / `*.spec.*` w `frontend/`).
+### `frontend/src/http.response.test.ts`
+- `extractPayload returns payload and throws for invalid envelope` — waliduje rozpakowanie envelope `payload` i fallback dla błędnego kontraktu.
+- `extractErrorMessage prefers message, then details and code` — sprawdza priorytet mapowania `error.message`/`error.details`/`error.code`.
+- `extractErrorMessageFromUnknown handles body and plain errors` — normalizacja błędu z nieznanego źródła.
+- `parseJsonApiResponse unwraps payload on success` — mapowanie odpowiedzi sukcesu.
+- `parseJsonApiResponse sets error.body for non-2xx API errors` — zachowanie szczegółów envelope błędu.
+
+### `frontend/src/http.test.ts`
+- `serializes query params and skips undefined/null values` — serializacja query params i pomijanie pustych wartości.
+- `sends JSON body by default and keeps explicit body for text requests` — poprawna struktura request body i nagłówków.
+- `wraps parser errors into HttpError for status 400/401/403/404/409/422/500` — tabelaryczne pokrycie kodów błędów HTTP (`it.each`).
+- `keeps AbortError for cancellation and does not remap into HttpError` — rozróżnienie anulowania requestu.
+- `keeps network errors as-is when fetch rejects` — rozróżnienie błędu sieciowego.
+
+### `frontend/src/api.test.ts`
+- `normalizes list response with safe defaults` — bezpieczna normalizacja typów i fallbacków dla `portfolioApi.list`.
+- `maps getPriceHistory with null->[] and nullable last_updated` — normalizacja `null → []` i pól opcjonalnych.
+- `serializes optional benchmark query only when provided` — mapowanie opcjonalnego query parametru.
+- `normalizeXtbImportError keeps error envelope shape for status 400/401/403/404/409/422/500` — tabelaryczne pokrycie propagacji `code/message/details` z `HttpError`.
+- `sends importXtbCsv form data with optional fields only when provided` — struktura `FormData` i pomijanie nieustawionych pól opcjonalnych.
+
+### `frontend/src/api_budget.test.ts`
+- `maps budget summary and normalizes null arrays to []` — normalizacja typów, null-safe i fallback biznesowy.
+- `omits optional query params when null/undefined for getTransactions` — mapowanie query i pomijanie pól opcjonalnych.
+- `keeps HttpError shape for status 400/401/403/404/409/422/500` — tabelaryczne testy statusów błędów i spójny kształt obiektu błędu.
+
+### `frontend/src/api_dashboard.test.ts`
+- `maps numeric/string fields and falls back to zero/null defaults` — normalizacja dashboardu i fallback dla brakujących pól.
+
+### `frontend/src/api_loans.test.ts`
+- `maps getLoans response and falls back to empty array` — normalizacja listy kredytów.
+- `serializes schedule query params and normalizes nested schedule shape` — mapowanie query i zagnieżdżonych struktur odpowiedzi.
+- `sends createLoan body unchanged` — mapowanie payloadu requestu mutacyjnego.
+
+### `frontend/src/api_radar.test.ts`
+- `maps getAll with null-safe conversions and filters empty tickers` — normalizacja odpowiedzi i filtrowanie rekordów niepoprawnych.
+- `maps action response with fallback message and ticker normalization` — fallback komunikatu i bezpieczne mapowanie tablicy tickerów.
+- `maps analysis object safely when nested blocks are missing` — odporność na brak sekcji analitycznych.
+
+### `frontend/src/api_symbol_map.test.ts`
+- `normalizes list/create/update payloads` — mapowanie request/response dla CRUD mapowania symboli.
+
+### `frontend/src/components/DuplicateConfirmationModal.test.tsx`
+- `toggles selected conflicts and confirms selected hashes` — interakcja użytkownika (checkbox + potwierdzenie) i walidacja przekazywanych danych.
+- `calls onCancel and allows skipping all duplicates` — scenariusz anulowania i potwierdzenia bez zaznaczeń.
+
+### `frontend/src/components/Empty.test.tsx`
+- `renders fallback empty state label` — smoke test renderowania komponentu UI.
 
 ## Backend — testy API, serwisów i regresji
 
