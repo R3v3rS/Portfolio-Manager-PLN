@@ -3,6 +3,7 @@ from portfolio_core_service import PortfolioCoreService
 from typing import Optional, Any
 from decimal import Decimal
 import logging
+from portfolio_valuation_service import PortfolioValuationService
 
 
 class PortfolioAuditService(PortfolioCoreService):
@@ -91,14 +92,12 @@ class PortfolioAuditService(PortfolioCoreService):
             quantity = PortfolioAuditService._to_decimal(tx['quantity'])
             total_value = PortfolioAuditService._to_decimal(tx['total_value'])
 
-            if tx_type == 'DEPOSIT':
-                cash += total_value
-            elif tx_type == 'WITHDRAW':
-                cash -= total_value
-            elif tx_type == 'DIVIDEND' or tx_type == 'INTEREST':
-                cash += total_value
-            elif tx_type == 'BUY':
-                cash -= total_value
+            if tx_type not in ('DEPOSIT', 'WITHDRAW', 'DIVIDEND', 'INTEREST', 'BUY', 'SELL'):
+                raise ValueError(f"Unsupported transaction type for rebuild: {tx_type}")
+
+            cash += PortfolioAuditService._to_decimal(str(PortfolioValuationService.cash_delta(tx)))
+
+            if tx_type == 'BUY':
                 position = holdings.setdefault(ticker, {'quantity': Decimal('0'), 'total_cost': Decimal('0')})
                 position['quantity'] = PortfolioAuditService._quantize_accounting(position['quantity'] + quantity)
                 position['total_cost'] = PortfolioAuditService._quantize_accounting(position['total_cost'] + total_value)
@@ -116,10 +115,7 @@ class PortfolioAuditService(PortfolioCoreService):
                     raise ValueError(f"Negative cost basis detected during rebuild for {ticker} in transaction {tx['id']}")
                 position['quantity'] = remaining_quantity
                 position['total_cost'] = remaining_total_cost
-                cash += total_value
                 realized_profit_total += total_value - cost_basis
-            else:
-                raise ValueError(f"Unsupported transaction type for rebuild: {tx_type}")
 
         rebuilt_holdings: dict[str, dict[str, float]] = {}
         for ticker, position in holdings.items():
