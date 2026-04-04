@@ -64,6 +64,20 @@
 - `renders error state when dashboard fetch fails` — komunikat błędu pobierania danych.
 - `submits create portfolio form and sends payload` — interakcja formularza tworzenia portfela i poprawny payload.
 
+### `frontend/src/pages/PortfolioFlows.integration.test.tsx`
+- `creates portfolio and refreshes list with new row` — integracyjny flow tworzenia portfela (request `POST /portfolio/create` + odświeżenie listy `GET /portfolio/list` i render nowego kafla).
+- `shows create error feedback and keeps UI responsive` — obsługa błędu API przy tworzeniu portfela bez utraty interaktywności formularza.
+- `sends BUY payload and updates holdings + summary cards` — flow BUY przez `PortfolioDetails` + modal transakcji, walidacja payloadu requestu i aktualizacji UI (holdings + gotówka).
+- `displays API buy errors without crashing screen` — błąd BUY pokazany użytkownikowi i zachowanie stabilności widoku.
+- `sends SELL payload and updates positions/profit in UI` — flow SELL z tabeli holdings, poprawny request i aktualizacja pozycji/summary.
+- `shows SELL errors and keeps details page mounted` — obsługa błędu SELL bez wywrócenia widoku portfela.
+- `posts transfer payload and updates both balances from API refresh` — transfer `Sub→Sub` z walidacją payloadu i poprawnym odświeżeniem danych.
+- `shows transfer API errors and does not crash modal` — feedback błędu transferu oraz zachowanie modala.
+- `handles successful CSV import flow` — import XTB CSV (scenariusz sukcesu) i feedback użytkownika.
+- `renders partial import failure modal and allows user feedback` — częściowy sukces importu (konflikty/duplikaty) i render modalu konfliktów.
+- `calls API with date/type/ticker filters and updates table rows` — filtrowanie historii transakcji po dacie/typie/tickerze z walidacją query params i wyników UI.
+- `shows API errors during filtering but page remains usable` — obsługa błędu endpointu filtrowania bez utraty dostępności widoku.
+
 ### `frontend/src/components/modals/TransactionModal.test.tsx`
 - `renders buy form fields for STANDARD portfolio and submits BUY transaction` — weryfikuje flow BUY, auto-prowizję FX i payload.
 - `switches to dividend mode and submits dividend transaction` — przełączenie trybu oraz poprawny payload dla dywidendy.
