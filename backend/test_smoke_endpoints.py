@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -121,6 +122,113 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         response = self.client.post('/api/radar/watchlist', json={'ticker': ticker})
         self.assertEqual(response.status_code, 201, response.get_json())
         self.assertEqual(response.get_json()['payload']['message'], 'Added to watchlist')
+
+    @staticmethod
+    def _frozen_dashboard_date(year=2026, month=3, day=10):
+        class FrozenDate(date):
+            @classmethod
+            def today(cls):
+                return cls(year, month, day)
+
+        return FrozenDate
+
+    def test_e2e_smoke_bootstrap_dashboard_and_seed_data(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        with patch('routes_dashboard.date', self._frozen_dashboard_date(2026, 3, 10)):
+            dashboard_response = self.client.get('/api/dashboard/global-summary')
+
+        self.assertEqual(dashboard_response.status_code, 200, dashboard_response.get_json())
+        dashboard = dashboard_response.get_json()['payload']
+        self.assertAlmostEqual(dashboard['net_worth'], 500.0)
+        self.assertAlmostEqual(dashboard['total_assets'], 500.0)
+        self.assertAlmostEqual(dashboard['total_liabilities'], 0.0)
+        self.assertAlmostEqual(dashboard['assets_breakdown']['invest_cash'], 500.0)
+        self.assertAlmostEqual(dashboard['assets_breakdown']['stocks'], 0.0)
+
+        list_response = self.client.get('/api/portfolio/list')
+        self.assertEqual(list_response.status_code, 200, list_response.get_json())
+        portfolios = list_response.get_json()['payload']['portfolios']
+        self.assertEqual(len(portfolios), 1)
+        self.assertEqual(portfolios[0]['id'], portfolio_id)
+
+    def test_e2e_smoke_create_portfolio_buy_sell_cycle(self):
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        buy_response = self.client.post('/api/portfolio/buy', json={
+            'portfolio_id': portfolio_id,
+            'ticker': 'AAPL',
+            'quantity': 2,
+            'price': 100.0,
+            'date': '2026-03-02',
+        })
+        self.assertEqual(buy_response.status_code, 200, buy_response.get_json())
+
+        sell_response = self.client.post('/api/portfolio/sell', json={
+            'portfolio_id': portfolio_id,
+            'ticker': 'AAPL',
+            'quantity': 1,
+            'price': 120.0,
+            'date': '2026-03-03',
+        })
+        self.assertEqual(sell_response.status_code, 200, sell_response.get_json())
+
+        value_response = self.client.get(f'/api/portfolio/value/{portfolio_id}')
+        self.assertEqual(value_response.status_code, 200, value_response.get_json())
+        value_payload = value_response.get_json()['payload']
+        self.assertAlmostEqual(value_payload['cash_value'], 420.0)
+        self.assertAlmostEqual(value_payload['holdings_value'], 110.0)
+        self.assertAlmostEqual(value_payload['portfolio_value'], 530.0)
+
+        tx_response = self.client.get(f'/api/portfolio/transactions/{portfolio_id}')
+        self.assertEqual(tx_response.status_code, 200, tx_response.get_json())
+        transactions = tx_response.get_json()['payload']['transactions']
+        self.assertGreaterEqual(len(transactions), 3)
+
+    def test_e2e_smoke_transfer_updates_history_and_summary(self):
+        account_id, _category_id = self.seed_budget_account()
+        portfolio_id = self.seed_portfolio_with_cash()
+
+        before_tx_response = self.client.get(f'/api/portfolio/transactions/{portfolio_id}')
+        self.assertEqual(before_tx_response.status_code, 200, before_tx_response.get_json())
+        before_tx_count = len(before_tx_response.get_json()['payload']['transactions'])
+
+        transfer_response = self.client.post('/api/budget/transfer-to-portfolio', json={
+            'budget_account_id': account_id,
+            'portfolio_id': portfolio_id,
+            'amount': 100.0,
+            'description': 'Top-up',
+            'date': '2026-03-04',
+        })
+        self.assertEqual(transfer_response.status_code, 200, transfer_response.get_json())
+
+        withdraw_response = self.client.post('/api/budget/withdraw-from-portfolio', json={
+            'budget_account_id': account_id,
+            'portfolio_id': portfolio_id,
+            'amount': 40.0,
+            'description': 'Cash back',
+            'date': '2026-03-05',
+        })
+        self.assertEqual(withdraw_response.status_code, 200, withdraw_response.get_json())
+
+        after_tx_response = self.client.get(f'/api/portfolio/transactions/{portfolio_id}')
+        self.assertEqual(after_tx_response.status_code, 200, after_tx_response.get_json())
+        after_tx_count = len(after_tx_response.get_json()['payload']['transactions'])
+        self.assertEqual(after_tx_count, before_tx_count + 2)
+
+        value_response = self.client.get(f'/api/portfolio/value/{portfolio_id}')
+        self.assertEqual(value_response.status_code, 200, value_response.get_json())
+        value_payload = value_response.get_json()['payload']
+        self.assertAlmostEqual(value_payload['cash_value'], 560.0)
+        self.assertAlmostEqual(value_payload['portfolio_value'], 560.0)
+
+        with patch('routes_dashboard.date', self._frozen_dashboard_date(2026, 3, 10)):
+            dashboard_response = self.client.get('/api/dashboard/global-summary')
+
+        self.assertEqual(dashboard_response.status_code, 200, dashboard_response.get_json())
+        dashboard = dashboard_response.get_json()['payload']
+        self.assertAlmostEqual(dashboard['quick_stats']['free_pool'], 940.0)
+        self.assertAlmostEqual(dashboard['assets_breakdown']['invest_cash'], 560.0)
 
     def test_critical_backend_smoke_endpoints(self):
         account_id, _category_id = self.seed_budget_account()
