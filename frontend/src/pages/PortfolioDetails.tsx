@@ -18,6 +18,9 @@ import DuplicateConfirmationModal from '../components/modals/DuplicateConfirmati
 import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
+import ImportStagingModal from '../components/modals/ImportStagingModal';
+import { createStagingSession, deleteSession, type ImportMode } from '../api_import_staging';
+import type { BookResult, StagingSession } from '../types/importStaging';
 
 
 const PortfolioAnalytics = lazy(() => import('../components/PortfolioAnalytics'));
@@ -34,7 +37,7 @@ const createMissingSymbolDrafts = (symbols: string[]) =>
     return acc;
   }, {});
 
-function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: { 
+export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
   portfolioId: number, 
   onSuccess: () => void,
   subPortfolios?: Portfolio[]
@@ -46,6 +49,8 @@ function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
   const [savingMappings, setSavingMappings] = useState(false);
   const [conflicts, setConflicts] = useState<XtbImportConflict[]>([]);
   const [selectedSubPortfolioId, setSelectedSubPortfolioId] = useState<string>('');
+  const [importMode, setImportMode] = useState<ImportMode>('staging');
+  const [stagingSession, setStagingSession] = useState<StagingSession | null>(null);
 
   const openMissingSymbolsModal = (symbols: string[], file: File) => {
     setMissingSymbols(symbols);
@@ -56,6 +61,14 @@ function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
   const importFile = async (file: File, confirmedHashes?: string[]) => {
     try {
       const subId = selectedSubPortfolioId ? parseInt(selectedSubPortfolioId) : undefined;
+      if (importMode === 'staging' && !confirmedHashes) {
+        const session = await createStagingSession(portfolioId, file, subId, 'staging');
+        if ('session_id' in session) {
+          setStagingSession(session as StagingSession);
+          return;
+        }
+      }
+
       const result = await portfolioApi.importXtbCsv(portfolioId, file, confirmedHashes, subId);
 
       if (result.missingSymbols.length > 0) {
@@ -87,6 +100,23 @@ function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
       }
 
       alert('Import failed: ' + (result.message ?? 'Unknown error'));
+    }
+  };
+
+  const handleStagingBook = (result: BookResult) => {
+    setStagingSession(null);
+    alert(`Import zaksięgowany. Zaksięgowano: ${result.booked}, tylko historia: ${result.booked_tx_only}.`);
+    onSuccess();
+  };
+
+  const handleStagingCancel = async () => {
+    if (!stagingSession) return;
+    try {
+      await deleteSession(stagingSession.session_id);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Nie udało się usunąć sesji stagingowej.');
+    } finally {
+      setStagingSession(null);
     }
   };
 
@@ -143,6 +173,32 @@ function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
   return (
     <>
       <div className="flex items-center gap-2">
+        <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+          <p className="mb-1 font-medium text-gray-700">Tryb importu:</p>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <label className="inline-flex items-center gap-2 text-gray-700">
+              <input
+                type="radio"
+                name="import-mode"
+                value="direct"
+                checked={importMode === 'direct'}
+                onChange={() => setImportMode('direct')}
+              />
+              Bezpośredni
+            </label>
+            <label className="inline-flex items-center gap-2 text-gray-700">
+              <input
+                type="radio"
+                name="import-mode"
+                value="staging"
+                checked={importMode === 'staging'}
+                onChange={() => setImportMode('staging')}
+              />
+              Poczekalnia <span className="text-xs text-gray-500">(zalecane)</span>
+            </label>
+          </div>
+        </div>
+
         {subPortfolios.length > 0 && (
           <select
             value={selectedSubPortfolioId}
@@ -177,6 +233,17 @@ function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
           onCancel={() => {
             setConflicts([]);
             setPendingFile(null);
+          }}
+        />
+      )}
+
+      {stagingSession && (
+        <ImportStagingModal
+          session={stagingSession}
+          subPortfolios={subPortfolios.filter((item) => !item.is_archived).map((item) => ({ id: item.id, name: item.name }))}
+          onBook={handleStagingBook}
+          onCancel={() => {
+            void handleStagingCancel();
           }}
         />
       )}
