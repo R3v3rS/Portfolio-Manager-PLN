@@ -365,3 +365,46 @@ Dodaj testy regresyjne i krótki changelog techniczny.
 8. Pozostałe cleanupy techniczne (PS-07/08/09, PV-04/07/08/09, CT-05..12)
 
 Taka kolejność najpierw eliminuje ryzyka biznesowe i integralność danych, a następnie porządkuje wydajność i dług techniczny.
+
+---
+
+## 5) Nowe krytyczne znaleziska (dodane 2026-04-04)
+
+### 🔴 Wysoki priorytet — nowe
+
+| ID | Źródło | Problem | Priorytet | Status |
+|---|---|---|---|---|
+| NEW-39 | audit_data_consistency | `get_cash_balance_on_date` ignoruje `BUY`/`SELL`/`DIVIDEND` — inny model cash niż reszta systemu, transfer validation działa na błędnych danych | Wysoki | Otwarte |
+| NEW-40 | audit_edge_cases | Import `SELL` bez istniejącego holdingu — cash rośnie, holding nie maleje, cicha inflacja gotówki | Wysoki | Otwarte |
+| NEW-41 | audit_edge_cases | `assert` w `_assert_holding_consistency` — wyłączane przez Python `-O`, brak ochrony w produkcji | Wysoki | Otwarte |
+| NEW-42 | financial_calculations | `get_holdings` — SQL agreguje `company_name`, `sector`, `industry` bez `MAX()`; SQLite może zwrócić losowy wiersz | Wysoki | Otwarte |
+| NEW-43 | fx_audit | `/buy` i `/sell` przyjmują `price` bez waluty — cena USD traktowana jako PLN, contamination całego ledgera | Wysoki | Otwarte |
+
+### 🟡 Średni priorytet — nowe
+
+| ID | Źródło | Problem | Priorytet | Status |
+|---|---|---|---|---|
+| NEW-44 | audit_data_consistency | `INTEREST` w imporcie może mieć `sub_portfolio_id` — łamie regułę „INTEREST tylko parent” | Średni | Otwarte |
+| NEW-45 | audit_data_consistency | Assignment bez atomowego rebuild — okno desync `transactions` vs `holdings`/`cash` | Średni | Otwarte |
+| NEW-46 | error_handling | `raise e` w wielu miejscach — utrata oryginalnego traceback, utrudniony debugging | Średni | Otwarte |
+| NEW-47 | error_handling | Bare `except:` w kilku miejscach (`database.py`, `routes_imports.py`, `price_service.py`) | Średni | Otwarte |
+| NEW-48 | audit_edge_cases | `sub_portfolio_id=abc` w query → cicha zamiana na `None` zamiast 422 | Średni | Otwarte |
+| NEW-49 | financial_calculations | `FX_FEE_RATE` jako stała vs hardcoded `0.005` w `portfolio_valuation_service.py` — desync przy zmianie stawki | Średni | Otwarte |
+| NEW-50 | financial_calculations | XIRR — Newton-Raphson bez bracketing fallback, ryzyko braku zbieżności dla nieregularnych cash flow | Średni | Otwarte |
+| NEW-51 | performance | Symbol resolution w imporcie — `O(N_import × N_map)` per wiersz CSV | Średni | Otwarte |
+| NEW-52 | performance | PPK weekly chart — `O(W×T)` zamiast rolling | Średni | Otwarte |
+| NEW-53 | performance | Budget envelope × loan — `O(E×L)` nested loop zamiast dict lookup | Średni | Otwarte |
+| NEW-54 | performance | Parent valuation — `PPK fetch_current_price()` wołane per portfolio w pętli | Średni | Otwarte |
+| NEW-55 | fx_audit | FX fallback na `1.0` przy braku kursu — cicha błędna wycena bez logu/ostrzeżenia | Średni | Otwarte |
+
+### 🟢 Niski priorytet — nowe
+
+| ID | Źródło | Problem | Priorytet | Status |
+|---|---|---|---|---|
+| NEW-56 | audit_data_consistency | Brak współdzielonego helpera `cash_delta(tx)` — wiele niezależnych implementacji logiki cash | Niski | Otwarte |
+| NEW-57 | audit_edge_cases | Pola dat nie są walidowane jako ISO — np. `2026-99-99` przechodzi do DB | Niski | Otwarte |
+| NEW-58 | error_handling | Migracje w `database.py` — `except: pass` nie rozróżnia „kolumna już istnieje” od realnego błędu | Niski | Otwarte |
+| NEW-59 | error_handling | Async recalculation może paść po udanym commicie — brak retry, stan może dryfować | Niski | Otwarte |
+| NEW-60 | financial_calculations | Modified Dietz z fixed mid-period assumption — błąd dla dużych przepływów na początku/końcu miesiąca | Niski | Otwarte |
+| NEW-61 | fx_audit | Brak FX snapshot w transakcjach — rebuild domyślnie zakłada PLN | Niski | Otwarte |
+| NEW-62 | fx_audit | `avg_buy_fx_rate = 1.0` dla non-PLN instrumentów w imporcie | Niski | Otwarte |
