@@ -871,7 +871,19 @@ const PortfolioDetails: React.FC = () => {
             className="inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
           >
             <ShieldAlert className="h-4 w-4" />
-            {auditLoading ? 'Audytowanie...' : 'Audit portfolio'}
+            {auditLoading ? 'Audytowanie...' : 'Audyt integralności'}
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              if (window.confirm('Czy na pewno chcesz sprawdzić spójność wszystkich portfeli?')) {
+                window.location.href = '/portfolios'; // Prosty sposób na przekierowanie do dashboardu gdzie jest panel audytu
+              }
+            }}
+            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Globalny audyt spójności
           </button>
           <button
             type="button"
@@ -1232,7 +1244,7 @@ const PortfolioDetails: React.FC = () => {
                     <tr>
                       <th className="px-4 py-2 text-left font-medium text-slate-500">Typ</th>
                       <th className="px-4 py-2 text-left font-medium text-slate-500">Ticker</th>
-                      <th className="px-4 py-2 text-left font-medium text-slate-500">Expected</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-500">Expected / Info</th>
                       <th className="px-4 py-2 text-left font-medium text-slate-500">Actual</th>
                     </tr>
                   </thead>
@@ -1241,8 +1253,10 @@ const PortfolioDetails: React.FC = () => {
                       <tr key={`${diff.type}-${diff.ticker || 'cash'}-${index}`}>
                         <td className="px-4 py-2 text-slate-700">{diff.type}</td>
                         <td className="px-4 py-2 text-slate-700">{diff.ticker || 'CASH'}</td>
-                        <td className="px-4 py-2 text-slate-700">{diff.expected.toFixed(2)}</td>
-                        <td className="px-4 py-2 text-slate-700">{diff.actual.toFixed(2)}</td>
+                        <td className="px-4 py-2 text-slate-700">
+                          {diff.type === 'holding_internal_inconsistency' ? diff.message : diff.expected?.toFixed(2)}
+                        </td>
+                        <td className="px-4 py-2 text-slate-700">{diff.actual?.toFixed(2) ?? '-'}</td>
                       </tr>
                     ))}
                   </tbody>

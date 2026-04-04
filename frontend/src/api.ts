@@ -95,10 +95,11 @@ export interface PriceHistoryResponse {
 }
 
 export interface PortfolioAuditDifference {
-  type: 'quantity_mismatch' | 'total_cost_mismatch' | 'cash_mismatch';
+  type: 'quantity_mismatch' | 'total_cost_mismatch' | 'cash_mismatch' | 'holding_internal_inconsistency';
   ticker?: string;
-  expected: number;
-  actual: number;
+  expected?: number;
+  actual?: number;
+  message?: string;
 }
 
 export interface PortfolioAuditResult {
@@ -444,12 +445,12 @@ const normalizeAuditResult = (value: unknown): PortfolioAuditResult => {
     differences: Array.isArray(source.differences)
       ? source.differences.map((entry) => {
           const diff = isRecord(entry) ? entry : {};
-          const type = diff.type;
           return {
-            type: type === 'total_cost_mismatch' || type === 'cash_mismatch' ? type : 'quantity_mismatch',
+            type: diff.type as PortfolioAuditDifference['type'],
             ticker: typeof diff.ticker === 'string' ? diff.ticker : undefined,
-            expected: toNumber(diff.expected),
-            actual: toNumber(diff.actual),
+            expected: diff.expected !== undefined ? toNumber(diff.expected) : undefined,
+            actual: diff.actual !== undefined ? toNumber(diff.actual) : undefined,
+            message: typeof diff.message === 'string' ? diff.message : undefined,
           };
         })
       : [],

@@ -133,7 +133,7 @@ class PortfolioAuditService(PortfolioCoreService):
             rebuilt_holdings[ticker] = {
                 'quantity': PortfolioAuditService._serialize_decimal(quantity, '0.00000001'),
                 'total_cost': PortfolioAuditService._serialize_decimal(total_cost),
-                'avg_price': PortfolioAuditService._serialize_decimal(avg_price)
+                'avg_price': PortfolioAuditService._serialize_decimal(avg_price, '0.000001')
             }
 
         result = {
@@ -199,6 +199,18 @@ class PortfolioAuditService(PortfolioCoreService):
             # Use 0.01 as epsilon for cost comparison (currency)
             if abs(rebuilt_total_cost - stored_total_cost) > Decimal('0.01'):
                 differences.append({'type': 'total_cost_mismatch', 'ticker': ticker, 'expected': PortfolioAuditService._serialize_decimal(rebuilt_total_cost), 'actual': PortfolioAuditService._serialize_decimal(stored_total_cost)})
+
+            # Added check: holding consistency (quantity * avg_price vs total_cost)
+            if rebuilt_holding:
+                qty = PortfolioAuditService._to_decimal(rebuilt_holding['quantity'])
+                avg = PortfolioAuditService._to_decimal(rebuilt_holding['avg_price'])
+                cost = PortfolioAuditService._to_decimal(rebuilt_holding['total_cost'])
+                if abs(cost - PortfolioAuditService._quantize_accounting(qty * avg)) > Decimal('0.01'):
+                    differences.append({
+                        'type': 'holding_internal_inconsistency',
+                        'ticker': ticker,
+                        'message': f"Cost {cost} != qty {qty} * avg {avg}"
+                    })
 
         portfolio = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
         if not portfolio:
