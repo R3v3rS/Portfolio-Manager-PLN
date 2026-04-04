@@ -111,6 +111,13 @@ npm run dev
 npm run check
 npm run build
 npm run lint
+npm test
+```
+
+Alternatywnie z katalogu głównego repo:
+
+```bash
+npm --prefix frontend test
 ```
 
 ### Backend
@@ -158,3 +165,14 @@ Skrypt wykonuje kolejno:
 
 Smoke test backendu obejmuje krytyczne endpointy: dashboard globalny, listę i wycenę portfeli, create/buy/sell, transfery budżet ↔ inwestycje, harmonogram kredytu, radar i symbol map.
 
+
+
+### CI/CD (frontend tests)
+
+W GitHub Actions uruchamiaj testy frontendu z ustawionym katalogiem roboczym:
+
+```yaml
+defaults:
+  run:
+    working-directory: frontend
+```
