@@ -2,7 +2,83 @@
 
 ## Frontend
 
-Obecnie w repozytorium **nie ma dedykowanych plików testowych frontendu** (brak plików typu `*.test.*` / `*.spec.*` w `frontend/`).
+### `frontend/src/http.response.test.ts`
+- `extractPayload returns payload and throws for invalid envelope` — waliduje rozpakowanie envelope `payload` i fallback dla błędnego kontraktu.
+- `extractErrorMessage prefers message, then details and code` — sprawdza priorytet mapowania `error.message`/`error.details`/`error.code`.
+- `extractErrorMessageFromUnknown handles body and plain errors` — normalizacja błędu z nieznanego źródła.
+- `parseJsonApiResponse unwraps payload on success` — mapowanie odpowiedzi sukcesu.
+- `parseJsonApiResponse sets error.body for non-2xx API errors` — zachowanie szczegółów envelope błędu.
+
+### `frontend/src/http.test.ts`
+- `serializes query params and skips undefined/null values` — serializacja query params i pomijanie pustych wartości.
+- `sends JSON body by default and keeps explicit body for text requests` — poprawna struktura request body i nagłówków.
+- `wraps parser errors into HttpError for status 400/401/403/404/409/422/500` — tabelaryczne pokrycie kodów błędów HTTP (`it.each`).
+- `keeps AbortError for cancellation and does not remap into HttpError` — rozróżnienie anulowania requestu.
+- `keeps network errors as-is when fetch rejects` — rozróżnienie błędu sieciowego.
+
+### `frontend/src/api.test.ts`
+- `normalizes list response with safe defaults` — bezpieczna normalizacja typów i fallbacków dla `portfolioApi.list`.
+- `maps getPriceHistory with null->[] and nullable last_updated` — normalizacja `null → []` i pól opcjonalnych.
+- `serializes optional benchmark query only when provided` — mapowanie opcjonalnego query parametru.
+- `normalizeXtbImportError keeps error envelope shape for status 400/401/403/404/409/422/500` — tabelaryczne pokrycie propagacji `code/message/details` z `HttpError`.
+- `sends importXtbCsv form data with optional fields only when provided` — struktura `FormData` i pomijanie nieustawionych pól opcjonalnych.
+
+### `frontend/src/api_budget.test.ts`
+- `maps budget summary and normalizes null arrays to []` — normalizacja typów, null-safe i fallback biznesowy.
+- `omits optional query params when null/undefined for getTransactions` — mapowanie query i pomijanie pól opcjonalnych.
+- `keeps HttpError shape for status 400/401/403/404/409/422/500` — tabelaryczne testy statusów błędów i spójny kształt obiektu błędu.
+
+### `frontend/src/api_dashboard.test.ts`
+- `maps numeric/string fields and falls back to zero/null defaults` — normalizacja dashboardu i fallback dla brakujących pól.
+
+### `frontend/src/api_loans.test.ts`
+- `maps getLoans response and falls back to empty array` — normalizacja listy kredytów.
+- `serializes schedule query params and normalizes nested schedule shape` — mapowanie query i zagnieżdżonych struktur odpowiedzi.
+- `sends createLoan body unchanged` — mapowanie payloadu requestu mutacyjnego.
+
+### `frontend/src/api_radar.test.ts`
+- `maps getAll with null-safe conversions and filters empty tickers` — normalizacja odpowiedzi i filtrowanie rekordów niepoprawnych.
+- `maps action response with fallback message and ticker normalization` — fallback komunikatu i bezpieczne mapowanie tablicy tickerów.
+- `maps analysis object safely when nested blocks are missing` — odporność na brak sekcji analitycznych.
+
+### `frontend/src/api_symbol_map.test.ts`
+- `normalizes list/create/update payloads` — mapowanie request/response dla CRUD mapowania symboli.
+
+### `frontend/src/components/DuplicateConfirmationModal.test.tsx`
+- `toggles selected conflicts and confirms selected hashes` — interakcja użytkownika (checkbox + potwierdzenie) i walidacja przekazywanych danych.
+- `calls onCancel and allows skipping all duplicates` — scenariusz anulowania i potwierdzenia bez zaznaczeń.
+
+### `frontend/src/components/Empty.test.tsx`
+- `renders fallback empty state label` — smoke test renderowania komponentu UI.
+
+### `frontend/src/pages/MainDashboard.test.tsx`
+- `renders loading state before data is loaded` — weryfikuje stan ładowania dashboardu globalnego.
+- `renders KPI cards, chart section and formatted values after successful load` — sprawdza render KPI, sekcji wykresu i formatowania kwot/dat po załadowaniu danych.
+- `renders empty-style quick stat message when there is no upcoming installment` — scenariusz pustego stanu dla raty kredytu.
+- `renders error state when API request fails` — scenariusz błędu API.
+
+### `frontend/src/pages/PortfolioDashboard.test.tsx`
+- `renders loading state before data fetch resolves` — stan ładowania przed resolve zapytań list/limits/config.
+- `renders KPI cards, tax limits and table rows after loading` — render dashboardu portfeli, limitów podatkowych i tabeli.
+- `renders empty state when no portfolios exist` — komunikat pustego stanu dla listy portfeli.
+- `renders error state when dashboard fetch fails` — komunikat błędu pobierania danych.
+- `submits create portfolio form and sends payload` — interakcja formularza tworzenia portfela i poprawny payload.
+
+### `frontend/src/components/modals/TransactionModal.test.tsx`
+- `renders buy form fields for STANDARD portfolio and submits BUY transaction` — weryfikuje flow BUY, auto-prowizję FX i payload.
+- `switches to dividend mode and submits dividend transaction` — przełączenie trybu oraz poprawny payload dla dywidendy.
+- `handles API error with user feedback and reenables submit button` — obsługa błędu serwera i powrót przycisku do stanu aktywnego.
+
+### `frontend/src/components/modals/SellModal.test.tsx`
+- `renders prefilled sell form and submits SELL request` — prefill pól sprzedaży i poprawny payload SELL.
+- `shows disabled state during request and handles server error` — blokada submita w trakcie requestu + feedback błędu.
+- `returns null when modal is closed` — brak renderu przy `isOpen=false`.
+
+### `frontend/src/components/modals/TransferModal.test.tsx`
+- `submits DEPOSIT transaction` — poprawny payload wpłaty.
+- `submits WITHDRAW to selected budget account` — wypłata na konto budżetowe z poprawnym wywołaniem API.
+- `shows validation error for invalid internal transfer amount and does not call API` — walidacja kwoty dla przelewu wewnętrznego i brak requestu.
+- `shows processing status for successful internal transfer job` — status przeliczania historii po transferze `Sub→Sub`.
 
 ## Backend — testy API, serwisów i regresji
 
