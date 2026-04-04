@@ -12,6 +12,23 @@ class PortfolioValuationService(PortfolioCoreService):
     CONSISTENCY_TOLERANCE_PLN = 0.01
 
     @staticmethod
+    def cash_delta(tx):
+        tx_type = tx['type']
+        amount = float(tx['total_value'] or 0.0)
+
+        if tx_type in ('DEPOSIT', 'INTEREST', 'SELL', 'DIVIDEND'):
+            return amount
+        if tx_type in ('WITHDRAW', 'BUY'):
+            return -amount
+        if tx_type == 'TRANSFER':
+            return 0.0
+        return 0.0
+
+    @staticmethod
+    def _sum_cash_deltas(tx_rows):
+        return sum(PortfolioValuationService.cash_delta(row) for row in tx_rows)
+
+    @staticmethod
     def _compute_cash_negative_days(parent_id, scope_portfolio_id):
         db = get_db()
         is_child_scope = parent_id != scope_portfolio_id
@@ -42,13 +59,6 @@ class PortfolioValuationService(PortfolioCoreService):
         if not tx_rows:
             return {'ok': True, 'incidents': []}
 
-        def tx_delta(tx_type, amount):
-            if tx_type in ('DEPOSIT', 'INTEREST', 'SELL', 'DIVIDEND'):
-                return amount
-            if tx_type in ('WITHDRAW', 'BUY'):
-                return -amount
-            return 0.0
-
         grouped_by_date = {}
         first_tx_date = None
         for row in tx_rows:
@@ -71,7 +81,7 @@ class PortfolioValuationService(PortfolioCoreService):
             for row in day_rows:
                 amount = float(row['total_value'] or 0.0)
                 prev_balance = running_balance
-                running_balance += tx_delta(row['type'], amount)
+                running_balance += PortfolioValuationService.cash_delta(row)
                 if prev_balance >= 0 and running_balance < 0:
                     day_trigger = {
                         'triggering_transaction_id': int(row['id']),
@@ -114,79 +124,56 @@ class PortfolioValuationService(PortfolioCoreService):
     def get_cash_balance_on_date(portfolio_id, as_of_date, sub_portfolio_id=None):
         db = get_db()
         if sub_portfolio_id is None:
-            # Check if this is a parent portfolio
             portfolio = db.execute('SELECT parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
-            
+
             if portfolio and portfolio['parent_portfolio_id'] is None:
-                # It's a parent - aggregate ALL cash transactions for this portfolio_id
-                row = db.execute(
+                tx_rows = db.execute(
                     '''
-                    SELECT COALESCE(SUM(
-                        CASE
-                            WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
-                            WHEN type = 'WITHDRAW' THEN -total_value
-                            ELSE 0
-                        END
-                    ), 0) AS cash_balance
+                    SELECT type, total_value
                     FROM transactions
                     WHERE portfolio_id = ?
                       AND date(date) <= date(?)
                     ''',
                     (portfolio_id, as_of_date),
-                ).fetchone()
-            else:
-                # It's a single/child portfolio (legacy behavior or direct access)
-                row = db.execute(
-                    '''
-                    SELECT COALESCE(SUM(
-                        CASE
-                            WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
-                            WHEN type = 'WITHDRAW' THEN -total_value
-                            ELSE 0
-                        END
-                    ), 0) AS cash_balance
-                    FROM transactions
-                    WHERE portfolio_id = ?
-                      AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
-                      AND date(date) <= date(?)
-                    ''',
-                    (portfolio_id, as_of_date),
-                ).fetchone()
-        else:
-            row = db.execute(
+                ).fetchall()
+                return float(PortfolioValuationService._sum_cash_deltas(tx_rows))
+
+            tx_rows = db.execute(
                 '''
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
-                        WHEN type = 'WITHDRAW' THEN -total_value
-                        ELSE 0
-                    END
-                ), 0) AS cash_balance
-                FROM transactions
-                WHERE portfolio_id = ?
-                  AND sub_portfolio_id = ?
-                  AND date(date) <= date(?)
-                ''',
-                (portfolio_id, sub_portfolio_id, as_of_date),
-            ).fetchone()
-            legacy_row = db.execute(
-                '''
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN type IN ('DEPOSIT', 'INTEREST') THEN total_value
-                        WHEN type = 'WITHDRAW' THEN -total_value
-                        ELSE 0
-                    END
-                ), 0) AS cash_balance
+                SELECT type, total_value
                 FROM transactions
                 WHERE portfolio_id = ?
                   AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
                   AND date(date) <= date(?)
                 ''',
-                (sub_portfolio_id, as_of_date),
-            ).fetchone()
-            return float(row['cash_balance'] or 0.0) + float(legacy_row['cash_balance'] or 0.0)
-        return float(row['cash_balance'] or 0.0)
+                (portfolio_id, as_of_date),
+            ).fetchall()
+            return float(PortfolioValuationService._sum_cash_deltas(tx_rows))
+
+        tx_rows = db.execute(
+            '''
+            SELECT type, total_value
+            FROM transactions
+            WHERE portfolio_id = ?
+              AND sub_portfolio_id = ?
+              AND date(date) <= date(?)
+            ''',
+            (portfolio_id, sub_portfolio_id, as_of_date),
+        ).fetchall()
+        legacy_rows = db.execute(
+            '''
+            SELECT type, total_value
+            FROM transactions
+            WHERE portfolio_id = ?
+              AND (sub_portfolio_id IS NULL OR sub_portfolio_id = 0)
+              AND date(date) <= date(?)
+            ''',
+            (sub_portfolio_id, as_of_date),
+        ).fetchall()
+        return float(
+            PortfolioValuationService._sum_cash_deltas(tx_rows)
+            + PortfolioValuationService._sum_cash_deltas(legacy_rows)
+        )
 
     @staticmethod
     def calculate_metrics(holdings, total_value, cash_value):

@@ -321,6 +321,71 @@ class CashTransferTestCase(unittest.TestCase):
         self.assertAlmostEqual(self._cash(child_a1), 900.0)
         self.assertAlmostEqual(self._cash(child_a2), 800.0)
 
+    def test_14_transfer_validation_uses_same_cash_rules_as_valuation(self):
+        _parent_a, child_a1, child_a2, _parent_b, _child_b1 = self._create_tree()
+
+        buy_response = self.client.post('/api/portfolio/buy', json={
+            'portfolio_id': child_a1,
+            'ticker': 'AAA',
+            'quantity': 10,
+            'price': 80.0,
+            'date': '2026-01-10',
+            'sub_portfolio_id': None,
+        })
+        self.assertEqual(buy_response.status_code, 200, buy_response.get_json())
+
+        transfer_after_buy = self._transfer({
+            'from_portfolio_id': child_a1,
+            'from_sub_portfolio_id': None,
+            'to_portfolio_id': child_a2,
+            'to_sub_portfolio_id': None,
+            'amount': 400.0,
+            'date': '2026-01-11',
+            'note': None,
+        })
+        self.assertEqual(transfer_after_buy.status_code, 422, transfer_after_buy.get_json())
+
+        sell_response = self.client.post('/api/portfolio/sell', json={
+            'portfolio_id': child_a1,
+            'ticker': 'AAA',
+            'quantity': 10,
+            'price': 30.0,
+            'date': '2026-01-12',
+            'sub_portfolio_id': None,
+        })
+        self.assertEqual(sell_response.status_code, 200, sell_response.get_json())
+
+        transfer_after_sell = self._transfer({
+            'from_portfolio_id': child_a1,
+            'from_sub_portfolio_id': None,
+            'to_portfolio_id': child_a2,
+            'to_sub_portfolio_id': None,
+            'amount': 400.0,
+            'date': '2026-01-12',
+            'note': None,
+        })
+        self.assertEqual(transfer_after_sell.status_code, 200, transfer_after_sell.get_json())
+
+        dividend_response = self.client.post('/api/portfolio/dividend', json={
+            'portfolio_id': child_a1,
+            'ticker': 'AAA',
+            'amount': 50.0,
+            'date': '2026-01-13',
+            'sub_portfolio_id': None,
+        })
+        self.assertEqual(dividend_response.status_code, 201, dividend_response.get_json())
+
+        transfer_after_dividend = self._transfer({
+            'from_portfolio_id': child_a1,
+            'from_sub_portfolio_id': None,
+            'to_portfolio_id': child_a2,
+            'to_sub_portfolio_id': None,
+            'amount': 120.0,
+            'date': '2026-01-14',
+            'note': None,
+        })
+        self.assertEqual(transfer_after_dividend.status_code, 200, transfer_after_dividend.get_json())
+
 
 if __name__ == '__main__':
     unittest.main()
