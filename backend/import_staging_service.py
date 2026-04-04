@@ -46,14 +46,14 @@ class ImportStagingService:
         quantity: float,
         sub_portfolio_id: Optional[int],
     ) -> bool:
+        # Duplicate detection is portfolio-wide (across main + sub-portfolios),
+        # so users are warned even if an identical transaction was booked in a different scope.
+        _ = sub_portfolio_id
         existing = db.execute(
             '''SELECT id FROM transactions
                WHERE portfolio_id = ? AND DATE(date) = DATE(?) AND ticker = ? AND type = ?
-               AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001
-               AND sub_portfolio_id IS ''' + ('?' if sub_portfolio_id else 'NULL'),
-            (portfolio_id, date_value, ticker, tx_type, total_value, quantity, sub_portfolio_id)
-            if sub_portfolio_id
-            else (portfolio_id, date_value, ticker, tx_type, total_value, quantity),
+               AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001''',
+            (portfolio_id, date_value, ticker, tx_type, total_value, quantity),
         ).fetchone()
         return existing is not None
 
