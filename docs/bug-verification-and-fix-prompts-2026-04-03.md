@@ -408,3 +408,85 @@ Taka kolejność najpierw eliminuje ryzyka biznesowe i integralność danych, a 
 | NEW-60 | financial_calculations | Modified Dietz z fixed mid-period assumption — błąd dla dużych przepływów na początku/końcu miesiąca | Niski | Otwarte |
 | NEW-61 | fx_audit | Brak FX snapshot w transakcjach — rebuild domyślnie zakłada PLN | Niski | Otwarte |
 | NEW-62 | fx_audit | `avg_buy_fx_rate = 1.0` dla non-PLN instrumentów w imporcie | Niski | Otwarte |
+
+---
+
+## 6) Gotowe prompty dla nowych pozycji (NEW-39..NEW-43)
+
+### NEW-39 — spójny model cash w `get_cash_balance_on_date`
+```text
+Napraw backend/portfolio_valuation_service.py::get_cash_balance_on_date tak, aby model cash był spójny z resztą systemu.
+Wymagania:
+1) Uwzględnij wpływ typów BUY/SELL/DIVIDEND (oraz zachowaj istniejące DEPOSIT/WITHDRAW/INTEREST/TRANSFER wg obecnej semantyki).
+2) Wyeliminuj rozjazd między wynikiem get_cash_balance_on_date a saldem wykorzystywanym w transfer validation.
+3) Dodaj wspólny helper cash_delta(tx) albo wspólną ścieżkę obliczeń używaną przez oba miejsca.
+4) Dodaj testy regresyjne:
+   - BUY obniża cash,
+   - SELL podnosi cash,
+   - DIVIDEND podnosi cash,
+   - transfer validation używa tych samych reguł i nie bazuje na błędnym saldzie.
+5) Nie zmieniaj kontraktu API endpointów.
+Uruchom testy portfolio valuation + transfer validation.
+```
+
+### NEW-40 — blokada SELL bez holdingu (brak inflacji gotówki)
+```text
+Popraw import/księgowanie SELL, aby nie zwiększać gotówki, gdy brak wystarczającego holdingu.
+Wymagania:
+1) W ścieżce importu i/lub rebuild_holdings wykryj SELL dla tickera bez pozycji (lub z qty < ilość SELL).
+2) Zamiast cichej akceptacji:
+   - zwróć błąd walidacji (preferowane) LUB
+   - oznacz rekord jako conflict do ręcznego potwierdzenia, bez wpływu na cash/holdings do czasu rozwiązania.
+3) Zapewnij, że cash nie rośnie, jeśli holding nie może zostać poprawnie zmniejszony.
+4) Dodaj testy regresyjne:
+   - SELL bez holdingu,
+   - SELL większy niż holding,
+   - poprawny SELL przy wystarczającym holdingu.
+5) Dodaj log ostrzegawczy z portfolio_id, ticker i tx_id/hash.
+Uruchom testy importu i audytu holdings/cash.
+```
+
+### NEW-41 — usunięcie krytycznych `assert` z logiki produkcyjnej
+```text
+Zastąp `assert` w backend (szczególnie `_assert_holding_consistency`) jawnie egzekwowaną walidacją runtime.
+Wymagania:
+1) Usuń zależność od `assert` dla reguł biznesowych (Python -O nie może wyłączyć ochrony).
+2) Zastąp je:
+   - dedykowanym wyjątkiem domenowym (np. ValidationError/ConsistencyError),
+   - albo zwracanym wynikiem błędu + logger.error.
+3) Zachowaj czytelny komunikat diagnostyczny (portfolio_id, ticker, expected vs actual).
+4) Dodaj test potwierdzający, że ochrona działa niezależnie od optymalizacji interpretera.
+5) Upewnij się, że endpoint/API zwraca spójny kod błędu (bez 500 jeśli to błąd danych wejściowych).
+Uruchom testy modułu audytu i endpointów, które używają tej walidacji.
+```
+
+### NEW-42 — deterministyczna agregacja metadata w `get_holdings`
+```text
+Napraw zapytanie aggregate w backend/portfolio_valuation_service.py::get_holdings, aby uniknąć niedeterministycznych pól tekstowych.
+Wymagania:
+1) W SQL agregującym holdings nie zwracaj `company_name`, `sector`, `industry` jako „luźnych” kolumn bez agregacji.
+2) Zastosuj jedną strategię:
+   - CTE/subquery wybierające rekord referencyjny (np. MAX(updated_at) lub MAX(id)) i join,
+   - albo jawne agregaty (np. MAX()) z uzasadnieniem semantyki.
+3) Wynik ma być deterministyczny i stabilny między uruchomieniami SQLite.
+4) Dodaj test regresyjny: wiele rekordów tego samego tickera z różnymi metadata nie daje losowych wyników.
+5) Sprawdź, czy poprawka nie psuje istniejących endpointów holdings.
+Uruchom testy portfolio valuation/holdings.
+```
+
+### NEW-43 — waluta ceny w `/buy` i `/sell` (FX safety)
+```text
+Uszczelnij endpointy `/buy` i `/sell`, aby cena była interpretowana z poprawną walutą instrumentu.
+Wymagania:
+1) Rozszerz payload o jawne pole waluty ceny (np. `price_currency`) lub jednoznacznie wyprowadź je z instrumentu/tickera.
+2) Jeśli waluta ceny ≠ waluta portfela, przelicz przez FX rate (z daty transakcji) przed zapisaniem cash impact.
+3) Gdy brakuje kursu FX:
+   - nie stosuj cichego fallbacku 1.0,
+   - zwróć błąd walidacji albo oznacz transakcję jako wymagającą interwencji.
+4) Dodaj testy regresyjne:
+   - zakup/sprzedaż instrumentu USD w portfelu PLN,
+   - poprawne księgowanie cash i avg_buy_fx_rate,
+   - brak kursu FX => jawny błąd/flag.
+5) Zachowaj kompatybilność istniejących klientów przez bezpieczny default/migrację kontraktu (opisz w changelogu API).
+Uruchom testy trade routes + portfolio valuation + FX audit.
+```
