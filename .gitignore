@@ -10,3 +10,6 @@ frontend/dist/
 .DS_Store
 *.pyc
 backend/logs/backend.log
+large_results.json
+medium_results.json
+before.json
