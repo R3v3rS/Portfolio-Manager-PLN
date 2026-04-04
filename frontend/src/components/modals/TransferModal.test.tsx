@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ComponentProps } from 'react';
 import TransferModal from './TransferModal';
 import { portfolioApi } from '../../api';
 import { budgetApi } from '../../api_budget';
@@ -32,7 +33,7 @@ const mockedPortfolioApi = vi.mocked(portfolioApi);
 const mockedBudgetApi = vi.mocked(budgetApi);
 
 describe('TransferModal', () => {
-  const baseProps = {
+  const baseProps: ComponentProps<typeof TransferModal> = {
     isOpen: true,
     onClose: vi.fn(),
     onSuccess: vi.fn(),
@@ -43,7 +44,7 @@ describe('TransferModal', () => {
       { id: 11, name: 'Sub A', account_type: 'STANDARD', current_cash: 1200, total_deposits: 2000, savings_rate: 0, parent_portfolio_id: 10, children: [] },
       { id: 12, name: 'Sub B', account_type: 'STANDARD', current_cash: 500, total_deposits: 1000, savings_rate: 0, parent_portfolio_id: 10, children: [] },
     ],
-  } as const;
+  };
 
   beforeEach(() => {
     mockedPortfolioApi.deposit.mockResolvedValue({} as never);

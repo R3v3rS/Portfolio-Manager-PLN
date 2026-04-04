@@ -23,6 +23,9 @@
     "noUncheckedSideEffectImports": false,
     "forceConsistentCasingInFileNames": false,
     "baseUrl": "./",
+    "types": [
+      "vitest/globals"
+    ],
     "paths": {
       "@/*": [
         "./src/*"
@@ -31,6 +34,6 @@
   },
   "include": [
     "src",
-    "api"
+    "tests"
   ]
 }
