@@ -88,6 +88,22 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         sell_row = [row for row in result['rows'] if row['type'] == 'SELL'][0]
         self.assertEqual(sell_row['conflict_type'], 'insufficient_qty')
 
+    def test_create_session_detects_database_duplicate(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
+               VALUES (?, 'AAPL', '2026-01-02 10:00:00', 'BUY', 5, 100, 500)''',
+            (self.portfolio_id,),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+        self.assertEqual(result['rows'][0]['conflict_type'], 'database_duplicate')
+
     def test_assign_row_changes_status(self):
         df = self._df([
             {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '100', 'Comment': ''},

@@ -48,7 +48,7 @@ class ImportStagingService:
     ) -> bool:
         existing = db.execute(
             '''SELECT id FROM transactions
-               WHERE portfolio_id = ? AND date = ? AND ticker = ? AND type = ?
+               WHERE portfolio_id = ? AND DATE(date) = DATE(?) AND ticker = ? AND type = ?
                AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001
                AND sub_portfolio_id IS ''' + ('?' if sub_portfolio_id else 'NULL'),
             (portfolio_id, date_value, ticker, tx_type, total_value, quantity, sub_portfolio_id)
