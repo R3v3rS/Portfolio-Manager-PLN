@@ -535,7 +535,11 @@ class ImportStagingService:
                 book_tx_only = False
                 if row['conflict_type'] is not None:
                     if row['id'] in confirmed:
-                        book_tx_only = True
+                        # Only inventory conflicts are book_tx_only.
+                        # Duplicate conflicts should behave like regular confirmed import
+                        # (same as legacy direct CSV flow).
+                        if row['conflict_type'] in {'missing_holding', 'insufficient_qty'}:
+                            book_tx_only = True
                     else:
                         result['skipped_conflicts'] += 1
                         continue

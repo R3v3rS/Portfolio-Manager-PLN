@@ -185,6 +185,29 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertEqual(holding_count, 0)
         self.assertEqual(staged, 'booked')
 
+    def test_book_session_confirmed_database_duplicate_books_normally(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
+               VALUES (?, 'CASH', '2026-01-01 10:00:00', 'DEPOSIT', 1, 1000, 1000)''',
+            (self.portfolio_id,),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+        row_id = session['rows'][0]['id']
+        self.assertEqual(session['rows'][0]['conflict_type'], 'database_duplicate')
+
+        result = ImportStagingService.book_session(session['session_id'], confirmed_row_ids=[row_id])
+        self.assertEqual(result['booked'], 1)
+        self.assertEqual(result['booked_tx_only'], 0)
+
+        cash = get_db().execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()['current_cash']
+        self.assertAlmostEqual(float(cash), 1000.0)
+
     def test_book_session_normal_sell_updates_cash_and_holdings(self):
         db = get_db()
         db.execute(
