@@ -298,14 +298,3 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 2. **Testy kompatybilności wstecznej**
    - Co dodać: ochrona przed „breaking changes” w polach payloadów używanych przez frontend.
 
-
-
-## Wynik uruchomienia testów (2026-04-04)
-
-Przeprowadzono wszystkie testy wymienione w tym katalogu.
-
-### Nieprzechodzące testy
-
-- `tests/test_portfolio_history_service.py::PortfolioHistoryServiceRollingParityTestCase::test_daily_history_matches_legacy_algorithm`
-  - Status: **FAIL**
-  - Komentarz: oczekiwane wartości z algorytmu legacy różnią się od aktualnego wyniku `PortfolioHistoryService.get_portfolio_profit_history_daily(...)`. W szczególności pierwszy punkt zwracanej serii ma wartość `0.0` zamiast `14900.0`, a w środku serii pojawia się różnica `15320.42` vs `15881.6`.
