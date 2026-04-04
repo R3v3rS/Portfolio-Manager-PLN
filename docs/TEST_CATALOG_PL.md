@@ -252,16 +252,6 @@ Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adno
 
 Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domknąć najważniejsze ryzyka.
 
-### Frontend (największa luka)
-
-1. **Testy jednostkowe API clientów** (`frontend/src/api*.ts`)
-   - Co sprawdzać: mapowanie payloadów request/response, obsługę kodów błędów, normalizację danych i fallbacki.
-2. **Testy komponentów React** (`frontend/src/**/*.tsx`)
-   - Co sprawdzać: rendering sekcji dashboard/portfolio, stany loading/empty/error, formatowanie kwot/dat.
-3. **Testy integracyjne UI + mock API**
-   - Co sprawdzać: kluczowe flow użytkownika (dodanie portfela, BUY/SELL, transfery, import, filtrowanie historii).
-4. **E2E smoke dla krytycznych ścieżek**
-   - Co sprawdzać: uruchomienie aplikacji i przejście 2–3 najważniejszych scenariuszy end-to-end.
 
 ### Backend — luki funkcjonalne
 
@@ -296,117 +286,8 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 
 ### Priorytet wdrożenia (proponowany)
 
-1. Frontend unit + component tests (najpierw krytyczne widoki i API clienty).
 2. Backend concurrency + idempotencja dla operacji finansowych.
 3. Rozszerzenie contract/error tests na pełną mapę endpointów.
 4. E2E smoke (minimum) i testy wydajnościowe historii/wyceny.
 
-## Uzupełnienie: szczegółowy plan testów frontend (do dopisania na końcu backlogu QA)
 
-Poniżej rozpiska „co dokładnie testować” dla obszarów wskazanych jako największa luka. Sekcja może być użyta 1:1 jako checklista do implementacji testów.
-
-### 1) Testy jednostkowe API clientów (`frontend/src/api*.ts`)
-
-**Zakres**
-- `api.ts`, `api_budget.ts`, `api_dashboard.ts`, `api_loans.ts`, `api_radar.ts`, `api_symbol_map.ts`, `api-contract.ts`, `http.ts`, `http/response.ts`.
-
-**Scenariusze obowiązkowe**
-- Mapowanie requestów:
-  - poprawne nazwy pól, typy, wartości domyślne i serializacja query params/body.
-  - brak wysyłki pól opcjonalnych, gdy `undefined/null` (jeśli kontrakt tego wymaga).
-- Mapowanie response:
-  - transformacja envelope (`payload`/`error`) do wewnętrznych typów frontendu.
-  - poprawna obsługa pól opcjonalnych i wartości brakujących.
-- Obsługa błędów HTTP:
-  - 400/401/403/404/409/422/500 — mapowanie na spójny obiekt błędu UI.
-  - poprawna propagacja `error.code`, `error.message`, `error.details`.
-- Normalizacja i fallbacki:
-  - normalizacja pustych list (`null -> []`), wartości liczbowych (`string -> number`, jeśli stosowane),
-  - fallback dla brakujących danych (np. placeholdery, wartości 0 tylko tam, gdzie to bezpieczne biznesowo).
-- Anulowanie/timeouty (jeśli wspierane):
-  - poprawne odróżnienie błędu sieci od anulowania żądania.
-
-**Narzędzia / podejście**
-- Vitest/Jest + mock warstwy HTTP (`fetch`/axios).
-- Testy tabelaryczne (`it.each`) dla kodów błędów i wariantów payloadu.
-
-### 2) Testy komponentów React (`frontend/src/**/*.tsx`)
-
-**Priorytetowe widoki/komponenty**
-- Strony dashboard i portfolio: `MainDashboard.tsx`, `PortfolioDashboard.tsx`, `PortfolioDetails.tsx`, `PortfolioList.tsx`, `Home.tsx`, `Transactions.tsx`.
-- Modale transakcyjne: BUY/SELL/TRANSFER (`TransactionModal.tsx`, `SellModal.tsx`, `TransferModal.tsx`).
-- Kluczowe sekcje wizualne/metryki: wykresy i panele analityczne.
-
-**Scenariusze obowiązkowe**
-- Rendering danych:
-  - wyświetlenie sekcji i kluczowych KPI po poprawnym fetchu.
-- Stany aplikacyjne:
-  - `loading` (skeleton/spinner),
-  - `empty` (brak danych),
-  - `error` (komunikat i/lub retry action).
-- Formatowanie:
-  - kwoty (waluta, separatory tysięcy, liczba miejsc po przecinku),
-  - daty (lokalizacja i format spójny z wymaganiami UI).
-- Interakcje:
-  - submit formularzy, walidacje pól, disabled state przy żądaniu,
-  - komunikaty błędów walidacyjnych i serwerowych.
-
-**Narzędzia / podejście**
-- React Testing Library + `user-event`.
-- Asercje po roli i tekście (`getByRole`, `findByText`) zamiast selektorów implementacyjnych.
-
-### 3) Testy integracyjne UI + mock API
-
-**Cel**
-Weryfikacja krytycznych flow użytkownika na poziomie kilku komponentów naraz, z mockowanym backendem.
-
-**Flow krytyczne (minimum)**
-- Dodanie portfela i jego pojawienie się na liście.
-- Dodanie transakcji BUY i wpływ na widok holdings/summary.
-- Dodanie transakcji SELL i aktualizacja zysku/pozycji.
-- Transfer środków i poprawna zmiana sald po obu stronach.
-- Import transakcji (scenariusz sukcesu + scenariusz częściowego błędu).
-- Filtrowanie historii transakcji (zakres dat/typ transakcji/ticker).
-
-**Co asercjami potwierdzać**
-- Że UI wysyła poprawny request (payload + endpoint).
-- Że po odpowiedzi backendu odświeżają się właściwe sekcje i liczby.
-- Że błędy API są komunikowane użytkownikowi bez „rozsypania” widoku.
-
-### 4) E2E smoke dla krytycznych ścieżek
-
-**Zakres minimalny (2–3 scenariusze)**
-1. Start aplikacji + wejście na dashboard + poprawne załadowanie danych startowych.
-2. Utworzenie portfela -> BUY -> SELL (prosty pełny cykl transakcyjny).
-3. Transfer / import + weryfikacja, że historia i podsumowanie się aktualizują.
-
-**Wymagania smoke**
-- Testy krótkie, stabilne i uruchamiane na każdym CI (PR + main).
-- Stabilizacja przez deterministic fixtures oraz kontrolę czasu (mock daty), gdy wpływa na wyniki.
-
-**Status wdrożenia (backend E2E smoke API)**
-- Scenariusz 1: start aplikacji + dashboard + załadowanie danych startowych  
-  `backend/test_smoke_endpoints.py::test_e2e_smoke_bootstrap_dashboard_and_seed_data`
-- Scenariusz 2: utworzenie portfela -> BUY -> SELL  
-  `backend/test_smoke_endpoints.py::test_e2e_smoke_create_portfolio_buy_sell_cycle`
-- Scenariusz 3: transfer środków + weryfikacja historii i podsumowania  
-  `backend/test_smoke_endpoints.py::test_e2e_smoke_transfer_updates_history_and_summary`
-
-**Deterministyczność**
-- Wszystkie scenariusze używają jawnych dat transakcji (`2026-03-02` ... `2026-03-05`).
-- Dashboard smoke ma zamrożoną datę przez patch `routes_dashboard.date` (kontrola czasu w asercjach summary).
-
-**Uruchamianie w CI (krótki pakiet smoke)**
-- `python -m unittest backend.test_smoke_endpoints.BackendSmokeEndpointsTestCase.test_e2e_smoke_bootstrap_dashboard_and_seed_data`
-- `python -m unittest backend.test_smoke_endpoints.BackendSmokeEndpointsTestCase.test_e2e_smoke_create_portfolio_buy_sell_cycle`
-- `python -m unittest backend.test_smoke_endpoints.BackendSmokeEndpointsTestCase.test_e2e_smoke_transfer_updates_history_and_summary`
-- lub cały plik: `python -m unittest backend/test_smoke_endpoints.py`
-
----
-
-## Proponowana kolejność wdrożenia (frontend)
-
-1. API client unit tests (najtańsze i najszybsze wykrywanie regresji kontraktu).
-2. Testy komponentów dla ekranów portfolio/dashboard + modali transakcyjnych.
-3. Integracyjne flow UI + mock API dla BUY/SELL/TRANSFER/importu.
-4. Krótki pakiet E2E smoke (2–3 scenariusze) odpalany w CI.
