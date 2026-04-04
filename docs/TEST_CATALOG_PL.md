@@ -246,6 +246,10 @@ Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adno
 - `test_guess_nan` — `xirr` odrzuca `NaN` w parametrze guess.
 - `test_guess_bool` — `xirr` odrzuca bool jako guess.
 
+### `tests/test_buy_idempotency.py`
+- `test_buy_idempotency_replay_returns_original_result_without_duplicate_side_effects` — dwa identyczne `POST /api/portfolio/buy` z tym samym `Idempotency-Key`: pierwszy request tworzy transakcję, drugi zwraca zapisany wynik bez duplikacji skutków (cash/holding/transactions).
+- `test_buy_idempotency_rejects_same_key_with_different_payload` — ten sam `Idempotency-Key` z innym body kończy się `409` (`IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD`), co chroni przed kolizją semantyczną klucza.
+
 ---
 
 ## Brakujące testy, które warto dodać
@@ -256,7 +260,8 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 ### Backend — luki funkcjonalne
 
 1. **Idempotencja endpointów mutujących**
-   - Co dodać: testy ponowienia tego samego requestu (np. retry po timeout) bez podwójnych skutków.
+   - Status: częściowo pokryte (`POST /api/portfolio/buy`).
+   - Co dodać: analogiczne testy i implementacja dla `SELL`, `DEPOSIT`, `WITHDRAW`, transferów gotówki i operacji batch.
 2. **Testy współbieżności (race conditions)**
    - Co dodać: równoległe BUY/SELL/TRANSFER na tym samym portfelu i walidacja spójności sald/holdings.
 3. **Testy uprawnień i separacji danych**
@@ -289,5 +294,4 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 2. Backend concurrency + idempotencja dla operacji finansowych.
 3. Rozszerzenie contract/error tests na pełną mapę endpointów.
 4. E2E smoke (minimum) i testy wydajnościowe historii/wyceny.
-
 

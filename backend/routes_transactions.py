@@ -1,10 +1,14 @@
 from flask import current_app, request
+from flask import jsonify
 from database import get_db
 from portfolio_service import PortfolioService
 from api.response import success_response
 from api.exceptions import ApiError
 from job_registry import job_registry
 import threading
+import hashlib
+import json
+import sqlite3
 from datetime import date, datetime
 from uuid import uuid4
 from routes_portfolio_base import (
@@ -33,6 +37,42 @@ def _parse_transfer_date(raw_value):
     if parsed > date.today():
         raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'date cannot be in the future', status=422)
     return parsed
+
+
+def _calculate_request_hash(payload):
+    canonical_json = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(canonical_json.encode('utf-8')).hexdigest()
+
+
+def _load_idempotent_response(db, endpoint, idempotency_key, request_hash):
+    row = db.execute(
+        '''
+        SELECT request_hash, response_status, response_body
+        FROM idempotency_keys
+        WHERE endpoint = ? AND idempotency_key = ?
+        ''',
+        (endpoint, idempotency_key),
+    ).fetchone()
+    if not row:
+        return None
+    if row['request_hash'] != request_hash:
+        raise ApiError(
+            'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD',
+            'Idempotency-Key was already used with a different request body.',
+            status=409,
+        )
+    return jsonify(json.loads(row['response_body'])), int(row['response_status'])
+
+
+def _store_idempotent_response(db, endpoint, idempotency_key, request_hash, status_code, response_envelope):
+    response_body = json.dumps(response_envelope, sort_keys=True, ensure_ascii=False)
+    db.execute(
+        '''
+        INSERT INTO idempotency_keys (endpoint, idempotency_key, request_hash, response_status, response_body)
+        VALUES (?, ?, ?, ?, ?)
+        ''',
+        (endpoint, idempotency_key, request_hash, status_code, response_body),
+    )
 
 
 def _resolve_transfer_scope(db, *, portfolio_id, sub_portfolio_id, field_prefix):
@@ -365,6 +405,16 @@ def withdraw():
 @portfolio_bp.route('/buy', methods=['POST'])
 def buy():
     data = require_json_body()
+    db = get_db()
+    idempotency_key = request.headers.get('Idempotency-Key')
+    endpoint = '/api/portfolio/buy'
+    request_hash = _calculate_request_hash(data)
+
+    if idempotency_key:
+        replayed_response = _load_idempotent_response(db, endpoint, idempotency_key, request_hash)
+        if replayed_response:
+            return replayed_response
+
     try:
         PortfolioService.buy_stock(
             require_positive_int(data, 'portfolio_id'),
@@ -378,7 +428,26 @@ def buy():
         )
     except ValueError as error:
         raise_portfolio_validation_error(error)
-    return success_response({'message': 'Buy successful'})
+
+    if not idempotency_key:
+        return success_response({'message': 'Buy successful'})
+
+    response_status = 201
+    response_envelope = {'payload': {'message': 'Buy successful'}}
+    try:
+        _store_idempotent_response(db, endpoint, idempotency_key, request_hash, response_status, response_envelope)
+        db.commit()
+    except sqlite3.IntegrityError:
+        db.rollback()
+        replayed_response = _load_idempotent_response(db, endpoint, idempotency_key, request_hash)
+        if replayed_response:
+            return replayed_response
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    return jsonify(response_envelope), response_status
 
 
 @portfolio_bp.route('/sell', methods=['POST'])

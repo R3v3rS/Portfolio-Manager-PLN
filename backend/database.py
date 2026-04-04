@@ -111,6 +111,21 @@ def init_db(app):
         db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sub_portfolio ON transactions(sub_portfolio_id);')
 
+        # Idempotency keys for mutating endpoints (request replay protection)
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                endpoint TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                response_status INTEGER NOT NULL,
+                response_body TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(endpoint, idempotency_key)
+            );
+        ''')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_idempotency_created_at ON idempotency_keys(created_at);')
+
         # Holdings table
         db.execute('''
             CREATE TABLE IF NOT EXISTS holdings (
