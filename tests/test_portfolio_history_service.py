@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from portfolio_history_service import PortfolioHistoryService  # noqa: E402
+import portfolio_history_service as portfolio_history_module  # noqa: E402
 from portfolio_trade_service import PortfolioTradeService  # noqa: E402
 
 
@@ -68,7 +69,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
             return self._data.keys()
 
     def _legacy_daily(self, transactions, price_history, ticker_currency, days, account_type, live_value):
-        end_date = date.today()
+        end_date = portfolio_history_module.date.today()
         start_date = end_date - timedelta(days=days - 1)
         date_points = [start_date + timedelta(days=offset) for offset in range(days)]
 
