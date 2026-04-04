@@ -109,9 +109,6 @@ class PortfolioHistoryService(PortfolioCoreService):
             elif t_type == 'SELL':
                 state['holdings_qty'][t_ticker] = state['holdings_qty'].get(t_ticker, 0.0) - t_qty
 
-        state['cash'] = round(state['cash'], 10)
-        state['invested_capital'] = round(state['invested_capital'], 10)
-
     @staticmethod
     def _row_id_or_zero(row):
         try:
@@ -303,7 +300,10 @@ class PortfolioHistoryService(PortfolioCoreService):
                         if fx_rate <= 0:
                             fx_rate = 1.0
                         gross_value_pln = qty * native_price * fx_rate
-                        net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
+                        if currency != 'PLN':
+                            net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
+                        else:
+                            net_value_pln = gross_value_pln
                         holdings_value += net_value_pln
 
             total_value = state['cash'] + holdings_value
@@ -434,16 +434,31 @@ class PortfolioHistoryService(PortfolioCoreService):
             } for t in transactions), key=lambda x: (x['date'], x['id']))
         tx_idx = 0
         tx_count = len(normalized_transactions)
+        opening_cash = 0.0
+        opening_invested_capital = 0.0
+        for tx in normalized_transactions:
+            if tx['date'] >= start_date:
+                break
+            if tx['type'] == 'DEPOSIT':
+                opening_cash += tx['total_value']
+                opening_invested_capital += tx['total_value']
+            elif tx['type'] == 'WITHDRAW':
+                opening_cash -= tx['total_value']
+                opening_invested_capital -= tx['total_value']
+
         state = {
-            'cash': 0.0,
-            'invested_capital': 0.0,
+            'cash': opening_cash,
+            'invested_capital': opening_invested_capital,
             'holdings_qty': {},
             'benchmark_shares': 0.0,
             'inflation_shares': 0.0,
         }
 
-        # Fast-forward all transactions before the requested window only once.
+        # Fast-forward all non cash-flow transactions before the requested window only once.
         while tx_idx < tx_count and normalized_transactions[tx_idx]['date'] < start_date:
+            if normalized_transactions[tx_idx]['type'] in ('DEPOSIT', 'WITHDRAW'):
+                tx_idx += 1
+                continue
             PortfolioHistoryService._apply_tx_to_rolling(normalized_transactions[tx_idx], state, get_price_at_date)
             tx_idx += 1
 
@@ -462,7 +477,10 @@ class PortfolioHistoryService(PortfolioCoreService):
                         if fx_rate <= 0:
                             fx_rate = 1.0
                         gross_value_pln = qty * native_price * fx_rate
-                        net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
+                        if currency != 'PLN':
+                            net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
+                        else:
+                            net_value_pln = gross_value_pln
                         total_value += net_value_pln
 
             if point_date == end_date:
