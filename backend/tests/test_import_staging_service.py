@@ -120,6 +120,26 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         result = ImportStagingService.create_session(self.portfolio_id, df)
         self.assertEqual(result['rows'][0]['conflict_type'], 'database_duplicate')
 
+    def test_create_session_reports_file_and_database_duplicate_together(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
+               VALUES (?, 'AAPL', '2026-01-02 10:00:00', 'BUY', 5, 100, 500)''',
+            (self.portfolio_id,),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+        second_row = result['rows'][1]
+        self.assertEqual(second_row['conflict_type'], 'file_internal_duplicate')
+        self.assertEqual(second_row['conflict_details']['also_database_duplicate'], True)
+        self.assertEqual(second_row['conflict_details']['conflict_types'], ['file_internal_duplicate', 'database_duplicate'])
+
     def test_assign_row_changes_status(self):
         df = self._df([
             {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '100', 'Comment': ''},

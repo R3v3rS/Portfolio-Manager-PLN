@@ -187,13 +187,13 @@ class ImportStagingService:
                 row_hash = PortfolioImportService._generate_row_hash(date_value, tx_ticker, tx_total, tx_type, tx_qty)
 
                 if conflict_type is None:
+                    file_duplicate_source_row = None
                     if row_hash in internal_hashes:
-                        conflict_type = 'file_internal_duplicate'
-                        conflict_details = {'source_row': internal_hashes[row_hash]}
+                        file_duplicate_source_row = internal_hashes[row_hash]
                     else:
                         internal_hashes[row_hash] = row_number
 
-                    if conflict_type is None and ImportStagingService._transaction_exists(
+                    is_database_duplicate = ImportStagingService._transaction_exists(
                         db,
                         portfolio_id,
                         date_value,
@@ -202,7 +202,19 @@ class ImportStagingService:
                         tx_total,
                         tx_qty,
                         sub_portfolio_id,
-                    ):
+                    )
+
+                    if file_duplicate_source_row is not None and is_database_duplicate:
+                        conflict_type = 'file_internal_duplicate'
+                        conflict_details = {
+                            'source_row': file_duplicate_source_row,
+                            'also_database_duplicate': True,
+                            'conflict_types': ['file_internal_duplicate', 'database_duplicate'],
+                        }
+                    elif file_duplicate_source_row is not None:
+                        conflict_type = 'file_internal_duplicate'
+                        conflict_details = {'source_row': file_duplicate_source_row}
+                    elif is_database_duplicate:
                         conflict_type = 'database_duplicate'
 
                     holding_key = (tx_ticker, sub_portfolio_id)

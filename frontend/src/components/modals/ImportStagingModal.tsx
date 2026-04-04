@@ -315,10 +315,21 @@ const ImportStagingModal: React.FC<ImportStagingModalProps> = ({ session, subPor
                       <div className="flex flex-col gap-1">
                         {renderStatus(row)}
                         {isConflict && row.conflict_type && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
-                            <AlertTriangle className="h-3.5 w-3.5" />
-                            {conflictLabel[row.conflict_type]}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              {conflictLabel[row.conflict_type]}
+                            </span>
+                            {((Array.isArray((row.conflict_details as { conflict_types?: unknown[] } | null)?.conflict_types) &&
+                              ((row.conflict_details as { conflict_types?: unknown[] }).conflict_types ?? []).includes('database_duplicate')) ||
+                              (row.conflict_details as { also_database_duplicate?: boolean } | null)?.also_database_duplicate) &&
+                              row.conflict_type !== 'database_duplicate' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                {conflictLabel.database_duplicate}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>
