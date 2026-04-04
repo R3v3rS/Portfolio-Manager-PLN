@@ -219,6 +219,10 @@ Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adno
 - `test_buy_before_window_sell_inside_window` — poprawna wycena przy BUY przed oknem i SELL w oknie.
 - `test_daily_accepts_row_like_transactions_without_get` — kompatybilność wejścia row-like bez metody `get`.
 
+### `tests/test_portfolio_valuation_cash_balance.py`
+- `test_buy_sell_dividend_are_reflected_in_cash_balance_on_date` — weryfikuje, że `BUY/SELL/DIVIDEND` są poprawnie uwzględniane przez `get_cash_balance_on_date`.
+- `test_regression_sell_transactions_counted_even_if_current_cash_is_stale` — regresja przypadku produkcyjnego („Dywidendowe”): dwa `SELL SNT.WA` obecne w `transactions` muszą podnieść saldo historyczne nawet gdy `portfolios.current_cash` pozostało niezsynchronizowane.
+
 ### `tests/test_portfolio_trade_bulk_atomicity.py`
 - `test_assign_transactions_bulk_rolls_back_entire_batch_on_error` — atomowość bulk assign: błąd cofa cały batch.
 

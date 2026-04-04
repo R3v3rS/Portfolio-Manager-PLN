@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from database import init_db  # noqa: E402
+from database import get_db  # noqa: E402
 from portfolio_service import PortfolioService  # noqa: E402
 
 
@@ -87,6 +88,42 @@ class PortfolioValuationCashBalanceTestCase(unittest.TestCase):
             balance = PortfolioService.get_cash_balance_on_date(parent_id, '2026-01-12', sub_portfolio_id=child_id)
 
         self.assertAlmostEqual(balance, 1080.0)
+
+    def test_regression_sell_transactions_counted_even_if_current_cash_is_stale(self):
+        parent_id = self._create_parent('Dywidendowe', initial_cash=0.0)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute('UPDATE portfolios SET current_cash = ? WHERE id = ?', (1000.0, parent_id))
+            db.execute(
+                '''
+                INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                ''',
+                (parent_id, 'CASH', 'DEPOSIT', 0.0, 0.0, 1000.0, '2026-01-01'),
+            )
+            db.execute(
+                '''
+                INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                ''',
+                (parent_id, 'SNT.WA', 'SELL', 10.0, 15.0, 150.0, '2026-01-10'),
+            )
+            db.execute(
+                '''
+                INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                ''',
+                (parent_id, 'SNT.WA', 'SELL', 5.0, 16.0, 80.0, '2026-01-11'),
+            )
+            db.commit()
+
+            db.execute('UPDATE portfolios SET current_cash = ? WHERE id = ?', (1000.0, parent_id))
+            db.commit()
+
+            balance = PortfolioService.get_cash_balance_on_date(parent_id, '2026-01-11')
+
+        self.assertAlmostEqual(balance, 1230.0)
 
 
 if __name__ == '__main__':
