@@ -28,22 +28,31 @@ const Transactions: React.FC = () => {
   const [filterPortfolio, setFilterPortfolio] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterTicker, setFilterTicker] = useState<string>('all');
+  const [filterDateFrom, setFilterDateFrom] = useState<string>('');
+  const [filterDateTo, setFilterDateTo] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [tRes, pRes] = await Promise.all([portfolioApi.listTransactions(), portfolioApi.list()]);
+        const params = {
+          ...(filterType !== 'all' ? { type: filterType } : {}),
+          ...(filterTicker !== 'all' ? { ticker: filterTicker } : {}),
+          ...(filterDateFrom ? { date_from: filterDateFrom } : {}),
+          ...(filterDateTo ? { date_to: filterDateTo } : {}),
+        };
+        const [tRes, pRes] = await Promise.all([portfolioApi.listTransactions(params), portfolioApi.list()]);
         setTransactions(tRes.transactions);
         setPortfolioTree(pRes.portfolios);
       } catch (err) {
         console.error('Failed to fetch data', err);
+        alert(err instanceof Error ? err.message : 'Failed to fetch transactions');
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, []);
+  }, [filterDateFrom, filterDateTo, filterTicker, filterType]);
 
   const flatPortfolios = useMemo(() => flattenPortfolios(portfolioTree), [portfolioTree]);
 
@@ -66,8 +75,6 @@ const Transactions: React.FC = () => {
       }
     }
 
-    if (filterType !== 'all' && transaction.type !== filterType) return false;
-    if (filterTicker !== 'all' && transaction.ticker !== filterTicker) return false;
     return true;
   });
 
@@ -133,6 +140,30 @@ const Transactions: React.FC = () => {
               </option>
             ))}
           </select>
+        </div>
+        <div className="flex-1 min-w-[170px]">
+          <label htmlFor="dateFrom" className="block text-sm font-medium text-gray-700">
+            Date from
+          </label>
+          <input
+            id="dateFrom"
+            type="date"
+            value={filterDateFrom}
+            onChange={(e) => setFilterDateFrom(e.target.value)}
+            className="mt-1 block w-full py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border px-3"
+          />
+        </div>
+        <div className="flex-1 min-w-[170px]">
+          <label htmlFor="dateTo" className="block text-sm font-medium text-gray-700">
+            Date to
+          </label>
+          <input
+            id="dateTo"
+            type="date"
+            value={filterDateTo}
+            onChange={(e) => setFilterDateTo(e.target.value)}
+            className="mt-1 block w-full py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border px-3"
+          />
         </div>
       </div>
 
