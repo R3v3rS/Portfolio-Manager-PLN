@@ -294,3 +294,14 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 2. **Testy kompatybilności wstecznej**
    - Co dodać: ochrona przed „breaking changes” w polach payloadów używanych przez frontend.
 
+
+## Benchmarki manualne (standalone)
+
+### `backend/benchmarks/bench_history_valuation.py`
+- Benchmark standalone (bez Flask i bez pliku `portfolio.db`) dla metod:
+  - `PortfolioHistoryService.get_portfolio_profit_history_daily(portfolio_id, days=365)`
+  - `PortfolioHistoryService._calculate_historical_metrics(portfolio_id)`
+  - `PortfolioValuationService.get_holdings(portfolio_id)`
+- Dane testowe są deterministyczne (`seed=42`), generowane w SQLite `:memory:`.
+- Wspiera scenariusze `small|medium|large|stress`, zapis JSON (`--save`) i porównanie wyników (`--compare`).
+- Raport zawiera `min/avg/max`, throughput (`tx/s`) i średni RAM przed/po pomiarze.
