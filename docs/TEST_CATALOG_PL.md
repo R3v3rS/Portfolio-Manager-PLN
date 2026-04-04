@@ -272,9 +272,6 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 
 
 ### Backend — luki funkcjonalne
-
-3. **Testy uprawnień i separacji danych**
-   - Co dodać: scenariusze multi-user/tenant (brak odczytu i modyfikacji cudzych danych).
 4. **Kontrakt błędów dla wszystkich routerów**
    - Co dodać: parametrized tests wymuszające stały format `error.code/message/details` dla pełnej mapy endpointów.
 5. **Testy graniczne walidacji wejścia**
@@ -286,8 +283,7 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
    - Co dodać: benchmarki historii/wyceny dla dużej liczby transakcji i tickerów.
 2. **Testy jakości danych cenowych**
    - Co dodać: luki w notowaniach, duplikaty, split/reverse split, niespójne waluty.
-3. **Testy importu dla większej liczby brokerów i wariantów plików**
-   - Co dodać: dodatkowe formaty CSV/XLSX, uszkodzone nagłówki, kodowania, nietypowe separatory.
+
 4. **Testy odporności na chwilową niedostępność providerów**
    - Co dodać: dłuższe serie retry/fallback + powrót do ścieżki głównej po odzyskaniu API.
 
