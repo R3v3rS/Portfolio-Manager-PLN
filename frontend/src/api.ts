@@ -653,6 +653,8 @@ export const portfolioApi = {
     portfolio_id?: number;
     sub_portfolio_id?: number | 'none';
     type?: string;
+    date_from?: string;
+    date_to?: string;
   }) => portfolioHttp.get<TransactionsListResponse>('/transactions/all', { params }),
   listNormalized: async (params?: QueryParams): Promise<Portfolio[]> => {
     return (await portfolioApi.list(params)).portfolios;
