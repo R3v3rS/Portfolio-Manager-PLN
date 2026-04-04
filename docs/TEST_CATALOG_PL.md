@@ -250,6 +250,10 @@ Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adno
 - `test_buy_idempotency_replay_returns_original_result_without_duplicate_side_effects` — dwa identyczne `POST /api/portfolio/buy` z tym samym `Idempotency-Key`: pierwszy request tworzy transakcję, drugi zwraca zapisany wynik bez duplikacji skutków (cash/holding/transactions).
 - `test_buy_idempotency_rejects_same_key_with_different_payload` — ten sam `Idempotency-Key` z innym body kończy się `409` (`IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD`), co chroni przed kolizją semantyczną klucza.
 
+### `tests/test_buy_race_condition.py`
+- `test_buy_race_condition_allows_only_one_success_and_preserves_cash` — test współbieżności dla `POST /api/portfolio/buy`: 5 równoległych prób zakupu po 800 PLN przy saldzie startowym 1000 PLN; oczekiwany wynik to dokładnie 1 sukces, 4 odrzucenia z błędem „Insufficient…”, saldo końcowe 200 PLN i pojedyncza transakcja BUY.
+
+
 ---
 
 ## Brakujące testy, które warto dodać
