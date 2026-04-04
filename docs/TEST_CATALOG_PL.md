@@ -51,6 +51,35 @@
 ### `frontend/src/components/Empty.test.tsx`
 - `renders fallback empty state label` — smoke test renderowania komponentu UI.
 
+### `frontend/src/pages/MainDashboard.test.tsx`
+- `renders loading state before data is loaded` — weryfikuje stan ładowania dashboardu globalnego.
+- `renders KPI cards, chart section and formatted values after successful load` — sprawdza render KPI, sekcji wykresu i formatowania kwot/dat po załadowaniu danych.
+- `renders empty-style quick stat message when there is no upcoming installment` — scenariusz pustego stanu dla raty kredytu.
+- `renders error state when API request fails` — scenariusz błędu API.
+
+### `frontend/src/pages/PortfolioDashboard.test.tsx`
+- `renders loading state before data fetch resolves` — stan ładowania przed resolve zapytań list/limits/config.
+- `renders KPI cards, tax limits and table rows after loading` — render dashboardu portfeli, limitów podatkowych i tabeli.
+- `renders empty state when no portfolios exist` — komunikat pustego stanu dla listy portfeli.
+- `renders error state when dashboard fetch fails` — komunikat błędu pobierania danych.
+- `submits create portfolio form and sends payload` — interakcja formularza tworzenia portfela i poprawny payload.
+
+### `frontend/src/components/modals/TransactionModal.test.tsx`
+- `renders buy form fields for STANDARD portfolio and submits BUY transaction` — weryfikuje flow BUY, auto-prowizję FX i payload.
+- `switches to dividend mode and submits dividend transaction` — przełączenie trybu oraz poprawny payload dla dywidendy.
+- `handles API error with user feedback and reenables submit button` — obsługa błędu serwera i powrót przycisku do stanu aktywnego.
+
+### `frontend/src/components/modals/SellModal.test.tsx`
+- `renders prefilled sell form and submits SELL request` — prefill pól sprzedaży i poprawny payload SELL.
+- `shows disabled state during request and handles server error` — blokada submita w trakcie requestu + feedback błędu.
+- `returns null when modal is closed` — brak renderu przy `isOpen=false`.
+
+### `frontend/src/components/modals/TransferModal.test.tsx`
+- `submits DEPOSIT transaction` — poprawny payload wpłaty.
+- `submits WITHDRAW to selected budget account` — wypłata na konto budżetowe z poprawnym wywołaniem API.
+- `shows validation error for invalid internal transfer amount and does not call API` — walidacja kwoty dla przelewu wewnętrznego i brak requestu.
+- `shows processing status for successful internal transfer job` — status przeliczania historii po transferze `Sub→Sub`.
+
 ## Backend — testy API, serwisów i regresji
 
 Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adnotacją.
