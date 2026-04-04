@@ -79,10 +79,7 @@ class PortfolioHistoryService(PortfolioCoreService):
         t_ticker = tx['ticker']
         t_type = tx['type']
 
-        if t_type in ['DEPOSIT', 'SELL', 'DIVIDEND', 'INTEREST']:
-            state['cash'] += t_val
-        elif t_type in ['WITHDRAW', 'BUY']:
-            state['cash'] -= t_val
+        state['cash'] += PortfolioValuationService.cash_delta(tx)
 
         if t_type == 'DEPOSIT':
             state['invested_capital'] += t_val
