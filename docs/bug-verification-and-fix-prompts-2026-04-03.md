@@ -365,3 +365,128 @@ Dodaj testy regresyjne i krótki changelog techniczny.
 8. Pozostałe cleanupy techniczne (PS-07/08/09, PV-04/07/08/09, CT-05..12)
 
 Taka kolejność najpierw eliminuje ryzyka biznesowe i integralność danych, a następnie porządkuje wydajność i dług techniczny.
+
+---
+
+## 5) Nowe krytyczne znaleziska (dodane 2026-04-04)
+
+### 🔴 Wysoki priorytet — nowe
+
+| ID | Źródło | Problem | Priorytet | Status |
+|---|---|---|---|---|
+| NEW-39 | audit_data_consistency | `get_cash_balance_on_date` ignoruje `BUY`/`SELL`/`DIVIDEND` — inny model cash niż reszta systemu, transfer validation działa na błędnych danych | Wysoki | Otwarte |
+| NEW-40 | audit_edge_cases | Import `SELL` bez istniejącego holdingu — cash rośnie, holding nie maleje, cicha inflacja gotówki | Wysoki | Otwarte |
+| NEW-41 | audit_edge_cases | `assert` w `_assert_holding_consistency` — wyłączane przez Python `-O`, brak ochrony w produkcji | Wysoki | Otwarte |
+| NEW-42 | financial_calculations | `get_holdings` — SQL agreguje `company_name`, `sector`, `industry` bez `MAX()`; SQLite może zwrócić losowy wiersz | Wysoki | Otwarte |
+| NEW-43 | fx_audit | `/buy` i `/sell` przyjmują `price` bez waluty — cena USD traktowana jako PLN, contamination całego ledgera | Wysoki | Otwarte |
+
+### 🟡 Średni priorytet — nowe
+
+| ID | Źródło | Problem | Priorytet | Status |
+|---|---|---|---|---|
+| NEW-44 | audit_data_consistency | `INTEREST` w imporcie może mieć `sub_portfolio_id` — łamie regułę „INTEREST tylko parent” | Średni | Otwarte |
+| NEW-45 | audit_data_consistency | Assignment bez atomowego rebuild — okno desync `transactions` vs `holdings`/`cash` | Średni | Otwarte |
+| NEW-46 | error_handling | `raise e` w wielu miejscach — utrata oryginalnego traceback, utrudniony debugging | Średni | Otwarte |
+| NEW-47 | error_handling | Bare `except:` w kilku miejscach (`database.py`, `routes_imports.py`, `price_service.py`) | Średni | Otwarte |
+| NEW-48 | audit_edge_cases | `sub_portfolio_id=abc` w query → cicha zamiana na `None` zamiast 422 | Średni | Otwarte |
+| NEW-49 | financial_calculations | `FX_FEE_RATE` jako stała vs hardcoded `0.005` w `portfolio_valuation_service.py` — desync przy zmianie stawki | Średni | Otwarte |
+| NEW-50 | financial_calculations | XIRR — Newton-Raphson bez bracketing fallback, ryzyko braku zbieżności dla nieregularnych cash flow | Średni | Otwarte |
+| NEW-51 | performance | Symbol resolution w imporcie — `O(N_import × N_map)` per wiersz CSV | Średni | Otwarte |
+| NEW-52 | performance | PPK weekly chart — `O(W×T)` zamiast rolling | Średni | Otwarte |
+| NEW-53 | performance | Budget envelope × loan — `O(E×L)` nested loop zamiast dict lookup | Średni | Otwarte |
+| NEW-54 | performance | Parent valuation — `PPK fetch_current_price()` wołane per portfolio w pętli | Średni | Otwarte |
+| NEW-55 | fx_audit | FX fallback na `1.0` przy braku kursu — cicha błędna wycena bez logu/ostrzeżenia | Średni | Otwarte |
+
+### 🟢 Niski priorytet — nowe
+
+| ID | Źródło | Problem | Priorytet | Status |
+|---|---|---|---|---|
+| NEW-56 | audit_data_consistency | Brak współdzielonego helpera `cash_delta(tx)` — wiele niezależnych implementacji logiki cash | Niski | Otwarte |
+| NEW-57 | audit_edge_cases | Pola dat nie są walidowane jako ISO — np. `2026-99-99` przechodzi do DB | Niski | Otwarte |
+| NEW-58 | error_handling | Migracje w `database.py` — `except: pass` nie rozróżnia „kolumna już istnieje” od realnego błędu | Niski | Otwarte |
+| NEW-59 | error_handling | Async recalculation może paść po udanym commicie — brak retry, stan może dryfować | Niski | Otwarte |
+| NEW-60 | financial_calculations | Modified Dietz z fixed mid-period assumption — błąd dla dużych przepływów na początku/końcu miesiąca | Niski | Otwarte |
+| NEW-61 | fx_audit | Brak FX snapshot w transakcjach — rebuild domyślnie zakłada PLN | Niski | Otwarte |
+| NEW-62 | fx_audit | `avg_buy_fx_rate = 1.0` dla non-PLN instrumentów w imporcie | Niski | Otwarte |
+
+---
+
+## 6) Gotowe prompty dla nowych pozycji (NEW-39..NEW-43)
+
+### NEW-39 — spójny model cash w `get_cash_balance_on_date`
+```text
+Napraw backend/portfolio_valuation_service.py::get_cash_balance_on_date tak, aby model cash był spójny z resztą systemu.
+Wymagania:
+1) Uwzględnij wpływ typów BUY/SELL/DIVIDEND (oraz zachowaj istniejące DEPOSIT/WITHDRAW/INTEREST/TRANSFER wg obecnej semantyki).
+2) Wyeliminuj rozjazd między wynikiem get_cash_balance_on_date a saldem wykorzystywanym w transfer validation.
+3) Dodaj wspólny helper cash_delta(tx) albo wspólną ścieżkę obliczeń używaną przez oba miejsca.
+4) Dodaj testy regresyjne:
+   - BUY obniża cash,
+   - SELL podnosi cash,
+   - DIVIDEND podnosi cash,
+   - transfer validation używa tych samych reguł i nie bazuje na błędnym saldzie.
+5) Nie zmieniaj kontraktu API endpointów.
+Uruchom testy portfolio valuation + transfer validation.
+```
+
+### NEW-40 — blokada SELL bez holdingu (brak inflacji gotówki)
+```text
+Popraw import/księgowanie SELL, aby nie zwiększać gotówki, gdy brak wystarczającego holdingu.
+Wymagania:
+1) W ścieżce importu i/lub rebuild_holdings wykryj SELL dla tickera bez pozycji (lub z qty < ilość SELL).
+2) Zamiast cichej akceptacji:
+   - zwróć błąd walidacji (preferowane) LUB
+   - oznacz rekord jako conflict do ręcznego potwierdzenia, bez wpływu na cash/holdings do czasu rozwiązania.
+3) Zapewnij, że cash nie rośnie, jeśli holding nie może zostać poprawnie zmniejszony.
+4) Dodaj testy regresyjne:
+   - SELL bez holdingu,
+   - SELL większy niż holding,
+   - poprawny SELL przy wystarczającym holdingu.
+5) Dodaj log ostrzegawczy z portfolio_id, ticker i tx_id/hash.
+Uruchom testy importu i audytu holdings/cash.
+```
+
+### NEW-41 — usunięcie krytycznych `assert` z logiki produkcyjnej
+```text
+Zastąp `assert` w backend (szczególnie `_assert_holding_consistency`) jawnie egzekwowaną walidacją runtime.
+Wymagania:
+1) Usuń zależność od `assert` dla reguł biznesowych (Python -O nie może wyłączyć ochrony).
+2) Zastąp je:
+   - dedykowanym wyjątkiem domenowym (np. ValidationError/ConsistencyError),
+   - albo zwracanym wynikiem błędu + logger.error.
+3) Zachowaj czytelny komunikat diagnostyczny (portfolio_id, ticker, expected vs actual).
+4) Dodaj test potwierdzający, że ochrona działa niezależnie od optymalizacji interpretera.
+5) Upewnij się, że endpoint/API zwraca spójny kod błędu (bez 500 jeśli to błąd danych wejściowych).
+Uruchom testy modułu audytu i endpointów, które używają tej walidacji.
+```
+
+### NEW-42 — deterministyczna agregacja metadata w `get_holdings`
+```text
+Napraw zapytanie aggregate w backend/portfolio_valuation_service.py::get_holdings, aby uniknąć niedeterministycznych pól tekstowych.
+Wymagania:
+1) W SQL agregującym holdings nie zwracaj `company_name`, `sector`, `industry` jako „luźnych” kolumn bez agregacji.
+2) Zastosuj jedną strategię:
+   - CTE/subquery wybierające rekord referencyjny (np. MAX(updated_at) lub MAX(id)) i join,
+   - albo jawne agregaty (np. MAX()) z uzasadnieniem semantyki.
+3) Wynik ma być deterministyczny i stabilny między uruchomieniami SQLite.
+4) Dodaj test regresyjny: wiele rekordów tego samego tickera z różnymi metadata nie daje losowych wyników.
+5) Sprawdź, czy poprawka nie psuje istniejących endpointów holdings.
+Uruchom testy portfolio valuation/holdings.
+```
+
+### NEW-43 — waluta ceny w `/buy` i `/sell` (FX safety)
+```text
+Uszczelnij endpointy `/buy` i `/sell`, aby cena była interpretowana z poprawną walutą instrumentu.
+Wymagania:
+1) Rozszerz payload o jawne pole waluty ceny (np. `price_currency`) lub jednoznacznie wyprowadź je z instrumentu/tickera.
+2) Jeśli waluta ceny ≠ waluta portfela, przelicz przez FX rate (z daty transakcji) przed zapisaniem cash impact.
+3) Gdy brakuje kursu FX:
+   - nie stosuj cichego fallbacku 1.0,
+   - zwróć błąd walidacji albo oznacz transakcję jako wymagającą interwencji.
+4) Dodaj testy regresyjne:
+   - zakup/sprzedaż instrumentu USD w portfelu PLN,
+   - poprawne księgowanie cash i avg_buy_fx_rate,
+   - brak kursu FX => jawny błąd/flag.
+5) Zachowaj kompatybilność istniejących klientów przez bezpieczny default/migrację kontraktu (opisz w changelogu API).
+Uruchom testy trade routes + portfolio valuation + FX audit.
+```
