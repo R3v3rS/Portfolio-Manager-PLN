@@ -219,5 +219,69 @@ class RoutesImportsValidationErrorsTestCase(unittest.TestCase):
         self.assertEqual(error['message'], 'Cannot import to an archived sub-portfolio')
 
 
+class RoutesImportsTargetSubPortfolioValidationTestCase(unittest.TestCase):
+    def setUp(self):
+        warmup_patcher = patch('app.PriceService.warmup_cache', return_value=None)
+        self.addCleanup(warmup_patcher.stop)
+        warmup_patcher.start()
+
+        self.app = create_app()
+        self.app.config.update(TESTING=True)
+        self.client = self.app.test_client()
+
+    def _assert_invalid_payload_returns_422(self, payload):
+        with patch('routes_imports.ImportStagingService.assign_row') as assign_row_mock, patch(
+            'routes_imports.ImportStagingService.assign_all'
+        ) as assign_all_mock:
+            row_response = self.client.put('/api/portfolio/import/staging/sess-1/rows/1/assign', json=payload)
+            all_response = self.client.put('/api/portfolio/import/staging/sess-1/assign-all', json=payload)
+
+        self.assertEqual(row_response.status_code, 422, row_response.get_json())
+        self.assertEqual(all_response.status_code, 422, all_response.get_json())
+        self.assertEqual(row_response.get_json()['error']['code'], 'invalid_sub_portfolio')
+        self.assertEqual(all_response.get_json()['error']['code'], 'invalid_sub_portfolio')
+        assign_row_mock.assert_not_called()
+        assign_all_mock.assert_not_called()
+
+    def test_target_sub_portfolio_id_rejects_non_numeric_string(self):
+        self._assert_invalid_payload_returns_422({'target_sub_portfolio_id': 'abc'})
+
+    def test_target_sub_portfolio_id_rejects_float(self):
+        self._assert_invalid_payload_returns_422({'target_sub_portfolio_id': 1.5})
+
+    def test_target_sub_portfolio_id_rejects_non_positive_integer(self):
+        self._assert_invalid_payload_returns_422({'target_sub_portfolio_id': -1})
+
+    def test_target_sub_portfolio_id_accepts_positive_integer(self):
+        with patch('routes_imports.ImportStagingService.assign_row', return_value={'ok': True}) as assign_row_mock, patch(
+            'routes_imports.ImportStagingService.assign_all', return_value={'ok': True}
+        ) as assign_all_mock:
+            row_response = self.client.put(
+                '/api/portfolio/import/staging/sess-1/rows/1/assign',
+                json={'target_sub_portfolio_id': 5},
+            )
+            all_response = self.client.put(
+                '/api/portfolio/import/staging/sess-1/assign-all',
+                json={'target_sub_portfolio_id': 5},
+            )
+
+        self.assertEqual(row_response.status_code, 200, row_response.get_json())
+        self.assertEqual(all_response.status_code, 200, all_response.get_json())
+        assign_row_mock.assert_called_once_with(session_id='sess-1', row_id=1, target_sub_portfolio_id=5)
+        assign_all_mock.assert_called_once_with(session_id='sess-1', target_sub_portfolio_id=5)
+
+    def test_target_sub_portfolio_id_null_passes_none_to_service(self):
+        with patch('routes_imports.ImportStagingService.assign_row', return_value={'ok': True}) as assign_row_mock, patch(
+            'routes_imports.ImportStagingService.assign_all', return_value={'ok': True}
+        ) as assign_all_mock:
+            row_response = self.client.put('/api/portfolio/import/staging/sess-1/rows/1/assign', json={'target_sub_portfolio_id': None})
+            all_response = self.client.put('/api/portfolio/import/staging/sess-1/assign-all', json={'target_sub_portfolio_id': None})
+
+        self.assertEqual(row_response.status_code, 200, row_response.get_json())
+        self.assertEqual(all_response.status_code, 200, all_response.get_json())
+        assign_row_mock.assert_called_once_with(session_id='sess-1', row_id=1, target_sub_portfolio_id=None)
+        assign_all_mock.assert_called_once_with(session_id='sess-1', target_sub_portfolio_id=None)
+
+
 if __name__ == '__main__':
     unittest.main()

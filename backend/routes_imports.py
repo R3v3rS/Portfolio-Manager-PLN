@@ -137,15 +137,30 @@ def get_import_staging_session(session_id):
 @portfolio_bp.route('/import/staging/<session_id>/rows/<int:row_id>/assign', methods=['PUT'])
 def assign_import_staging_row(session_id, row_id):
     payload = request.get_json(silent=True) or {}
-    target_sub_portfolio_id = payload.get('target_sub_portfolio_id')
-    if target_sub_portfolio_id is None:
-        raise ValidationError('target_sub_portfolio_id is required', details={'field': 'target_sub_portfolio_id'})
+    raw_target_sub_portfolio_id = payload.get('target_sub_portfolio_id')
+    if raw_target_sub_portfolio_id is None:
+        target_sub_portfolio_id = None
+    else:
+        try:
+            val = int(raw_target_sub_portfolio_id)
+            if val != float(raw_target_sub_portfolio_id):
+                raise ValueError()
+            if val <= 0:
+                raise ValueError()
+            target_sub_portfolio_id = val
+        except (TypeError, ValueError) as error:
+            raise ApiError(
+                'invalid_sub_portfolio',
+                'target_sub_portfolio_id must be a positive integer',
+                status=422,
+                details={'field': 'target_sub_portfolio_id'},
+            ) from error
 
     try:
         result = ImportStagingService.assign_row(
             session_id=session_id,
             row_id=row_id,
-            target_sub_portfolio_id=int(target_sub_portfolio_id),
+            target_sub_portfolio_id=target_sub_portfolio_id,
         )
         return success_response(result)
     except ValueError as error:
@@ -165,14 +180,29 @@ def assign_import_staging_row(session_id, row_id):
 @portfolio_bp.route('/import/staging/<session_id>/assign-all', methods=['PUT'])
 def assign_all_import_staging_rows(session_id):
     payload = request.get_json(silent=True) or {}
-    target_sub_portfolio_id = payload.get('target_sub_portfolio_id')
-    if target_sub_portfolio_id is None:
-        raise ValidationError('target_sub_portfolio_id is required', details={'field': 'target_sub_portfolio_id'})
+    raw_target_sub_portfolio_id = payload.get('target_sub_portfolio_id')
+    if raw_target_sub_portfolio_id is None:
+        target_sub_portfolio_id = None
+    else:
+        try:
+            val = int(raw_target_sub_portfolio_id)
+            if val != float(raw_target_sub_portfolio_id):
+                raise ValueError()
+            if val <= 0:
+                raise ValueError()
+            target_sub_portfolio_id = val
+        except (TypeError, ValueError) as error:
+            raise ApiError(
+                'invalid_sub_portfolio',
+                'target_sub_portfolio_id must be a positive integer',
+                status=422,
+                details={'field': 'target_sub_portfolio_id'},
+            ) from error
 
     try:
         result = ImportStagingService.assign_all(
             session_id=session_id,
-            target_sub_portfolio_id=int(target_sub_portfolio_id),
+            target_sub_portfolio_id=target_sub_portfolio_id,
         )
         return success_response(result)
     except ValueError as error:
