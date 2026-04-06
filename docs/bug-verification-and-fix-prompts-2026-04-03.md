@@ -489,4 +489,508 @@ Wymagania:
    - brak kursu FX => jawny błąd/flag.
 5) Zachowaj kompatybilność istniejących klientów przez bezpieczny default/migrację kontraktu (opisz w changelogu API).
 Uruchom testy trade routes + portfolio valuation + FX audit.
+
+NEW-44 — INTEREST z sub_portfolio_id w imporcie łamie regułę „tylko parent"
+textWymuś regułę „INTEREST musi należeć do parent" w ścieżce importu.
+Zakres: backend/portfolio_import_service.py (ścieżka INTEREST przy imporcie).
+
+Wymagania:
+1) Przed zapisem transakcji INTEREST sprawdź, czy sub_portfolio_id jest None/null.
+2) Jeśli import dostarcza sub_portfolio_id dla INTEREST, zignoruj go (ustaw NULL) i zaloguj warning z hash/row_id.
+3) Dodaj analogiczną walidację w warstwie serwisu (portfolio_trade_service.py), aby inne callerzy
+   nie mogli ominąć reguły.
+4) Dodaj testy:
+   - import INTEREST z sub_portfolio_id => sub_portfolio_id ignorowane, log warning,
+   - ręczny zapis INTEREST z sub_portfolio_id => błąd lub sanityzacja,
+   - spójność: INTEREST w DB po imporcie zawsze ma sub_portfolio_id IS NULL.
+5) Dodaj migrację danych: zaktualizuj istniejące rekordy INTEREST z sub_portfolio_id != NULL
+   na NULL i zaloguj listę zmienionych ID.
+Uruchom testy importu i audytu parent-child.
+
+NEW-45 — Assignment bez atomowego rebuild (okno desync)
+textUczyń assign_transaction_to_subportfolio atomowym względem rebuild holdings/cash.
+Zakres: backend/portfolio_trade_service.py (assign + rebuild), backend/routes_transactions.py (call-site).
+
+Wymagania:
+1) Operacja assign + rebuild musi być objęta jedną transakcją DB (begin → assign update →
+   rebuild holdings/cash → commit / rollback on any error).
+2) Żaden caller zewnętrzny nie powinien móc wykonać assign bez rebuild w tej samej transakcji.
+3) Jeśli rebuild jest asynchroniczny z przyczyn wydajnościowych, dodaj mechanizm kompensacyjny:
+   - ustaw flagę `needs_repair=1` na portfolio przed commitem,
+   - przy odpowiedzi API zwróć status `repair_scheduled`,
+   - async job: potwierdź repair i ustaw flagę na 0.
+4) Dodaj testy:
+   - błąd w rebuild rollbackuje również assign,
+   - stan holdings/cash po assign jest spójny z przypisanymi transakcjami (bez okna desync),
+   - GET portfolio value bezpośrednio po assign zwraca poprawne wartości.
+Uruchom testy portfolio_trade_service i routes_transactions.
+
+NEW-46 — raise e zamiast raise (utrata traceback)
+textZastąp pattern `raise e` gołym `raise` we wszystkich service wrapperach transakcji DB.
+Zakres: backend/portfolio_core_service.py, backend/portfolio_trade_service.py,
+        backend/budget_service.py, backend/watchlist_service.py, backend/bond_service.py.
+
+Wymagania:
+1) Wyszukaj wszystkie wystąpienia `except Exception as e: ... raise e` (lub `raise e` bez re-wrap).
+2) Zamień na `raise` (bare re-raise) po bloku cleanup/rollback, aby zachować oryginalny traceback.
+3) Nie zmieniaj logiki rollbacku ani logowania — tylko składnię re-raise.
+4) Dodaj test lub assert potwierdzający, że po re-raise traceback wskazuje na oryginalne miejsce
+   wyjątku, a nie na wrapper (np. przez sprawdzenie `__traceback__.tb_frame`).
+5) Przejrzyj plik pod kątem `raise SomeException(str(e))` — te przypadki wymagają osobnej decyzji:
+   jeśli wrapping jest intencjonalny, dodaj `from e`; jeśli nie — użyj `raise`.
+Uruchom pełny zestaw testów backendu i potwierdź brak regresji.
+
+NEW-47 — Bare except: w kilku miejscach
+textUsuń wszystkie bare `except:` (bez typu wyjątku) z kodu produkcyjnego backendu.
+Zakres: backend/database.py, backend/routes_imports.py, backend/price_service.py.
+
+Wymagania:
+1) Wyszukaj `except:` (bare) i `except BaseException`.
+2) Dla każdego wystąpienia zdecyduj:
+   a) Jeśli guard dla "kolumna już istnieje" / "tabela już istnieje" → zmień na
+      `except sqlite3.OperationalError as e: if "already exists" not in str(e): raise`.
+   b) Jeśli catch-all na granicach workera/pętli → zmień na `except Exception as e:` z logowaniem.
+   c) Jeśli blok jest nieosiągalny lub niepotrzebny → usuń.
+3) Żaden catch nie może cicho połykać wyjątku bez logu (minimum `logger.warning`).
+4) Dodaj test dla każdej naprawionej lokalizacji, gdzie nieoczekiwany wyjątek (np. PermissionError)
+   powinien teraz propagować się lub być zalogowany.
+Uruchom testy modułów database, routes_imports, price_service.
+
+NEW-48 — sub_portfolio_id=abc → 422 zamiast cichego None
+textNapraw walidację query param `sub_portfolio_id` w routes transakcji (TR-03 rozszerzony).
+Zakres: backend/routes_transactions.py (get_transactions, get_all_transactions).
+
+Wymagania:
+1) Wartości akceptowane: brak parametru, "none" (case-insensitive), dodatni integer string.
+2) Wszelkie inne wartości (0, ujemne, nieliczbowe, bool-like) → zwróć 422 z body:
+   {"code": "INVALID_QUERY_PARAM", "field": "sub_portfolio_id", "message": "..."}
+3) Usuń obecny `except ValueError: ... = None`.
+4) Wynieś logikę parsowania do shared helpera `parse_optional_positive_int(value, field_name)`,
+   który rzuca ApiError(422) zamiast ValueError.
+5) Dodaj testy: "none" → None, "5" → 5, "0" → 422, "-3" → 422, "abc" → 422, "" → 422.
+Uruchom testy routes_transactions.
+
+NEW-49 — FX_FEE_RATE vs hardcoded 0.005
+textUjednolić użycie stałej FX_FEE_RATE w całym backendzie.
+Zakres: backend/portfolio_valuation_service.py, backend/portfolio_trade_service.py.
+
+Wymagania:
+1) Zdefiniuj stałą `FX_FEE_RATE` w jednym miejscu (np. backend/constants.py lub
+   PortfolioTradeService jako class-level constant).
+2) Zastąp wszystkie inline literale `0.005` / `0.0050` referencją do tej stałej.
+3) Upewnij się, że fee jest stosowane identycznie w: live holdings valuation, 1D/7D change path,
+   historical valuation, trade service sell fee calculation.
+4) Dodaj test spójności: ta sama transakcja wyceniana przez live endpoint i historical endpoint
+   daje identyczny net_value po uwzględnieniu fee.
+5) Dodaj komentarz dokumentujący, skąd pochodzi wartość stawki i gdzie ją zmienić.
+Uruchom testy portfolio_valuation_service i portfolio_trade_service.
+
+NEW-50 — XIRR: Newton-only bez bracketing fallback
+textUodpornij backend/math_utils.py::xirr na niezbieżność Newton-Raphson.
+
+Wymagania:
+1) Przed NR: znajdź bracket [lo, hi] przez skanowanie zakresu [-0.9999, 10.0] w kilkunastu krokach.
+2) Jeśli bracket nie znaleziony → zwróć None (lub strukturalny błąd "NO_BRACKET") zamiast
+   wyjątku/błędnej wartości.
+3) Jeśli bracket znaleziony → uruchom solver Brent/Bisection w tym przedziale jako fallback.
+4) Opcjonalnie: przyspiesz NR (warm-start z wynikiem bisection) dla szybszych typowych przypadków.
+5) Zmień kryterium zbieżności: wymagaj jednocześnie abs(delta_rate) < 1e-7 ORAZ abs(NPV) < 1e-6.
+6) Usuń heurystykę `if rate <= -1: rate = -0.99` — zamiast niej użyj bracket clamp.
+7) Dodaj testy:
+   - nieregularne przepływy (wiele zmian znaku) → solver nie zwraca błędnego korzenia,
+   - wszystkie przepływy tego samego znaku → NO_BRACKET (brak XIRR),
+   - scenariusz bliski -100% → poprawna zbieżność lub jawny błąd.
+Uruchom testy math_utils i portfolio_valuation_service (XIRR integration).
+
+NEW-51 — Symbol resolution: O(N_import × N_map) per wiersz
+textZoptymalizuj backend/portfolio_import_service.py::resolve_symbol_mapping dla bulk importu.
+
+Wymagania:
+1) Przed pętlą po wierszach CSV: pobierz całą tabelę symbol_mappings jednym zapytaniem SQL
+   i zbuduj słownik (znormalizowany_symbol → mapping).
+2) W trakcie pętli używaj wyłącznie tego słownika (O(1) lookup) — bez dodatkowych zapytań DB.
+3) Fuzzy matching: prekomputuj listę kandydatów raz (poza pętlą), wewnątrz pętli tylko szukaj
+   w prekomputowanej strukturze.
+4) Dodaj request-level memoization: jeśli ten sam symbol pojawia się wielokrotnie w jednym imporcie,
+   nie obliczaj go drugi raz.
+5) Zachowaj logikę fallback (exact → normalized → fuzzy) — zmień tylko strukturę danych/kolejność
+   wywołań.
+6) Dodaj test wydajnościowy: import 500 wierszy z 200 unikalnymi symbolami nie wykonuje więcej
+   niż N+const zapytań DB (N = unikalnych symboli, nie wierszy).
+Uruchom testy portfolio_import_service.
+
+NEW-52 — PPK weekly chart: O(W×T) zamiast rolling
+textZoptymalizuj backend/modules/ppk/ppk_service.py::get_chart_data_extended.
+
+Wymagania:
+1) Posortuj transakcje raz po dacie przed pętlą tygodniową.
+2) Zastosuj rolling pointer (index i): przesuń i do przodu wraz z kolejnym week_date,
+   akumulując jednostki i kwoty inkrementalnie.
+3) PPKCalculation.calculate_metrics wywołaj z bieżącym stanem skumulowanym (nie z listą
+   filtrowaną od zera).
+4) Jeśli calculate_metrics wymaga pełnej listy z przyczyn logiki podatkowej: przeróbka
+   calculate_metrics na wersję inkrementalną z przekazaniem delta (nowe transakcje od
+   ostatniego tygodnia).
+5) Zachowaj identyczny format odpowiedzi i wartości numeryczne.
+6) Dodaj test porównawczy (stara vs nowa implementacja) dla 260 tygodni × 500 transakcji.
+Uruchom testy PPK service.
+
+NEW-53 — Budget envelope × loan: O(E×L) nested loop
+textZoptymalizuj backend/budget_service.py — obliczanie outstanding_loans per envelope.
+
+Wymagania:
+1) Przed pętlą po kopertach: załaduj wszystkie loans_rows jednym zapytaniem.
+2) Zbuduj dict `remaining_by_envelope: {source_envelope_id: total_remaining}` jednym przejściem
+   po loans_rows (lub przez SQL GROUP BY source_envelope_id + SUM(remaining)).
+3) W pętli per-envelope: użyj remaining_by_envelope.get(env['id'], 0) — O(1).
+4) Opcjonalnie: przenieś agregację do SQL:
+   SELECT source_envelope_id, SUM(remaining) FROM budget_loans WHERE ... GROUP BY 1
+5) Zachowaj semantykę: tylko aktywne (niespłacone) pożyczki w sumie.
+6) Dodaj test z 100 kopertami i 1000 pożyczkami — wynik identyczny, czas < obecny.
+Uruchom testy budget_service.
+
+NEW-54 — Parent valuation: PPK fetch_current_price() per portfolio w pętli
+textWyeliminuj powtarzane I/O w backend/portfolio_valuation_service.py przy wycenie parent portfolio.
+
+Wymagania:
+1) Przed pętlą po portfolio_ids: ustal które z nich to PPK i pobierz PPK current price raz
+   (jeden call PPKService.fetch_current_price()).
+2) Przekaż cenę jako parametr do iteracji (nie wywołuj w środku pętli).
+3) Analogicznie: batch-pobierz metadane portfolio dla wszystkich IDs jednym zapytaniem SQL
+   zamiast get_portfolio(p_id) per iteracja.
+4) Batch-pobierz DEPOSIT/WITHDRAW flows dla wszystkich portfolio_ids jednym zapytaniem z GROUP BY.
+5) Zachowaj identyczne wartości wynikowe.
+6) Dodaj test (mock DB + mock PPK) potwierdzający, że fetch_current_price wywołany ≤ 1 raz
+   niezależnie od liczby PPK subportfolio.
+Uruchom testy portfolio_valuation_service (parent aggregate path).
+
+NEW-55 — FX fallback na 1.0 bez logu/ostrzeżenia
+textZastąp cichy FX fallback `1.0` jawnym statusem w backend/portfolio_trade_service.py,
+backend/portfolio_valuation_service.py, backend/portfolio_history_service.py.
+
+Wymagania:
+1) Wszędzie gdzie brak kursu FX skutkuje `rate = 1.0`:
+   a) Zaloguj warning z: ticker, currency, date, portfolio_id.
+   b) Ustaw fx_status = "MISSING" (lub "STALE") na zwracanym obiekcie wyceny.
+2) Dla endpointów live valuation i history: dodaj pole `fx_warnings: []` do odpowiedzi,
+   które zawiera listę tickerów z brakującym kursem w danym obliczeniu.
+3) Opcjonalnie: zamiast 1.0 użyj ostatniego dostępnego kursu (last-known) z datą i flagą "STALE".
+4) Nie przerywaj wyceny — degradacja graceful, ale zawsze z widocznym sygnałem.
+5) Dodaj testy:
+   - wycena bez dostępnego kursu FX → fx_warnings zawiera ticker,
+   - log zawiera wymagane pola kontekstu,
+   - wartość wyceny z 1.0 jest poprawnie oznaczona jako niedokładna.
+Uruchom testy portfolio_valuation_service, portfolio_history_service.
+
+NEW-57 — Pola dat nie walidowane jako ISO (2026-99-99 przechodzi do DB)
+textWprowadź spójną walidację dat ISO 8601 na wszystkich write endpoint'ach backendu.
+Zakres: backend/routes_transactions.py, backend/routes_portfolios.py, backend/routes_budget.py,
+        backend/routes_ppk.py, backend/bond_service.py.
+
+Wymagania:
+1) Stwórz shared helper `parse_iso_date(value: str, field: str) -> date`:
+   - próbuje datetime.strptime(value, '%Y-%m-%d'),
+   - przy błędzie rzuca ApiError(422, code="INVALID_DATE", field=field, message="...").
+2) Analogicznie `parse_year_month(value, field)` dla pól YYYY-MM.
+3) Zastąp all raw string date assignments wywołaniem helpera na write path.
+4) Opcjonalnie: odrzucaj daty w przyszłości, jeśli reguły biznesowe tego wymagają
+   (np. data transakcji > dzisiaj + 1 dzień).
+5) Dodaj testy:
+   - "2026-99-99" → 422,
+   - "abc" → 422,
+   - "2026-04-06" → poprawnie parsowane,
+   - "2026/04/06" → 422,
+   - pola w routes_budget (from_month, to_month) → błąd przy złym formacie.
+Uruchom testy wszystkich objętych endpointów.
+
+NEW-58 — Migracje w database.py: except: pass nie rozróżnia przypadków
+textUodpornij observability migracji schematu w backend/database.py.
+
+Wymagania:
+1) Zastąp bare `except: pass` i `except sqlite3.OperationalError: pass` w blokach migracyjnych
+   dedykowanym helperem `_migration_guard(fn, description)`:
+   - jeśli OperationalError.message zawiera "already exists" / "duplicate column" → log INFO, pass,
+   - każdy inny błąd → log ERROR z description + full traceback, raise.
+2) Po zakończeniu migracji emituj summary log: "Migrations complete: N applied, M skipped, K failed".
+3) Dla błędów nieoczekiwanych: przerwij startup i nie pozwól aplikacji wystartować w niespójnym
+   stanie schematu.
+4) Dodaj testy dla helpera:
+   - "duplicate column" → pass + log INFO,
+   - inny OperationalError → raise + log ERROR,
+   - ogólny Exception → raise + log ERROR.
+Uruchom testy database.py i startup integration test.
+
+NEW-59 — Async recalculation po commicie bez retry
+textDodaj retry i widoczność stanu dla async recalculation jobs w backend/routes_transactions.py.
+
+Wymagania:
+1) Zdefiniuj bounded retry policy dla recalculation workerów:
+   - max 3 próby, backoff: 1s, 3s, 10s,
+   - po wyczerpaniu prób: ustaw job status = "failed_permanent" i zaloguj alert.
+2) Job store: zastąp in-memory słownik trwałym (np. tabela SQLite `background_jobs`) z kolumnami:
+   job_id, status, portfolio_id, created_at, last_attempt, attempts, error.
+3) Endpoint statusu: GET /api/jobs/<job_id> zwraca aktualny status i szczegóły błędu.
+4) Przy odpowiedzi na transfer/assign: zwróć job_id i status_url w body, np.:
+   {"success": true, "job_id": "abc", "status_url": "/api/jobs/abc"}
+5) Dodaj testy:
+   - job kończy się błędem → retry do max, potem failed_permanent,
+   - stan portfolio po failed_permanent jest logicznie spójny (transakcje zatwierdzone,
+     holdings mogą być nieaktualne — wyraźnie udokumentowane),
+   - GET /api/jobs/<id> zwraca poprawny status.
+Uruchom testy routes_transactions (transfer, assign paths).
+
+NEW-60 — Modified Dietz z fixed mid-period assumption
+textPopraw metodę zwrotu miesięcznego w backend/portfolio_history_service.py::get_performance_matrix.
+
+Wymagania:
+1) Zamiast stałego `start_value + net_flows/2` zastosuj ważony Modified Dietz:
+   - dla każdego przepływu w miesięcu: waga = (dni_do_końca_miesiąca / dni_w_miesiącu),
+   - denominator = start_value + SUM(flow_i × weight_i).
+2) Opcja B (preferowana długoterminowo): przejdź na daily time-weighted return (TWR) chain-linking.
+   Jeśli TWR wymaga zbyt dużej refaktoryzacji, zaakceptuj ważony Dietz jako etap pośredni.
+3) Zachowaj format odpowiedzi i zaokrąglenia.
+4) Dodaj testy:
+   - duży przepływ na początku miesiąca → waga ~1.0, duży wpływ na denominator,
+   - duży przepływ na końcu miesiąca → waga ~0, mały wpływ,
+   - brak przepływów → wynik identyczny ze starą metodą,
+   - wynik dla dużych przepływów różni się od starego mid-period (potwierdzenie poprawności).
+5) Dodaj komentarz z opisem metodologii (Modified Dietz weighted / TWR) dla przyszłych maintainerów.
+Uruchom testy portfolio_history_service.
+
+NEW-61 — Brak FX snapshot w transakcjach (rebuild zakłada PLN)
+textWprowadź fundament pod FX snapshot per transakcja w backend/database.py i write paths.
+(Zadanie architektoniczne — może być realizowane iteracyjnie.)
+
+Etap 1 — schemat (ten prompt):
+1) Dodaj migrację dodającą kolumny do tabeli `transactions`:
+   - `price_currency TEXT DEFAULT 'PLN'`
+   - `price_native REAL`
+   - `fx_rate_at_trade REAL`
+   - `fx_source TEXT`  -- 'snapshot' | 'legacy_assumed_pln' | 'manual'
+2) Dla istniejących rekordów: ustaw fx_source='legacy_assumed_pln', fx_rate_at_trade=1.0,
+   price_currency='PLN'.
+3) Nie zmieniaj jeszcze logiki write paths — tylko schemat i backfill.
+4) Dodaj endpoint diagnostyczny (admin only): GET /api/admin/fx-coverage zwraca:
+   - total transactions, transactions z fx_source='legacy_assumed_pln', z 'snapshot'.
+5) Dodaj test migracji: po backfill wszystkie starsze rekordy mają fx_source='legacy_assumed_pln'.
+Uruchom testy database.py.
+
+NEW-62 — avg_buy_fx_rate = 1.0 dla non-PLN instrumentów w imporcie
+textZapobiegaj domyślnemu avg_buy_fx_rate=1.0 dla instrumentów non-PLN w import path.
+Zakres: backend/portfolio_import_service.py (holding upsert path).
+
+Wymagania:
+1) Przy upsert holdingu: jeśli instrument_currency != 'PLN' i nie mamy rzeczywistego fx_rate:
+   a) Spróbuj pobrać fx_rate dla daty transakcji z PriceService/YahooFinance ({CCY}PLN=X).
+   b) Jeśli pobranie się nie uda → nie zapisuj 1.0; zamiast tego:
+      - ustaw fx_rate = NULL,
+      - ustaw fx_source = 'missing',
+      - zaloguj warning z ticker, portfolio_id, tx_date.
+2) Nigdy nie zapisuj fx_rate=1.0 dla instrumentu z walutą != PLN (chyba że rzeczywiście
+   instrument ma kurs 1:1 z PLN — np. EUR/PLN w momencie odchylenia 0, co jest nierealistyczne).
+3) Dodaj endpoint lub raport: GET /api/admin/holdings-fx-audit → lista holdingów z
+   avg_buy_fx_rate=1.0 i instrument_currency != PLN (potencjalnie błędne dane).
+4) Dodaj testy:
+   - import USD tickera z dostępnym kursem → avg_buy_fx_rate != 1.0,
+   - import USD tickera bez dostępnego kursu → fx_rate=NULL, fx_source='missing', log warning,
+   - import PLN tickera → fx_rate=1.0 akceptowane.
+Uruchom testy portfolio_import_service.
+
+Sekcja B — Nowe pozycje (NEW-63..NEW-71)
+Poniższe problemy wynikają z audytów, ale nie zostały ujęte w poprzedniej liście NEW-39..NEW-62.
+Tabela nowych pozycji
+IDŹródłoProblemPriorytetStatusNEW-63audit_performanceLoan schedule: O(M×(R+O)) — pętla miesięczna skanuje całą listę rat/nadpłat per iteracjaŚredniOtwarteNEW-64audit_edge_cases / edge_cases_auditBond purchase_date — brak walidacji na write, crash strptime na readWysokiOtwarteNEW-65audit_edge_casesLoan schedule — unsafe DB assumptions (brak walidacji przed kalkulacją)ŚredniOtwarteNEW-66audit_edge_casesBudget service write methods — brak amount > 0 i walidacji dat na poziomie serwisuŚredniOtwarteNEW-67audit_edge_casesPPK — transakcja z employeeUnits=0 i employerUnits=0 przechodzi walidacjęNiskiOtwarteNEW-68financial_calculations_auditPnL — wzory zduplikowane w 3 miejscach (sell_stock, import, audit rebuild) z różną precyzjąWysokiOtwarteNEW-69financial_calculations_auditPolityka numeryczna — mieszanie float + round + Decimal bez regułyŚredniOtwarteNEW-70fx_auditLogika FX conversion zduplikowana w 4 serwisach (brak centralnego modułu FX)ŚredniOtwarteNEW-71audit_data_consistencyParent/child scope — brak jednolitej definicji PARENT_OWN vs PARENT_AGGREGATED w historii, wycenie i audycieWysokiOtwarte
+
+NEW-63 — Loan schedule: O(M×(R+O)) per miesiąc
+textZoptymalizuj backend/loan_service.py::calculate_schedule.
+
+Wymagania:
+1) Przed pętlą miesięczną: sparsuj i posortuj wszystkie `sorted_rates` i `sorted_overpayments`
+   raz (datetime.strptime poza pętlą).
+2) Zastosuj dual-pointer traversal:
+   - pointer `rate_idx` przesuwa się do przodu gdy current_month >= rates[rate_idx+1].valid_from,
+   - aktywna stopa = rates[rate_idx].rate (O(1) lookup per miesiąc).
+3) Dla overpayments: pre-grupuj do dict `ops_by_month: {YYYY-MM: [ops]}` jednym przejściem
+   przed pętlą. Wewnątrz pętli: ops_by_month.get(current_month_key, []).
+4) Zachowaj identyczną semantykę (decreasing installment, fixed installment, early payoff logic).
+5) Dodaj testy:
+   - wyniki identyczne ze starą implementacją dla fixture z 360 miesiącami, 5 zmianami stopy,
+     20 nadpłatami,
+   - brak wywołań strptime wewnątrz pętli (mock/assert).
+Uruchom testy loan_service.
+
+NEW-64 — Bond purchase_date: brak walidacji → crash na read
+textZabezpiecz bond purchase_date przed persystencją błędnych wartości.
+Zakres: backend/routes_portfolios.py (add_bond), backend/bond_service.py (get_bonds).
+
+Wymagania:
+1) Write path (add_bond): zwaliduj purchase_date jako ISO date (YYYY-MM-DD) przed insertem.
+   Użyj shared helpera parse_iso_date() (patrz NEW-57). Zwróć 422 dla błędnych wartości.
+2) Read path (get_bonds): opakuj strptime w try/except; dla invalid row:
+   - zaloguj error z bond_id i raw wartością,
+   - zastąp wartość None lub pomiń rekord z flagą `parse_error: true`,
+   - nie crashuj całego endpointu.
+3) Dodaj migrację/health-check: SELECT id, purchase_date FROM bonds WHERE
+   purchase_date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+   i zaloguj wyniki przy starcie (ostrzeżenie admina).
+4) Dodaj testy:
+   - POST add_bond z "2026/01/15" → 422,
+   - seed DB z błędną datą + GET bonds → endpoint żyje, rekord oznaczony jako błędny,
+   - poprawna data → poprawna odpowiedź.
+Uruchom testy bond_service i routes_portfolios.
+
+NEW-65 — Loan schedule: unsafe DB assumptions
+textDodaj walidację danych wejściowych do backend/loan_service.py::calculate_schedule.
+
+Wymagania:
+1) Przed uruchomieniem kalkulacji: zwaliduj i sanityzuj loan record:
+   - duration_months > 0 (ApiError 422 jeśli nie),
+   - original_amount > 0,
+   - start_date parseable jako YYYY-MM-DD,
+   - installment_type in ('decreasing', 'fixed') (lub inny enum),
+   - interest_rate >= 0.
+2) Dla rate records: filtruj/pomijaj nieparseable valid_from_date z logiem warning i row_id.
+3) Dla overpayment records: filtruj/pomijaj nieparseable date z logiem warning i row_id.
+4) Jeśli walidacja loan record failuje → rzuć ValidationError (nie raw ValueError/crashuj).
+5) Dodaj testy:
+   - loan z duration_months=0 → ValidationError,
+   - rate z błędną datą → pominięty + warning, reszta kalkulacji działa,
+   - loan z nieznanym installment_type → ValidationError z jasnym komunikatem.
+Uruchom testy loan_service.
+
+NEW-66 — Budget service: brak service-level guards dla amount > 0 i dat
+textDodaj walidację na poziomie serwisu w backend/budget_service.py dla write methods.
+
+Wymagania:
+1) Dla metod: add_income, allocate_money, spend, transfer_between_accounts,
+   transfer_to_investment, withdraw_from_investment, borrow_from_envelope, repay_envelope_loan:
+   - dodaj na początku: `assert_positive_amount(amount)` (lub if + raise ValueError),
+   - dodaj: `parse_iso_date_or_raise(date)` gdzie metoda przyjmuje datę.
+2) Dla transfer_between_accounts: jeśli from_account_id == to_account_id → raise ValueError
+   (transfer do siebie jest operacją no-op, potencjalnie błędem).
+3) Helpers (`assert_positive_amount`, `parse_iso_date_or_raise`) wyeksportuj do shared modułu,
+   aby były reużywane przez inne serwisy (patrz NEW-57).
+4) Zachowaj kompatybilność z istniejącymi callersami (route layer nadal może mieć własną
+   walidację — serwis stanowi drugą linię obrony).
+5) Dodaj testy direct-service-call (bez HTTP):
+   - spend(-100) → ValueError,
+   - add_income(0) → ValueError,
+   - transfer_between_accounts(from_id=1, to_id=1, ...) → ValueError,
+   - add_income z datą "abc" → ValueError/ApiError.
+Uruchom testy budget_service.
+
+NEW-67 — PPK: transakcja z oboma Units=0 przechodzi walidację
+textDodaj walidację logiczną dla unitów PPK transakcji.
+Zakres: backend/modules/ppk/ppk_service.py, backend/routes_ppk.py.
+
+Wymagania:
+1) W routes_ppk (przy add_transaction): sprawdź, że co najmniej jedno z
+   {employeeUnits, employerUnits} jest > 0. Jeśli oba == 0 → zwróć 422.
+2) Analogiczna walidacja w PPKService.add_transaction (service-level guard).
+3) Zwaliduj też tx_date jako ISO date YYYY-MM-DD; odrzuć daty w przyszłości (opcjonalnie
+   konfigurowalne via env flag `PPK_ALLOW_FUTURE_DATES`).
+4) Dodaj testy:
+   - employeeUnits=0, employerUnits=0 → 422,
+   - employeeUnits=0, employerUnits=5 → OK,
+   - tx_date="abc" → 422,
+   - tx_date w przyszłości → 422 (jeśli feature enabled).
+Uruchom testy PPK service i routes.
+
+NEW-68 — PnL: wzory zduplikowane w 3 miejscach z różną precyzją
+textWynieś obliczenia PnL/cost-basis do jednego shared helpera.
+Zakres: backend/portfolio_trade_service.py (sell_stock), backend/portfolio_import_service.py
+        (SELL import path), backend/portfolio_audit_service.py (rebuild_holdings_from_transactions).
+
+Wymagania:
+1) Utwórz backend/portfolio_math.py (lub backend/core/pnl.py) z helperami:
+   - `compute_sell_allocation(quantity, avg_price, total_cost)
+     -> {cost_basis: Decimal, realized_profit: Decimal}`
+   - `compute_remaining_cost(total_cost, sold_qty, avg_price) -> Decimal`
+   - `compute_new_avg_price(old_total_cost, new_total_cost, new_quantity) -> Decimal`
+2) Implementacja wyłącznie w Decimal; zaokrąglaj tylko na wyjściu do zdefiniowanej precyzji
+   (np. 8 miejsc dla cen, 2 dla kwot PLN).
+3) Zastąp wszystkie 3 ad-hoc implementacje wywołaniem helpera.
+4) Dodaj testy:
+   - 1000 naprzemiennych BUY/SELL → identyczny końcowy realized_profit niezależnie od kolejności
+     (stara vs nowa implementacja),
+   - partial sell 50/100 akcji → cost_basis proporcjonalny,
+   - sprzedaż ostatnich akcji → remaining_cost == 0 (brak epsilon drift).
+Uruchom testy trade_service, import_service, audit_service.
+
+NEW-69 — Polityka numeryczna: float + round + Decimal bez reguły
+textUstandaryzuj politykę numeryczną dla obliczeń monetarnych w backendzie.
+
+Wymagania:
+1) Zdefiniuj w backend/portfolio_math.py (lub constants.py) globalną politykę:
+   - wszystkie kwoty monetarne: Decimal,
+   - zaokrąglanie: ROUND_HALF_UP,
+   - precyzja kwot PLN: 2 miejsca, ceny: 6-8, kursy FX: 6, ilości (qty): 8.
+2) Dodaj utility functions:
+   - `money(v) -> Decimal`  — konwersja + normalizacja kwoty PLN,
+   - `qty(v) -> Decimal`    — ilość instrumentu,
+   - `rate(v) -> Decimal`   — kurs FX lub stopa %.
+3) W rolling state (portfolio_history_service._apply_tx_to_rolling):
+   - usuń `round(...)` per krok — trzymaj Decimal wewnętrznie,
+   - zaokrąglaj tylko przy serializacji do JSON (przez `float()` lub `str()`).
+4) Zakaz: `round(x, n)` bezpośrednio na float w logice serwisu — ban na poziomie code review
+   (dodaj komentarz policy + linter rule jeśli dostępny).
+5) Dodaj testy:
+   - 1000 kolejnych BUY po 0.001 PLN → suma dokładna (bez float drift),
+   - ta sama sekwencja transakcji w różnej kolejności → identyczny wynik końcowy,
+   - serial round vs single-round → brak rozbieżności.
+Uruchom testy wszystkich serwisów finansowych (smoke test).
+
+NEW-70 — FX conversion logic: zduplikowana w 4 serwisach
+textScentralizuj logikę FX conversion w dedykowanym module.
+Zakres: backend/portfolio_valuation_service.py, backend/portfolio_history_service.py,
+        backend/portfolio_import_service.py, backend/portfolio_trade_service.py.
+
+Wymagania:
+1) Utwórz backend/fx_service.py z metodami:
+   - `resolve_instrument_currency(ticker: str, holdings_currency: str = None) -> str`
+     (jedyna logika inference: symbol_mappings → metadata → holdings.currency → fallback PLN)
+   - `convert_to_pln(amount: Decimal, currency: str, as_of_date: date,
+                     mode: Literal['live', 'historical']) -> tuple[Decimal, FxResult]`
+     gdzie FxResult = {rate, source, status: OK|MISSING|STALE, timestamp}
+   - `estimate_sell_fee(amount_pln: Decimal, currency: str) -> Decimal`
+     (używa FX_FEE_RATE z constants — patrz NEW-49)
+2) Zastąp wszystkie inline implementacje konwersji wywołaniem fx_service.
+3) Fallback policy (spójna z NEW-55): jeśli rate niedostępny → status=MISSING, nie 1.0.
+4) Dodaj testy jednostkowe fx_service:
+   - live conversion USD → PLN,
+   - historical conversion EUR → PLN z datą,
+   - missing rate → FxResult.status == MISSING,
+   - PLN → PLN → rate=1.0, status=OK (bez zewnętrznego lookupa).
+5) Dodaj integration test: valuation_service i history_service używają tego samego fx_service
+   i zwracają identyczny kurs dla tego samego tickera/daty.
+Uruchom testy wszystkich 4 serwisów.
+
+NEW-71 — Parent/child scope: brak jednolitej definicji
+textSkodyfikuj semantykę scope parent/child i wymuś spójność across history, valuation i audit.
+Zakres: backend/portfolio_history_service.py, backend/portfolio_valuation_service.py,
+        backend/portfolio_audit_service.py.
+
+Wymagania:
+1) Zdefiniuj enum lub stałe w backend/constants.py:
+   - `PortfolioScope.PARENT_OWN`         — transakcje parent z sub_portfolio_id IS NULL,
+   - `PortfolioScope.CHILD`              — transakcje konkretnego child (sub_portfolio_id = X),
+   - `PortfolioScope.PARENT_AGGREGATED`  — parent_own + wszystkie children.
+2) Utwórz query builder `build_tx_scope_filter(scope, portfolio_id, child_id=None) -> str, params`:
+   - zwraca fragment SQL + parametry odpowiedni dla każdego scope.
+3) Zastąp wszystkie inline scope SQL-query fragments wywołaniem builder'a.
+4) Udokumentuj per endpoint, który scope jest stosowany i dlaczego (docstring lub OpenAPI comment).
+5) Dodaj testy:
+   - `get_cash_balance_on_date(parent)` vs `_compute_cash_negative_days(parent)` → ten sam scope,
+   - `get_performance_matrix(parent)` → PARENT_AGGREGATED (children + own),
+   - te same dane z różnymi endpointami → spójne cash/invested_capital dla tego samego zakresu dat.
+Uruchom testy portfolio_history_service, portfolio_valuation_service, portfolio_audit_service.
+
+Sekcja C — Zaktualizowana tabela priorytetów (cały otwarty backlog)
+Tabela obejmuje tylko otwarte pozycje. Pozycje zamknięte (CT-01, CT-02, PV-01, NEW-39, NEW-56) pominięte.
+🔴 Krytyczne / Wysoki priorytet — implementuj najpierw
+IDProblemPrompt gotowyNEW-40Import SELL bez holdingu — inflacja gotówki✅NEW-41assert w _assert_holding_consistency — wyłączane przez -O✅NEW-42get_holdings SQL — niedeterministyczne pola tekstowe✅NEW-43/buy//sell bez waluty ceny — contamination ledgera✅NEW-64Bond purchase_date — crash na read✅ (nowy)NEW-68PnL zduplikowany w 3 miejscach — drift precyzji✅ (nowy)NEW-71Parent/child scope — brak definicji, niespójne wyniki✅ (nowy)TR-03sub_portfolio_id w GET — cicha zamiana na None✅PS-03get_quotes fallback po błędzie bulk✅PS-04price=0.0 przy braku danych✅
+🟡 Średni priorytet
+IDProblemPrompt gotowyNEW-44INTEREST w imporcie z sub_portfolio_id✅ (nowy)NEW-45Assignment bez atomowego rebuild✅ (nowy)NEW-46raise e → utrata traceback✅ (nowy)NEW-47Bare except: w 3 modułach✅ (nowy)NEW-48sub_portfolio_id=abc → 422✅ (nowy)NEW-49FX_FEE_RATE vs 0.005 inline✅ (nowy)NEW-50XIRR bez bracketing fallback✅ (nowy)NEW-51Symbol resolution O(N×M)✅ (nowy)NEW-52PPK weekly chart O(W×T)✅ (nowy)NEW-53Budget envelope×loan O(E×L)✅ (nowy)NEW-54Parent valuation — PPK fetch per portfolio✅ (nowy)NEW-55FX fallback 1.0 bez logu✅ (nowy)NEW-63Loan schedule O(M×(R+O))✅ (nowy)NEW-65Loan schedule unsafe DB assumptions✅ (nowy)NEW-66Budget service — brak amount/date guards✅ (nowy)NEW-69Polityka numeryczna — float/Decimal chaos✅ (nowy)NEW-70FX conversion zduplikowana w 4 serwisach✅ (nowy)PS-06Thread safety cache✅PS-07datetime.utcnow()✅PS-08fromtimestamp bez tz✅PS-10change_1y i długość historii✅TR-01Legacy cash seed i sub_portfolio_id=0✅TR-06validate_assign_payload różne typy✅TR-07O(days×transactions) w history✅PV-02legacy_row w get_cash_balance_on_date✅PV-03Metadata update tylko po MAX(id)✅PV-05_compute_cash_negative_days dzień-po-dniu✅PV-06N+1 queries w wycenie✅CT-03rebuild_holdings: ValueError dla nowego typu✅CT-04unconfirmed_conflicts w imporcie✅CT-05repair_portfolio_state nieczytelny call-site✅CT-10resolve_symbol_mapping — full table scan✅
+🟢 Niski priorytet
+IDProblemPrompt gotowyNEW-57Daty nie walidowane jako ISO na write✅ (nowy)NEW-58Migracje — except: pass bez klasyfikacji✅ (nowy)NEW-59Async recalculation — brak retry✅ (nowy)NEW-60Modified Dietz mid-period bias✅ (nowy)NEW-61Brak FX snapshot w transakcjach✅ (nowy)NEW-62avg_buy_fx_rate=1.0 dla non-PLN w imporcie✅ (nowy)NEW-67PPK — transakcja z oboma Units=0✅ (nowy)PS-09_latest_expected_market_day i święta✅PV-04Legacy sub_portfolio_id=0 warunki✅PV-07/08/09UTC + logger + docstring hygiene✅CT-06..CT-12Low-priority cleanup pakiet✅
 ```
