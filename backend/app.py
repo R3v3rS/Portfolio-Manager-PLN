@@ -20,6 +20,10 @@ from routes_loans import loans_bp
 from routes_radar import radar_bp
 from routes_symbol_map import symbol_map_bp
 from routes_ai import ai_bp
+from dotenv import load_dotenv
+
+# Load .env from the current directory (backend/)
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 
 class JsonLineFormatter(logging.Formatter):

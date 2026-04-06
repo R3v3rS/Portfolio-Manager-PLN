@@ -6,9 +6,7 @@ interface PortfolioAIChatProps {
 }
 
 interface PortfolioAnalysisResponse {
-  payload?: {
-    answer?: string;
-  };
+  answer?: string;
 }
 
 const QUICK_ACTIONS = [
@@ -39,7 +37,7 @@ const PortfolioAIChat: React.FC<PortfolioAIChatProps> = ({ portfolioId }) => {
         question: trimmed,
       });
 
-      setAnswer(response.payload?.answer ?? 'Brak odpowiedzi od AI.');
+      setAnswer(response.answer ?? 'Brak odpowiedzi od AI.');
     } catch (err) {
       console.error('Failed to fetch AI portfolio analysis', err);
       setError('Nie udało się pobrać odpowiedzi AI. Spróbuj ponownie.');
