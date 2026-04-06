@@ -395,6 +395,8 @@ class ImportStagingService:
             ).fetchone()
             if not row:
                 raise ValueError('Row not found in session')
+            if row['status'] == 'booked':
+                raise ValueError('Cannot modify booked row')
 
             ImportStagingService._validate_subportfolio(db, row['portfolio_id'], target_sub_portfolio_id)
 
@@ -446,7 +448,7 @@ class ImportStagingService:
         db = get_db()
         rows = db.execute(
             '''SELECT id FROM import_staging
-               WHERE import_session_id = ? AND status IN ('pending', 'assigned')''',
+               WHERE import_session_id = ? AND status IN ('pending', 'assigned', 'booked')''',
             (session_id,),
         ).fetchall()
         assigned = 0
@@ -470,6 +472,8 @@ class ImportStagingService:
             ).fetchone()
             if not row:
                 raise ValueError('Row not found in session')
+            if row['status'] == 'booked':
+                raise ValueError('Cannot modify booked row')
 
             db.execute(
                 '''UPDATE import_staging

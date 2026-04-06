@@ -247,6 +247,52 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertEqual(updated['conflict_type'], 'insufficient_qty')
         self.assertEqual(updated['conflict_details'], {'required_qty': 10.0, 'available_qty': 1.0})
 
+    def test_assign_row_raises_for_booked_row(self):
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+        row_id = session['rows'][0]['id']
+        ImportStagingService.book_session(session['session_id'])
+
+        with self.assertRaises(ValueError):
+            ImportStagingService.assign_row(session['session_id'], row_id, self.sub_portfolio_id)
+
+    def test_reject_row_raises_for_booked_row(self):
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+        row_id = session['rows'][0]['id']
+        ImportStagingService.book_session(session['session_id'])
+
+        with self.assertRaises(ValueError):
+            ImportStagingService.reject_row(session['session_id'], row_id)
+
+    def test_assign_all_skips_booked_rows_and_assigns_remaining(self):
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock sell', 'Amount': '300', 'Comment': 'CLOSE SELL 2 @ 150', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+        first_row_id = session['rows'][0]['id']
+        second_row_id = session['rows'][1]['id']
+        ImportStagingService.book_session(session['session_id'], confirmed_row_ids=[first_row_id])
+
+        result = ImportStagingService.assign_all(session['session_id'], self.sub_portfolio_id)
+        self.assertEqual(result['assigned'], 1)
+        self.assertEqual(result['skipped'], 1)
+
+        rows = get_db().execute(
+            'SELECT id, status, target_sub_portfolio_id FROM import_staging WHERE import_session_id = ? ORDER BY id',
+            (session['session_id'],),
+        ).fetchall()
+        self.assertEqual(rows[0]['id'], first_row_id)
+        self.assertEqual(rows[0]['status'], 'booked')
+        self.assertEqual(rows[1]['id'], second_row_id)
+        self.assertEqual(rows[1]['status'], 'assigned')
+        self.assertEqual(rows[1]['target_sub_portfolio_id'], self.sub_portfolio_id)
+
     def test_book_session_books_normal_rows(self):
         df = self._df([
             {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
