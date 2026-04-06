@@ -38,7 +38,7 @@ staging jest pobierany przed mutacją (SELECT + _validate_subportfolio) przed
 modyfikacją wierszy już zarezerwowanych.
 
 Wymagania:
-1) We wszystkich 3 lokalizacjach (linie ~330, ~354, ~397) bezpośrednio po sprawdzeniu
+1) We wszystkich 3 lokalizacjach (linie ~354, ~397) bezpośrednio po sprawdzeniu
    `if not row: raise ValueError(...)` dodaj:
      if row['status'] == 'booked':
          raise ValueError('Cannot modify booked row')
@@ -369,6 +369,8 @@ Problem: kod force-ustawia status='assigned' i target_sub_portfolio_id lokalnie
 ignorując odpowiedź backendu. Konflikty wykryte przez serwis (conflict_type,
 conflict_details) są pomijane, co desynchronizuje summary.conflictRows
 i wyłącza canConfirmConflict.
+
+ prompt mówi „Jeśli endpoint zwraca zaktualizowane rows: użyj serverRows". Aktualny backend assign_all zwraca tylko {assigned, skipped} — nigdy rows. Opcja A jest więc nieosiągalna bez zmiany API. Prompt powinien jasno wskazać jedyną realną ścieżkę: refetch sesji po assignAll. Czyli dodaj wywołanie getSession(session.session_id) i zastąp nim lokalne setRows.
 
 Wymagania:
 1) Upewnij się, że assignAll() zwraca zaktualizowane wiersze lub summary sesji
