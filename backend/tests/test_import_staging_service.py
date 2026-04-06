@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from flask import Flask
@@ -342,6 +343,79 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(cash), 750.0)
         self.assertAlmostEqual(float(qty), 5.0)
         self.assertEqual(status, 'booked')
+
+    def test_book_session_buy_sets_usd_fx_fields_for_new_holding(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO stock_prices (ticker, date, close_price)
+               VALUES ('USDPLN=X', '2026-01-02', 4.12)'''
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+
+        with patch('import_staging_service.PriceService.sync_stock_history', return_value=None):
+            result = ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(result['booked'], 2)
+
+        holding = get_db().execute(
+            '''SELECT instrument_currency, avg_buy_fx_rate, fx_source
+               FROM holdings WHERE portfolio_id = ? AND ticker = ?''',
+            (self.portfolio_id, 'AAPL'),
+        ).fetchone()
+        self.assertEqual(holding['instrument_currency'], 'USD')
+        self.assertNotEqual(float(holding['avg_buy_fx_rate']), 1.0)
+        self.assertEqual(holding['fx_source'], 'historical_close')
+
+    def test_book_session_buy_sets_missing_fx_for_usd_when_rate_unavailable(self):
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+
+        with patch('import_staging_service.PriceService.sync_stock_history', return_value=None):
+            result = ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(result['booked'], 2)
+
+        holding = get_db().execute(
+            '''SELECT instrument_currency, avg_buy_fx_rate, fx_source
+               FROM holdings WHERE portfolio_id = ? AND ticker = ?''',
+            (self.portfolio_id, 'AAPL'),
+        ).fetchone()
+        self.assertEqual(holding['instrument_currency'], 'USD')
+        self.assertIsNone(holding['avg_buy_fx_rate'])
+        self.assertEqual(holding['fx_source'], 'missing')
+
+    def test_book_session_buy_sets_pln_native_fx_fields_for_pln_ticker(self):
+        db = get_db()
+        db.execute(
+            "INSERT INTO symbol_mappings (symbol_input, ticker, currency) VALUES ('PKN.PL', 'PKN', 'PLN')"
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'PKN.PL'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+
+        with patch('import_staging_service.PriceService.sync_stock_history', return_value=None):
+            result = ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(result['booked'], 2)
+
+        holding = get_db().execute(
+            '''SELECT instrument_currency, avg_buy_fx_rate, fx_source
+               FROM holdings WHERE portfolio_id = ? AND ticker = ?''',
+            (self.portfolio_id, 'PKN'),
+        ).fetchone()
+        self.assertEqual(holding['instrument_currency'], 'PLN')
+        self.assertEqual(float(holding['avg_buy_fx_rate']), 1.0)
+        self.assertEqual(holding['fx_source'], 'pln_native')
 
     def test_reject_row_excludes_from_booking(self):
         df = self._df([
