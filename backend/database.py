@@ -142,7 +142,8 @@ def init_db(app):
                 currency VARCHAR(3) DEFAULT 'PLN',
                 instrument_currency TEXT NOT NULL DEFAULT 'PLN',
                 avg_buy_price_native REAL NOT NULL DEFAULT 0,
-                avg_buy_fx_rate REAL NOT NULL DEFAULT 1,
+                avg_buy_fx_rate REAL DEFAULT 1,
+                fx_source TEXT NOT NULL DEFAULT 'legacy',
                 sub_portfolio_id INTEGER REFERENCES portfolios(id),
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
@@ -548,6 +549,10 @@ def init_db(app):
             db.execute("ALTER TABLE holdings ADD COLUMN sub_portfolio_id INTEGER REFERENCES portfolios(id)")
         except sqlite3.OperationalError:
             pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN fx_source TEXT NOT NULL DEFAULT 'legacy'")
+        except sqlite3.OperationalError:
+            pass
 
         # Migration: Update holdings unique constraint to include sub_portfolio_id
         # In SQLite, we can't directly alter a UNIQUE constraint.
@@ -623,6 +628,32 @@ def init_db(app):
 
         db.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sub_portfolio ON transactions(sub_portfolio_id);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_dividends_sub_portfolio ON dividends(sub_portfolio_id);')
+
+        # Migration: import staging table for CSV import workflow
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS import_staging (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                import_session_id TEXT NOT NULL,
+                portfolio_id INTEGER NOT NULL,
+                ticker VARCHAR(20) NOT NULL,
+                type VARCHAR(20) NOT NULL,
+                quantity DECIMAL(10,4),
+                price DECIMAL(10,2),
+                total_value DECIMAL(10,2) NOT NULL,
+                date TEXT NOT NULL,
+                target_sub_portfolio_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                conflict_type TEXT,
+                conflict_details TEXT,
+                row_hash TEXT NOT NULL,
+                source_file TEXT,
+                created_at TEXT NOT NULL,
+                booked_at TEXT,
+                FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
+            );
+        ''')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_import_staging_session ON import_staging(import_session_id);')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_import_staging_portfolio ON import_staging(portfolio_id, status);')
 
         # Validation function after migration
         def validate_subportfolio_integrity(db_conn):
