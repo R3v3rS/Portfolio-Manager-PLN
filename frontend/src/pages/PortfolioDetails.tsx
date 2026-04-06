@@ -242,6 +242,7 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
           session={stagingSession}
           subPortfolios={subPortfolios.filter((item) => !item.is_archived).map((item) => ({ id: item.id, name: item.name }))}
           onBook={handleStagingBook}
+          onCloseAfterBooking={() => setStagingSession(null)}
           onCancel={() => {
             void handleStagingCancel();
           }}
