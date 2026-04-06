@@ -77,6 +77,15 @@ class ImportStagingService:
         return float(row['quantity']) if row else 0.0
 
     @staticmethod
+    def _update_staging_conflict(db, row_id: int, conflict_type: str, conflict_details: dict[str, Any]) -> None:
+        db.execute(
+            '''UPDATE import_staging
+               SET conflict_type = ?, conflict_details = ?
+               WHERE id = ?''',
+            (conflict_type, json.dumps(conflict_details), row_id),
+        )
+
+    @staticmethod
     def _transaction_exists(
         db,
         portfolio_id: int,
@@ -631,7 +640,22 @@ class ImportStagingService:
                         row['target_sub_portfolio_id'],
                     )
                     needed_qty = float(row['quantity'] or 0.0)
-                    if available_qty <= 0 or needed_qty > available_qty:
+                    if available_qty <= 0:
+                        ImportStagingService._update_staging_conflict(
+                            db,
+                            row['id'],
+                            'missing_holding',
+                            {'required_qty': needed_qty, 'available_qty': available_qty},
+                        )
+                        result['skipped_conflicts'] += 1
+                        continue
+                    if needed_qty > available_qty:
+                        ImportStagingService._update_staging_conflict(
+                            db,
+                            row['id'],
+                            'insufficient_qty',
+                            {'required_qty': needed_qty, 'available_qty': available_qty},
+                        )
                         result['skipped_conflicts'] += 1
                         continue
 

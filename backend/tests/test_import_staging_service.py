@@ -1,3 +1,4 @@
+import json
 import sys
 import tempfile
 import unittest
@@ -339,10 +340,58 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         db = get_db()
         cash = db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()['current_cash']
         qty = db.execute('SELECT quantity FROM holdings WHERE portfolio_id = ? AND ticker = ?', (self.portfolio_id, 'AAPL')).fetchone()['quantity']
-        status = db.execute('SELECT status FROM import_staging WHERE import_session_id = ?', (session['session_id'],)).fetchone()['status']
+        staged_row = db.execute(
+            'SELECT status, conflict_type FROM import_staging WHERE import_session_id = ?',
+            (session['session_id'],),
+        ).fetchone()
         self.assertAlmostEqual(float(cash), 750.0)
         self.assertAlmostEqual(float(qty), 5.0)
-        self.assertEqual(status, 'booked')
+        self.assertEqual(staged_row['status'], 'booked')
+        self.assertIsNone(staged_row['conflict_type'])
+
+    def test_book_session_sell_without_holding_updates_conflict_in_session(self):
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '300', 'Comment': 'CLOSE SELL 2 @ 150', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+        row_id = session['rows'][0]['id']
+
+        db = get_db()
+        db.execute('UPDATE import_staging SET conflict_type = NULL, conflict_details = NULL WHERE id = ?', (row_id,))
+        db.commit()
+
+        result = ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(result['skipped_conflicts'], 1)
+
+        refreshed = ImportStagingService.get_session(session['session_id'])
+        row = refreshed['rows'][0]
+        self.assertEqual(row['conflict_type'], 'missing_holding')
+        self.assertEqual(row['conflict_details'], {'required_qty': 2.0, 'available_qty': 0.0})
+
+    def test_book_session_sell_insufficient_qty_updates_conflict_in_db(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost)
+               VALUES (?, 'AAPL', 1, 100, 100)''',
+            (self.portfolio_id,),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '300', 'Comment': 'CLOSE SELL 2 @ 150', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+        row_id = session['rows'][0]['id']
+
+        db.execute('UPDATE import_staging SET conflict_type = NULL, conflict_details = NULL WHERE id = ?', (row_id,))
+        db.commit()
+
+        result = ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(result['skipped_conflicts'], 1)
+
+        row = db.execute('SELECT conflict_type, conflict_details FROM import_staging WHERE id = ?', (row_id,)).fetchone()
+        self.assertEqual(row['conflict_type'], 'insufficient_qty')
+        self.assertEqual(json.loads(row['conflict_details']), {'required_qty': 2.0, 'available_qty': 1.0})
 
     def test_book_session_buy_sets_usd_fx_fields_for_new_holding(self):
         db = get_db()
