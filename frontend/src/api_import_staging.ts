@@ -4,6 +4,9 @@ import type { BookResult, StagingRow, StagingSession } from './types/importStagi
 const portfolioHttp = createApiClient('/portfolio');
 
 export type ImportMode = 'staging' | 'direct';
+export type AssignAllResponse =
+  | { assigned: number; skipped: number }
+  | { assigned: number; skipped: number; rows: StagingRow[]; session: StagingSession };
 
 export const createStagingSession = async (
   portfolioId: number,
@@ -36,8 +39,8 @@ export const assignRow = async (sessionId: string, rowId: number, targetSubPortf
 export const assignAll = async (
   sessionId: string,
   targetSubPortfolioId: number
-): Promise<{ assigned: number; skipped: number }> => {
-  return portfolioHttp.put<{ assigned: number; skipped: number }>(`/import/staging/${sessionId}/assign-all`, {
+): Promise<AssignAllResponse> => {
+  return portfolioHttp.put<AssignAllResponse>(`/import/staging/${sessionId}/assign-all`, {
     target_sub_portfolio_id: targetSubPortfolioId,
   });
 };

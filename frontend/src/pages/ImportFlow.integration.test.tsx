@@ -12,6 +12,7 @@ const {
   bookSessionMock,
   assignRowMock,
   assignAllMock,
+  getSessionMock,
   rejectRowMock,
 } = vi.hoisted(() => ({
   importXtbCsvMock: vi.fn(),
@@ -21,6 +22,7 @@ const {
   bookSessionMock: vi.fn(),
   assignRowMock: vi.fn(),
   assignAllMock: vi.fn(),
+  getSessionMock: vi.fn(),
   rejectRowMock: vi.fn(),
 }));
 
@@ -42,6 +44,7 @@ vi.mock('../api_import_staging', () => ({
   bookSession: bookSessionMock,
   assignRow: assignRowMock,
   assignAll: assignAllMock,
+  getSession: getSessionMock,
   rejectRow: rejectRowMock,
 }));
 
@@ -84,6 +87,12 @@ describe('Import flow with staging modal integration', () => {
     deleteSessionMock.mockResolvedValue({ deleted: 1 });
     assignRowMock.mockResolvedValue({});
     assignAllMock.mockResolvedValue({ assigned: 0, skipped: 0 });
+    getSessionMock.mockResolvedValue({
+      session_id: 'sess-1',
+      portfolio_id: 1,
+      rows: [],
+      summary: { total: 0, pending: 0, conflicts: 0, rejected: 0, missing_symbols: [] },
+    });
     rejectRowMock.mockResolvedValue({});
 
     vi.spyOn(window, 'alert').mockImplementation(() => undefined);

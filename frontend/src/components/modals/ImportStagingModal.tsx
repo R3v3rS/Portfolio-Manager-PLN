@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Check, CircleDollarSign, Landmark, ShieldAlert, X } from 'lucide-react';
 
-import { assignAll, assignRow, bookSession, rejectRow } from '../../api_import_staging';
+import { assignAll, assignRow, bookSession, getSession, rejectRow } from '../../api_import_staging';
 import type { BookResult, StagingConflictType, StagingRow, StagingSession } from '../../types/importStaging';
 import { cn } from '../../lib/utils';
 
@@ -26,8 +26,11 @@ const txIcon = (type: StagingRow['type']) => {
   return <ShieldAlert className="h-4 w-4" />;
 };
 
-const ImportStagingModal: React.FC<ImportStagingModalProps> = ({ session, subPortfolios, onBook, onCancel }) => {
-  const [rows, setRows] = useState(session.rows);
+const mapToStagingRows = (stagingRows: StagingRow[]): StagingRow[] => stagingRows;
+
+const ImportStagingModal: React.FC<ImportStagingModalProps> = ({ session: initialSession, subPortfolios, onBook, onCancel }) => {
+  const [session, setSession] = useState(initialSession);
+  const [rows, setRows] = useState(initialSession.rows);
   const [globalSubPortfolio, setGlobalSubPortfolio] = useState<number | null>(null);
   const [confirmedConflicts, setConfirmedConflicts] = useState<Set<number>>(new Set());
   const [isBooking, setIsBooking] = useState(false);
@@ -74,17 +77,15 @@ const ImportStagingModal: React.FC<ImportStagingModalProps> = ({ session, subPor
 
     setIsAssigning(true);
     try {
-      await assignAll(session.session_id, globalSubPortfolio);
-      setRows((prev) =>
-        prev.map((row) => {
-          if (row.status !== 'pending' && row.status !== 'assigned') return row;
-          return {
-            ...row,
-            target_sub_portfolio_id: globalSubPortfolio,
-            status: 'assigned',
-          };
-        })
-      );
+      const response = await assignAll(session.session_id, globalSubPortfolio);
+      if ('rows' in response && Array.isArray(response.rows) && 'session' in response && response.session) {
+        setRows(mapToStagingRows(response.rows));
+        setSession(response.session);
+      } else {
+        const updated = await getSession(session.session_id);
+        setRows(updated.rows);
+        setSession(updated);
+      }
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Nie udało się przypisać wszystkich transakcji.');
     } finally {
