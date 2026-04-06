@@ -8,12 +8,53 @@ import pandas as pd
 
 from database import get_db
 from portfolio_import_service import PortfolioImportService
+from price_service import PriceService
 
 
 logger = logging.getLogger(__name__)
 
 
 class ImportStagingService:
+    @staticmethod
+    def _resolve_instrument_currency(db, ticker: str) -> str:
+        instrument_currency = None
+        mapping = db.execute('SELECT currency FROM symbol_mappings WHERE ticker = ?', (ticker,)).fetchone()
+        if mapping and mapping['currency']:
+            instrument_currency = str(mapping['currency']).upper()
+
+        if not instrument_currency:
+            meta = PriceService.fetch_metadata(ticker)
+            instrument_currency = (meta.get('currency') if meta else None)
+            instrument_currency = str(instrument_currency).upper() if instrument_currency else None
+
+        return instrument_currency or 'PLN'
+
+    @staticmethod
+    def _resolve_buy_fx_rate(instrument_currency: str, tx_date: str) -> tuple[Optional[float], str]:
+        currency = (instrument_currency or 'PLN').upper()
+        if currency == 'PLN':
+            return 1.0, 'pln_native'
+
+        fx_ticker = f'{currency}PLN=X'
+        PriceService.sync_stock_history(fx_ticker, tx_date)
+        db = get_db()
+        fx_row = db.execute(
+            '''SELECT close_price
+               FROM stock_prices
+               WHERE ticker = ? AND DATE(date) <= DATE(?)
+               ORDER BY DATE(date) DESC
+               LIMIT 1''',
+            (fx_ticker, tx_date),
+        ).fetchone()
+
+        if not fx_row:
+            return None, 'missing'
+
+        fx_rate = float(fx_row['close_price'])
+        if fx_rate <= 0:
+            return None, 'missing'
+        return fx_rate, 'historical_close'
+
     @staticmethod
     def _iso_date(value: Any, row_number: int) -> str:
         parsed = pd.to_datetime(value, errors='coerce')
@@ -493,10 +534,28 @@ class ImportStagingService:
                     (new_qty, new_total_cost, new_avg, holding['id']),
                 )
             else:
+                instrument_currency = ImportStagingService._resolve_instrument_currency(db, ticker)
+                avg_buy_fx_rate, fx_source = ImportStagingService._resolve_buy_fx_rate(
+                    instrument_currency,
+                    date_value,
+                )
                 cursor.execute(
-                    '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, sub_portfolio_id)
-                       VALUES (?, ?, ?, ?, ?, ?)''',
-                    (portfolio_id, ticker, qty, price, total_value, sub_portfolio_id),
+                    '''INSERT INTO holdings
+                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, sub_portfolio_id,
+                        instrument_currency, avg_buy_fx_rate, avg_buy_price_native, fx_source)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (
+                        portfolio_id,
+                        ticker,
+                        qty,
+                        price,
+                        total_value,
+                        sub_portfolio_id,
+                        instrument_currency,
+                        avg_buy_fx_rate,
+                        price if avg_buy_fx_rate in (None, 0) else (price / avg_buy_fx_rate),
+                        fx_source,
+                    ),
                 )
         elif tx_type == 'SELL':
             realized_profit = 0.0

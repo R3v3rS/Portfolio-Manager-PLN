@@ -142,7 +142,8 @@ def init_db(app):
                 currency VARCHAR(3) DEFAULT 'PLN',
                 instrument_currency TEXT NOT NULL DEFAULT 'PLN',
                 avg_buy_price_native REAL NOT NULL DEFAULT 0,
-                avg_buy_fx_rate REAL NOT NULL DEFAULT 1,
+                avg_buy_fx_rate REAL DEFAULT 1,
+                fx_source TEXT NOT NULL DEFAULT 'legacy',
                 sub_portfolio_id INTEGER REFERENCES portfolios(id),
                 FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
             );
@@ -546,6 +547,10 @@ def init_db(app):
             pass
         try:
             db.execute("ALTER TABLE holdings ADD COLUMN sub_portfolio_id INTEGER REFERENCES portfolios(id)")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            db.execute("ALTER TABLE holdings ADD COLUMN fx_source TEXT NOT NULL DEFAULT 'legacy'")
         except sqlite3.OperationalError:
             pass
 
