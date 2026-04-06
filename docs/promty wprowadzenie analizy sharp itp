@@ -1,0 +1,225 @@
+Prompt 1 — Serwis danych (zastępuje poprzedni)
+Mam aplikację Flask + SQLite. Projekt ma już:
+- backend/price_service.py z yfinance i tabelą price_cache
+- tabelę stock_prices (historyczne ceny)
+- tabele holdings(id, portfolio_id, sub_portfolio_id, ticker, 
+  quantity, average_buy_price, total_cost, sector, currency)
+- backend/api/response.py z success_response() i error_response()
+- backend/api/exceptions.py z ValidationError, NotFoundError
+
+Stwórz backend/services/analytics/market_data_adapter.py który:
+
+1. get_historical_returns(tickers: list[str], period: str = "1y") → dict[str, pd.Series]
+   - NAJPIERW próbuje pobrać z tabeli stock_prices (już mam te dane w cache)
+   - Jeśli brakuje tickera lub danych starszych niż 24h → dopiero wtedy yfinance
+   - Zwraca dict: {ticker: pd.Series z dziennymi log-returns, index=datetime}
+
+2. get_holdings_snapshot(portfolio_id: int, sub_portfolio_id: int = None) → list[dict]
+   - Pobiera holdings z DB dla danego portfolio_id
+   - Jeśli sub_portfolio_id podany → filtruj, inaczej agreguj wszystkie sub-portfele
+   - Zwraca: [{ticker, quantity, average_buy_price, total_cost, sector, currency, weight}]
+   - weight = current_value / total_portfolio_value (potrzebuje current price)
+   - Cenę bieżącą pobierz z price_cache (nie odpytuj yfinance osobno)
+
+3. NIE twórz nowych tabel — używaj istniejących stock_prices i price_cache
+
+Import: from backend.database import get_db
+Ścieżka do DB: używaj g.db (w kontekście requestu) lub połączenia z database.py
+
+Prompt 2 — Performance metrics
+Mam backend/services/analytics/market_data_adapter.py.
+
+Stwórz backend/services/analytics/performance_metrics.py:
+
+1. sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.05) → float | None
+   - annualizowany (×√252)
+   - jeśli len(returns) < 30 → return None
+   - obsłuż NaN w danych
+
+2. max_drawdown(price_series: pd.Series) → dict
+   {
+     "value": float,          # np. -0.234
+     "start_date": str,       # "2024-03-15"
+     "end_date": str,
+     "recovery_date": str | None,
+     "duration_days": int
+   }
+
+3. calculate_performance_summary(portfolio_id: int, 
+                                  sub_portfolio_id: int = None,
+                                  period: str = "1y") → dict
+   - używa market_data_adapter.get_holdings_snapshot() i get_historical_returns()
+   - liczy weighted portfolio returns (wagi value-based z snapshot)
+   - zwraca:
+   {
+     "sharpe_ratio": float | None,
+     "max_drawdown": dict,
+     "volatility_annualized": float,
+     "best_day": {"date": str, "return": float},
+     "worst_day": {"date": str, "return": float},
+     "total_return_pct": float,
+     "period": str
+   }
+
+WAŻNE: ta funkcja NIE liczy total_return od zera — używa tylko danych 
+z yfinance/stock_prices. Faktyczny P&L portfela jest już w portfolio_valuation_service.py.
+To jest analityka ryzyka, nie wycena.
+
+Prompt 3 — VaR
+Mam backend/services/analytics/performance_metrics.py.
+
+Dodaj funkcje VaR do tego samego pliku:
+
+1. value_at_risk(returns: pd.Series, confidence: float = 0.95) → dict
+   {
+     "historical_var": float,    # -0.023 = możliwa strata 2.3%
+     "parametric_var": float,
+     "cvar": float,              # Expected Shortfall (średnia z ogonów)
+     "confidence_level": float,
+     "interpretation": str
+   }
+
+2. portfolio_var(portfolio_id: int, 
+                  sub_portfolio_id: int = None,
+                  period: str = "1y") → dict
+   - pobiera weighted returns z get_holdings_snapshot + get_historical_returns
+   - liczy VaR dla portfela jako całości (nie sumuj VaR poszczególnych aktywów!)
+   - potrzebuje aktualnej wartości portfela → pobierz z price_cache * quantity z holdings
+   {
+     "var_1d_pct": float,
+     "var_1d_pln": float,        # var_1d_pct × portfolio_value
+     "cvar_1d_pct": float,
+     "cvar_1d_pln": float,
+     "portfolio_value": float,
+     "currency": "PLN",
+     "period_used": str,
+     "data_points": int
+   }
+
+Prompt 4 — Correlation matrix
+Mam market_data_adapter.py i performance_metrics.py.
+
+Stwórz backend/services/analytics/correlation_service.py:
+
+1. calculate_correlation_matrix(tickers: list[str], period: str = "1y") → dict
+   - używa market_data_adapter.get_historical_returns()
+   - Pearson correlation między wszystkimi parami
+   {
+     "recharts_data": [{"symbol": "AAPL", "AAPL": 1.0, "MSFT": 0.87},...],
+     "high_correlation_pairs": [{"pair": ["AAPL","MSFT"], "correlation": 0.87},...],
+     "avg_correlation": float,
+     "period": str
+   }
+   recharts_data musi być zgodne z recharts heatmap (lista obiektów)
+
+2. portfolio_correlation_risk(portfolio_id: int,
+                               sub_portfolio_id: int = None) → dict
+   - pobiera tickers z holdings (ten portfolio_id)
+   - identyfikuje klastry mocno skorelowanych aktywów (threshold > 0.75)
+   {
+     "avg_correlation": float,
+     "risk_level": "low" | "medium" | "high",
+     "clusters": [["AAPL", "MSFT", "GOOGL"], ["XOM", "CVX"]],
+     "high_correlation_pairs": [...],
+     "recommendation": str
+   }
+
+WAŻNE: portfolio ma sub-portfele. Jeśli sub_portfolio_id=None, 
+zbierz tickers ze wszystkich sub-portfeli tego portfolio_id.
+
+Prompt 5 — Diversification Score
+Mam serwisy analytics.
+
+Stwórz backend/services/analytics/diversification_service.py:
+
+1. herfindahl_index(weights: list[float]) → float
+   HHI = Σ(wi²), weights muszą sumować się do 1.0
+
+2. diversification_score(portfolio_id: int, 
+                           sub_portfolio_id: int = None) → dict
+   - pobiera holdings z market_data_adapter.get_holdings_snapshot()
+   - snapshot ma już wagi (value-based)
+   - grupuje też by sector (kolumna sector w holdings — może być None)
+   {
+     "hhi": float,
+     "score": int,              # 0-100 (100 = idealna dywersyfikacja)
+     "rating": "poor"|"fair"|"good"|"excellent",
+     "by_asset": [
+       {"ticker": str, "weight": float, "sector": str, "hhi_contribution": float}
+     ],
+     "by_sector": [
+       {"sector": str, "weight": float, "hhi_contribution": float}
+     ],
+     "top_concentration_warning": str | None,
+     "recommendation": str
+   }
+
+Progi: HHI>0.25 poor(0-40), 0.15-0.25 fair(40-65), 0.05-0.15 good(65-85), <0.05 excellent(85-100)
+Jeśli sektor = None lub "" → grupuj jako "Nieznany"
+
+Prompt 6 — Route (dopasowany do Twojego blueprintu)
+Mam wszystkie serwisy analytics. Teraz dodaj endpoint do istniejącego projektu.
+
+Stwórz backend/routes_analytics.py jako Flask Blueprint.
+Wzoruj się na istniejących routes_*.py w projekcie.
+Używaj: from backend.api.response import success_response, error_response
+Używaj: from backend.api.exceptions import ValidationError, NotFoundError
+
+Endpoint:
+GET /api/analytics/summary?portfolio_id=1&period=1y&sub_portfolio_id=2
+
+1. Waliduj portfolio_id (wymagany, integer)
+2. sub_portfolio_id opcjonalny
+3. period: "3m"|"6m"|"1y"|"2y", domyślnie "1y"
+4. Wywołaj równolegle (concurrent.futures.ThreadPoolExecutor):
+   - performance_metrics.calculate_performance_summary()
+   - performance_metrics.portfolio_var()
+   - correlation_service.portfolio_correlation_risk()
+   - diversification_service.diversification_score()
+5. Dodaj analytics_cache w SQLite (CREATE TABLE IF NOT EXISTS):
+   analytics_cache(portfolio_id, sub_portfolio_id, period, result_json, cached_at)
+   TTL: 4 godziny
+6. Zwróć przez success_response({...wszystkie dane...})
+
+Dodaj do app.py:
+from routes_analytics import analytics_bp
+app.register_blueprint(analytics_bp)
+
+NIE modyfikuj database.py — tabelę analytics_cache utwórz 
+w routes_analytics.py przez CREATE TABLE IF NOT EXISTS przy starcie blueprintu.
+
+Prompt 7 — Frontend
+Mam endpoint GET /api/analytics/summary?portfolio_id=X zwracający:
+{ payload: { performance, risk, correlation, diversification } }
+
+Istniejący projekt używa:
+- React 18 + TypeScript + Vite
+- Tailwind CSS
+- Recharts (już zaimportowany)
+- Axios przez wspólny klient z frontend/src/http.ts
+- Zustand do state
+
+Stwórz frontend/src/components/analytics/AnalyticsDashboard.tsx:
+
+1. Pobierz dane przez istniejący http.ts (nie axios bezpośrednio)
+   Dodaj endpoint do frontend/src/apiConfig.ts
+
+2. MetricCard — karta: wartość + label + kolor (tailwind: green/yellow/red)
+   Sharpe Ratio: <1 czerwony, 1-2 żółty, >2 zielony
+   Max Drawdown: >-10% zielony, -10 do -20% żółty, <-20% czerwony
+   VaR 1D: koloruj wg % wartości portfela
+   Diversification Score: <40 czerwony, 40-65 żółty, >65 zielony
+
+3. CorrelationHeatmap — recharts ResponsiveContainer + tabela z kolorami
+   dane: payload.correlation.recharts_data
+   komórki: >0.8 bg-red-200, 0.5-0.8 bg-yellow-100, <0.5 bg-green-100
+
+4. DiversificationPie — recharts PieChart
+   dane: payload.diversification.by_sector (grupuj po sektorze, nie po tickerze)
+
+5. Loading skeleton — podczas ładowania pokaż szare prostokąty (Tailwind animate-pulse)
+
+6. Obsłuż błąd gdy portfolio ma za mało danych (sharpe_ratio === null)
+
+Komponent przyjmuje props: { portfolioId: number, subPortfolioId?: number }
+Dodaj go do istniejącego PortfolioDetails.tsx jako nowa zakładka "Analytics"
