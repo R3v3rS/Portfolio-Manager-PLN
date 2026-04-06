@@ -18,6 +18,12 @@ class ImportRowSkipError(Exception):
     pass
 
 
+class ImportBookingError(Exception):
+    def __init__(self, message: str, row_errors: list[str]):
+        super().__init__(message)
+        self.row_errors = row_errors
+
+
 class ImportStagingService:
     @staticmethod
     def _resolve_instrument_currency(db, ticker: str) -> str:
@@ -695,7 +701,7 @@ class ImportStagingService:
                     result['errors'].append(f"row_id={row['id']}: {exc}")
 
             if result['errors']:
-                raise ValueError('Errors while booking rows')
+                raise ImportBookingError('Booking failed', result['errors'])
 
             db.commit()
             return result
