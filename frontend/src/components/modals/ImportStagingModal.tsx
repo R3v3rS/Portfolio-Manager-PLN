@@ -10,6 +10,7 @@ interface ImportStagingModalProps {
   subPortfolios: { id: number; name: string }[];
   onBook: (result: BookResult) => void;
   onCancel: () => void;
+  onCloseAfterBooking?: () => void;
 }
 
 const conflictLabel: Record<Exclude<StagingConflictType, null>, string> = {
@@ -28,7 +29,13 @@ const txIcon = (type: StagingRow['type']) => {
 
 const mapToStagingRows = (stagingRows: StagingRow[]): StagingRow[] => stagingRows;
 
-const ImportStagingModal: React.FC<ImportStagingModalProps> = ({ session: initialSession, subPortfolios, onBook, onCancel }) => {
+const ImportStagingModal: React.FC<ImportStagingModalProps> = ({
+  session: initialSession,
+  subPortfolios,
+  onBook,
+  onCancel,
+  onCloseAfterBooking,
+}) => {
   const [session, setSession] = useState(initialSession);
   const [rows, setRows] = useState(initialSession.rows);
   const [globalSubPortfolio, setGlobalSubPortfolio] = useState<number | null>(null);
@@ -174,7 +181,7 @@ const ImportStagingModal: React.FC<ImportStagingModalProps> = ({ session: initia
           <div className="mt-6 flex justify-end">
             <button
               type="button"
-              onClick={onCancel}
+              onClick={onCloseAfterBooking ?? onCancel}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               Zamknij

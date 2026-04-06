@@ -58,13 +58,22 @@ describe('ImportStagingModal assignAll synchronization', () => {
     bookSessionMock.mockResolvedValue({ booked: 0, booked_tx_only: 0, skipped_conflicts: 0, rejected: 0, errors: [] });
   });
 
-  const renderModal = (session: StagingSession = createBaseSession()) => {
+  const renderModal = ({
+    session = createBaseSession(),
+    onCancel = vi.fn(),
+    onCloseAfterBooking,
+  }: {
+    session?: StagingSession;
+    onCancel?: () => void;
+    onCloseAfterBooking?: () => void;
+  } = {}) => {
     render(
       <ImportStagingModal
         session={session}
         subPortfolios={[{ id: 2, name: 'Sub A' }]}
         onBook={vi.fn()}
-        onCancel={vi.fn()}
+        onCancel={onCancel}
+        onCloseAfterBooking={onCloseAfterBooking}
       />
     );
   };
@@ -129,5 +138,35 @@ describe('ImportStagingModal assignAll synchronization', () => {
     expect(getSessionMock).not.toHaveBeenCalled();
     expect(screen.getByText('pending')).toBeInTheDocument();
     expect(screen.queryByText('assigned')).not.toBeInTheDocument();
+  });
+
+  it('po pomyślnym booking kliknięcie Zamknij wywołuje onCloseAfterBooking i nie wywołuje onCancel', async () => {
+    const onCloseAfterBooking = vi.fn();
+    const onCancel = vi.fn();
+    bookSessionMock.mockResolvedValue({ booked: 1, booked_tx_only: 0, skipped_conflicts: 0, rejected: 0, errors: [] });
+
+    renderModal({ onCancel, onCloseAfterBooking });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' }));
+    expect(await screen.findByText('Podsumowanie księgowania')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zamknij' }));
+
+    expect(onCloseAfterBooking).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('po booking bez onCloseAfterBooking wykonuje fallback do onCancel', async () => {
+    const onCancel = vi.fn();
+    bookSessionMock.mockResolvedValue({ booked: 1, booked_tx_only: 0, skipped_conflicts: 0, rejected: 0, errors: [] });
+
+    renderModal({ onCancel });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' }));
+    expect(await screen.findByText('Podsumowanie księgowania')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zamknij' }));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });
