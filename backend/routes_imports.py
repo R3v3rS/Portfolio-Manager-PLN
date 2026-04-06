@@ -3,7 +3,7 @@ from flask import request
 
 from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.response import success_response
-from import_staging_service import ImportStagingService
+from import_staging_service import ImportRowSkipError, ImportStagingService
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
 
@@ -152,6 +152,8 @@ def assign_import_staging_row(session_id, row_id):
                 details={'field': 'target_sub_portfolio_id'},
             ) from error
         raise NotFoundError(message) from error
+    except ImportRowSkipError as error:
+        raise ApiError('row_skipped', str(error), status=409) from error
 
 
 @portfolio_bp.route('/import/staging/<session_id>/assign-all', methods=['PUT'])

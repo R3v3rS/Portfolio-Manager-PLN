@@ -14,6 +14,10 @@ from price_service import PriceService
 logger = logging.getLogger(__name__)
 
 
+class ImportRowSkipError(Exception):
+    pass
+
+
 class ImportStagingService:
     @staticmethod
     def _resolve_instrument_currency(db, ticker: str) -> str:
@@ -396,7 +400,7 @@ class ImportStagingService:
             if not row:
                 raise ValueError('Row not found in session')
             if row['status'] == 'booked':
-                raise ValueError('Cannot modify booked row')
+                raise ImportRowSkipError('Cannot modify booked row')
 
             ImportStagingService._validate_subportfolio(db, row['portfolio_id'], target_sub_portfolio_id)
 
@@ -446,6 +450,13 @@ class ImportStagingService:
     @staticmethod
     def assign_all(session_id: str, target_sub_portfolio_id: int) -> dict[str, int]:
         db = get_db()
+        session = db.execute(
+            'SELECT 1 FROM import_staging WHERE import_session_id = ? LIMIT 1',
+            (session_id,),
+        ).fetchone()
+        if not session:
+            raise ValueError('Session not found')
+
         rows = db.execute(
             '''SELECT id FROM import_staging
                WHERE import_session_id = ? AND status IN ('pending', 'assigned', 'booked')''',
@@ -457,7 +468,7 @@ class ImportStagingService:
             try:
                 ImportStagingService.assign_row(session_id, row['id'], target_sub_portfolio_id)
                 assigned += 1
-            except Exception:
+            except ImportRowSkipError:
                 skipped += 1
         return {'assigned': assigned, 'skipped': skipped}
 

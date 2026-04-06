@@ -13,7 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from database import get_db, init_db  # noqa: E402
-from import_staging_service import ImportStagingService  # noqa: E402
+from import_staging_service import ImportRowSkipError, ImportStagingService  # noqa: E402
 
 
 class ImportStagingServiceTestCase(unittest.TestCase):
@@ -255,8 +255,12 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         row_id = session['rows'][0]['id']
         ImportStagingService.book_session(session['session_id'])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ImportRowSkipError):
             ImportStagingService.assign_row(session['session_id'], row_id, self.sub_portfolio_id)
+
+    def test_assign_all_raises_for_missing_session(self):
+        with self.assertRaises(ValueError):
+            ImportStagingService.assign_all('missing-session', self.sub_portfolio_id)
 
     def test_reject_row_raises_for_booked_row(self):
         df = self._df([
