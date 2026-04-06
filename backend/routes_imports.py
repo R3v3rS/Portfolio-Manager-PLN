@@ -95,12 +95,15 @@ def import_with_staging():
         ) from error
 
     if mode == 'direct':
-        result = PortfolioService.import_xtb_csv(
-            portfolio_id,
-            df,
-            confirmed_hashes=None,
-            sub_portfolio_id=sub_portfolio_id,
-        )
+        try:
+            result = PortfolioService.import_xtb_csv(
+                portfolio_id,
+                df,
+                confirmed_hashes=None,
+                sub_portfolio_id=sub_portfolio_id,
+            )
+        except ValueError as error:
+            raise ApiError('IMPORT_VALIDATION_ERROR', str(error), status=400) from error
         if not result.get('success'):
             raise ApiError(
                 'IMPORT_VALIDATION_ERROR',
@@ -110,12 +113,15 @@ def import_with_staging():
             )
         return success_response(result)
 
-    result = ImportStagingService.create_session(
-        portfolio_id=portfolio_id,
-        df=df,
-        sub_portfolio_id=sub_portfolio_id,
-        source_file=file.filename,
-    )
+    try:
+        result = ImportStagingService.create_session(
+            portfolio_id=portfolio_id,
+            df=df,
+            sub_portfolio_id=sub_portfolio_id,
+            source_file=file.filename,
+        )
+    except ValueError as error:
+        raise ApiError('IMPORT_VALIDATION_ERROR', str(error), status=400) from error
     return success_response(result)
 
 

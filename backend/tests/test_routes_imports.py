@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+import io
 from pathlib import Path
 from unittest.mock import patch
 
@@ -129,6 +130,93 @@ class RoutesImportsAssignAllTestCase(unittest.TestCase):
         self.assertEqual(payload['booked'], 1)
         self.assertEqual(payload['booked_tx_only'], 0)
         self.assertEqual(payload['errors'], [])
+
+
+class RoutesImportsValidationErrorsTestCase(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, 'routes-imports-validation-test.db')
+
+        warmup_patcher = patch('app.PriceService.warmup_cache', return_value=None)
+        self.addCleanup(warmup_patcher.stop)
+        warmup_patcher.start()
+
+        self.app = create_app()
+        self.app.config.update(TESTING=True, DATABASE=self.db_path)
+        with self.app.app_context():
+            init_db(self.app)
+            db = get_db()
+            self.parent_id = db.execute(
+                "INSERT INTO portfolios (name, current_cash) VALUES ('Parent', 0.0)"
+            ).lastrowid
+            self.valid_child_id = db.execute(
+                "INSERT INTO portfolios (name, parent_portfolio_id, current_cash) VALUES ('Child', ?, 0.0)",
+                (self.parent_id,),
+            ).lastrowid
+            other_parent_id = db.execute(
+                "INSERT INTO portfolios (name, current_cash) VALUES ('Other Parent', 0.0)"
+            ).lastrowid
+            self.invalid_child_id = db.execute(
+                "INSERT INTO portfolios (name, parent_portfolio_id, current_cash) VALUES ('Foreign Child', ?, 0.0)",
+                (other_parent_id,),
+            ).lastrowid
+            self.archived_child_id = db.execute(
+                "INSERT INTO portfolios (name, parent_portfolio_id, current_cash, is_archived) VALUES ('Archived Child', ?, 0.0, 1)",
+                (self.parent_id,),
+            ).lastrowid
+            db.commit()
+
+        self.client = self.app.test_client()
+        self.addCleanup(self.temp_dir.cleanup)
+
+    def _post_staging_import(self, *, csv_text: str, mode: str = 'staging', sub_portfolio_id: int | None = None):
+        payload = {
+            'portfolio_id': str(self.parent_id),
+            'mode': mode,
+            'file': (io.BytesIO(csv_text.encode('utf-8')), 'xtb.csv'),
+        }
+        if sub_portfolio_id is not None:
+            payload['sub_portfolio_id'] = str(sub_portfolio_id)
+        return self.client.post(
+            '/api/portfolio/import/staging',
+            data=payload,
+            content_type='multipart/form-data',
+        )
+
+    def test_staging_import_returns_400_for_missing_required_csv_columns(self):
+        response = self._post_staging_import(
+            csv_text='Symbol,Price\nAAPL,100\n',
+            mode='staging',
+        )
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'IMPORT_VALIDATION_ERROR')
+        self.assertIn('Missing required columns', error['message'])
+
+    def test_direct_import_returns_400_for_invalid_sub_portfolio_id(self):
+        response = self._post_staging_import(
+            csv_text='Time,Type,Amount\n2026-01-01,Deposit,100\n',
+            mode='direct',
+            sub_portfolio_id=self.invalid_child_id,
+        )
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'IMPORT_VALIDATION_ERROR')
+        self.assertEqual(error['message'], 'Invalid sub-portfolio for this parent')
+
+    def test_direct_import_returns_400_for_archived_sub_portfolio(self):
+        response = self._post_staging_import(
+            csv_text='Time,Type,Amount\n2026-01-01,Deposit,100\n',
+            mode='direct',
+            sub_portfolio_id=self.archived_child_id,
+        )
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        error = response.get_json()['error']
+        self.assertEqual(error['code'], 'IMPORT_VALIDATION_ERROR')
+        self.assertEqual(error['message'], 'Cannot import to an archived sub-portfolio')
 
 
 if __name__ == '__main__':
