@@ -595,7 +595,12 @@ class ImportStagingService:
     @staticmethod
     def book_session(session_id: str, confirmed_row_ids: Optional[list[int]] = None) -> dict[str, Any]:
         db = get_db()
-        confirmed = set(confirmed_row_ids or [])
+        confirmed = set()
+        for rid in (confirmed_row_ids or []):
+            try:
+                confirmed.add(int(rid))
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid confirmed_row_id ignored: {rid!r}")
         result = {
             'booked': 0,
             'booked_tx_only': 0,

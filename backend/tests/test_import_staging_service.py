@@ -298,6 +298,46 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertEqual(holding_count, 0)
         self.assertEqual(staged, 'booked')
 
+    def test_book_session_normalizes_mixed_type_confirmed_row_ids(self):
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Stock sell', 'Amount': '150', 'Comment': 'CLOSE SELL 1 @ 150', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock sell', 'Amount': '300', 'Comment': 'CLOSE SELL 2 @ 150', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '450', 'Comment': 'CLOSE SELL 3 @ 150', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+        row_ids = [row['id'] for row in session['rows']]
+        confirmed_row_ids = [str(row_ids[0]), str(row_ids[1]), row_ids[2]]
+
+        result = ImportStagingService.book_session(session['session_id'], confirmed_row_ids=confirmed_row_ids)
+
+        self.assertEqual(result['booked'], 0)
+        self.assertEqual(result['booked_tx_only'], 3)
+        self.assertEqual(result['skipped_conflicts'], 0)
+
+    def test_book_session_ignores_invalid_confirmed_row_ids_with_warning(self):
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '300', 'Comment': 'CLOSE SELL 2 @ 150', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+
+        with self.assertLogs('import_staging_service', level='WARNING') as captured_logs:
+            result = ImportStagingService.book_session(session['session_id'], confirmed_row_ids=['abc'])
+
+        self.assertEqual(result['booked_tx_only'], 0)
+        self.assertEqual(result['skipped_conflicts'], 1)
+        self.assertTrue(any("Invalid confirmed_row_id ignored: 'abc'" in message for message in captured_logs.output))
+
+    def test_book_session_with_none_confirmed_row_ids_uses_empty_set(self):
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '300', 'Comment': 'CLOSE SELL 2 @ 150', 'Symbol': 'AAPL.US'},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+
+        result = ImportStagingService.book_session(session['session_id'], confirmed_row_ids=None)
+
+        self.assertEqual(result['booked_tx_only'], 0)
+        self.assertEqual(result['skipped_conflicts'], 1)
+
     def test_book_session_confirmed_database_duplicate_books_normally(self):
         db = get_db()
         db.execute(
