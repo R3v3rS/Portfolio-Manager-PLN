@@ -44,6 +44,23 @@
 ### `frontend/src/api_symbol_map.test.ts`
 - `normalizes list/create/update payloads` — mapowanie request/response dla CRUD mapowania symboli.
 
+
+### `frontend/src/api_import_staging.test.ts`
+- `createStagingSession returns payload on success` — weryfikuje poprawne mapowanie odpowiedzi sukcesu dla utworzenia sesji stagingowej.
+- `createStagingSession throws on server error` — propagacja błędu serwera bez ukrywania statusu/komunikatu.
+- `getSession returns payload on success` — pobranie sesji stagingowej zwraca poprawny payload.
+- `getSession throws on server error` — obsługa błędu backendu przy pobieraniu sesji.
+- `assignRow returns payload on success` — przypisanie pojedynczego wiersza zwraca zaktualizowany stan sesji.
+- `assignRow throws on server error` — poprawna propagacja błędu assign.
+- `assignAll returns payload on success` — zbiorcze przypisanie (`assign-all`) zwraca payload sesji.
+- `assignAll throws on server error` — propagacja błędu assign-all.
+- `rejectRow returns payload on success` — odrzucenie wiersza działa i zwraca aktualny stan.
+- `rejectRow throws on server error` — poprawna obsługa błędu reject.
+- `bookSession returns payload on success` — księgowanie sesji zwraca dane sukcesu.
+- `bookSession throws on server error` — propagacja błędu backendu dla book.
+- `deleteSession returns payload on success` — usuwanie sesji zwraca poprawny payload.
+- `deleteSession throws on server error` — propagacja błędu usuwania sesji.
+
 ### `frontend/src/components/DuplicateConfirmationModal.test.tsx`
 - `toggles selected conflicts and confirms selected hashes` — interakcja użytkownika (checkbox + potwierdzenie) i walidacja przekazywanych danych.
 - `calls onCancel and allows skipping all duplicates` — scenariusz anulowania i potwierdzenia bez zaznaczeń.
@@ -94,6 +111,20 @@
 - `shows validation error for invalid internal transfer amount and does not call API` — walidacja kwoty dla przelewu wewnętrznego i brak requestu.
 - `shows processing status for successful internal transfer job` — status przeliczania historii po transferze `Sub→Sub`.
 
+
+### `frontend/src/components/modals/ImportStagingModal.test.tsx`
+- `pokazuje konflikty z backendu po assignAll i pozwala je potwierdzić historycznie` — UI konfliktów po zbiorczym przypisaniu i ścieżka „potwierdź mimo konfliktu”.
+- `dla pełnego assigned bez konfliktów nie pokazuje akcji potwierdzania konfliktu` — brak zbędnych akcji, gdy wszystkie rekordy są poprawnie przypisane.
+- `przy błędzie API pokazuje alert i nie zmienia rows` — odporność UI na błąd API bez mutacji lokalnego stanu.
+- `po pomyślnym booking kliknięcie Zamknij wywołuje onCloseAfterBooking i nie wywołuje onCancel` — poprawna sekwencja callbacków po zaksięgowaniu.
+- `po booking bez onCloseAfterBooking wykonuje fallback do onCancel` — fallback zamknięcia modala, gdy dedykowany callback nie został przekazany.
+
+### `frontend/src/pages/ImportFlow.integration.test.tsx`
+- `tryb Poczekalnia (domyślny) otwiera modal stagingu po uploadzie` — integracja nowego flow stagingowego po imporcie pliku.
+- `tryb Bezpośredni używa starego flow bez modala` — zachowanie kompatybilności ze ścieżką bez stagingu.
+- `modal staging → klik Anuluj import wywołuje deleteSession` — anulowanie stagingu poprawnie sprząta sesję po stronie backendu.
+- `modal staging → klik Zaksięguj wywołuje bookSession i zamyka modal` — pełny happy-path księgowania sesji z domknięciem UI.
+
 ## Backend — testy API, serwisów i regresji
 
 Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adnotacją.
@@ -133,6 +164,39 @@ Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adno
 - `test_scenario_partial_success_in_fallback` — fallback zwraca częściowy sukces.
 - `test_get_stock_analysis_sets_rsi14_to_none_when_loss_is_zero` — poprawna obsługa RSI przy zerowej stracie.
 - `test_sync_stock_history_logs_upserted_rows_message` — logowanie komunikatu o upsertowanych wierszach historii.
+
+
+### `backend/tests/test_import_staging_service.py`
+- `test_create_session_returns_all_rows` — tworzenie sesji stagingowej zwraca kompletną listę wierszy do decyzji użytkownika.
+- `test_create_session_sell_without_holding_is_conflict` / `test_create_session_sell_exceeding_holding_is_conflict` — klasyfikacja konfliktów SELL dla braku pozycji lub zbyt małej ilości.
+- `test_create_session_detects_database_duplicate` / `test_create_session_reports_file_and_database_duplicate_together` — detekcja duplikatów w DB oraz równoczesna sygnalizacja duplikatów plik+DB.
+- `test_assign_row_*` (rodzina testów) — pokrycie przepisywania pojedynczego wiersza, przeliczania konfliktów SELL i blokady mutacji dla pozycji zaksięgowanych.
+- `test_assign_all_*` — walidacja scenariuszy zbiorczego przypisania (brak sesji, pomijanie wierszy już zaksięgowanych).
+- `test_book_session_*` (rodzina testów) — księgowanie wierszy normalnych i konfliktowych, normalizacja `confirmed_row_ids`, obsługa błędów per-wiersz oraz aktualizacja cash/holdings/fx.
+- `test_reject_row_excludes_from_booking` — odrzucony wiersz nie trafia do księgowania.
+- `test_delete_session_removes_pending_only` — usuwanie sesji czyści tylko rekordy oczekujące.
+
+### `backend/tests/test_routes_imports.py`
+- `test_assign_all_route_propagates_invalid_subportfolio_as_422` — endpoint poprawnie mapuje walidację sub-portfela na `422`.
+- `test_assign_all_route_skips_booked_rows_and_assigns_remaining` — warstwa HTTP zachowuje semantykę „booked rows immutable”.
+- `test_book_route_returns_422_with_row_errors_on_booking_error` — zwrot błędów per-wiersz dla nieudanego księgowania.
+- `test_book_route_returns_404_for_missing_session` — brak sesji zwraca `404`.
+- `test_book_route_returns_200_for_successful_booking` — happy-path route book.
+- `test_staging_import_returns_400_for_missing_required_csv_columns` — walidacja brakujących kolumn CSV.
+- `test_direct_import_returns_400_for_invalid_sub_portfolio_id` / `test_direct_import_returns_400_for_archived_sub_portfolio` — walidacja targetu importu bez stagingu.
+- `test_target_sub_portfolio_id_*` — pełne testy kontraktu parsera `target_sub_portfolio_id` (string/float/non-positive/positive/null).
+
+### `backend/tests/test_portfolio_audit_service.py`
+- `test_rebuild_holdings_from_transactions_cash_uses_cash_delta_rules` — regresja spójności audytu: przebudowa holdings respektuje jednolite reguły `cash_delta`.
+
+### `backend/tests/test_portfolio_history_service.py`
+- `test_apply_tx_to_rolling_matches_cash_balance_on_date` — regresja zgodności mechanizmu rolling history z referencyjnym wyliczeniem salda gotówki na dzień.
+
+### `backend/tests/test_portfolio_valuation_service.py`
+- `test_cash_delta_transfer_is_neutral` — transfer wewnętrzny jest neutralny wartościowo (nie tworzy/nie niszczy wartości portfela).
+
+### `backend/tests/test_portfolio_import_service.py`
+- Pokrycie równoległe do `backend/test_portfolio_import_service.py`: parser kwot/ilości XTB, wybór kolumn i walidacja błędnych komentarzy.
 
 ### `backend/test_smoke_endpoints.py`
 - `test_critical_backend_smoke_endpoints` — smoke test kluczowych endpointów backendu.
@@ -255,17 +319,7 @@ Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adno
 - `test_buy_idempotency_rejects_same_key_with_different_payload` — ten sam `Idempotency-Key` z innym body kończy się `409` (`IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD`), co chroni przed kolizją semantyczną klucza.
 
 ### `tests/test_buy_race_condition.py`
-- `test_buy_race_condition_allows_only_one_success_and_preserves_cash` — test współbieżności dla `POST /api/portfolio/buy`: 5 równoległych prób zakupu po 800 PLN przy saldzie startowym 1000 PLN; oczekiwany wynik to dokładnie 1 sukces, 4 odrzucenia z błędem „Insufficient…”, saldo końcowe 200 PLN i pojedyncza transakcja BUY. [
-❌ pytest -q tests/test_buy_race_condition.py
-(test celowo ujawnia obecny błąd współbieżności w aplikacji: odpowiedzi 500 zamiast oczekiwanych odrzuceń biznesowych).Oto krótkie podsumowanie tego, co obecnie dzieje się „pod maską”, a co Twój test z powodzeniem wyłapał:
-
-Równoległy odczyt (Read): Dzięki użyciu Barrier wszystkie 5 żądań uderza w endpoint dokładnie w tym samym momencie. Każdy z wątków odczytuje saldo początkowe portfela (1000 PLN).
-
-Ominięcie logiki biznesowej: Ponieważ koszt zakupu wynosi 800 PLN, a każdy wątek „widzi” na koncie 1000 PLN, wszystkie 5 żądań przechodzi walidację biznesową (żadne z nich nie zwraca w tym momencie komunikatu Insufficient).
-
-Kolizja przy zapisie (Write) i błąd 500: Kiedy wątki próbują jednocześnie zapisać nową transakcję BUY i zaktualizować udziały (holdings), dochodzi do konfliktu. Baza danych (w tym przypadku SQLite) chroni spójność danych na poziomie swoich własnych ograniczeń (np. kluczy unikalnych). Ponieważ aplikacja nie zarządza blokadami (np. SELECT ... FOR UPDATE lub blokowaniem optymistycznym), baza danych przerywa te operacje, rzucając sqlite3.IntegrityError. Aplikacja nie potrafi obsłużyć tego wyjątku w sposób biznesowy, co skutkuje błędem serwera 500 Internal Server Error.
-
-Masz teraz solidną siatkę bezpieczeństwa (safety net). Dokumentacja w docs/TEST_CATALOG_PL.md jest aktualna, a test bezbłędnie reprodukuje problem. Następnym krokiem będzie implementacja mechanizmów transakcyjnych lub blokad w logice aplikacji (POST /api/portfolio/buy), aż do momentu, w którym polecenie pytest -q tests/test_buy_race_condition.py zaświeci się na zielono.]
+- `test_buy_race_condition_allows_only_one_success_and_preserves_cash` — test współbieżności dla `POST /api/portfolio/buy`: 5 równoległych prób zakupu po 800 PLN przy saldzie startowym 1000 PLN; oczekiwany wynik to dokładnie 1 sukces, 4 odrzucenia z błędem „Insufficient…”, saldo końcowe 200 PLN i pojedyncza transakcja BUY.
 
 
 ---
