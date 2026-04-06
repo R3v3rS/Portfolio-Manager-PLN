@@ -3,7 +3,7 @@ from flask import request
 
 from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.response import success_response
-from import_staging_service import ImportRowSkipError, ImportStagingService
+from import_staging_service import ImportBookingError, ImportRowSkipError, ImportStagingService
 from portfolio_service import PortfolioService
 from routes_portfolio_base import portfolio_bp
 
@@ -200,6 +200,13 @@ def book_import_staging_session(session_id):
     try:
         result = ImportStagingService.book_session(session_id=session_id, confirmed_row_ids=confirmed_row_ids)
         return success_response(result)
+    except ImportBookingError as error:
+        raise ApiError(
+            'BOOKING_ERROR',
+            str(error),
+            details={'row_errors': error.row_errors},
+            status=422,
+        ) from error
     except ValueError as error:
         raise NotFoundError(str(error)) from error
 

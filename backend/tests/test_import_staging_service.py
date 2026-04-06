@@ -13,7 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from database import get_db, init_db  # noqa: E402
-from import_staging_service import ImportRowSkipError, ImportStagingService  # noqa: E402
+from import_staging_service import ImportBookingError, ImportRowSkipError, ImportStagingService  # noqa: E402
 
 
 class ImportStagingServiceTestCase(unittest.TestCase):
@@ -314,6 +314,20 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(cash), 500.0)
         self.assertAlmostEqual(float(holding['quantity']), 5.0)
         self.assertTrue(all(row['status'] == 'booked' for row in status_rows))
+
+    def test_book_session_raises_import_booking_error_with_row_errors_when_row_fails(self):
+        df = self._df([
+            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
+        ])
+        session = ImportStagingService.create_session(self.portfolio_id, df)
+
+        with patch('import_staging_service.ImportStagingService._book_single_row', side_effect=RuntimeError('db error')):
+            with self.assertRaises(ImportBookingError) as captured:
+                ImportStagingService.book_session(session['session_id'])
+
+        self.assertEqual(str(captured.exception), 'Booking failed')
+        self.assertEqual(len(captured.exception.row_errors), 1)
+        self.assertIn('db error', captured.exception.row_errors[0])
 
     def test_book_session_skips_unconfirmed_conflicts(self):
         df = self._df([

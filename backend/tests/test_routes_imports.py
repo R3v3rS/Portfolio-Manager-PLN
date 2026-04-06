@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app import create_app  # noqa: E402
 from database import get_db, init_db  # noqa: E402
+from import_staging_service import ImportBookingError  # noqa: E402
 
 
 class RoutesImportsAssignAllTestCase(unittest.TestCase):
@@ -85,6 +86,49 @@ class RoutesImportsAssignAllTestCase(unittest.TestCase):
         result = response.get_json()['payload']
         self.assertEqual(result['assigned'], 1)
         self.assertEqual(result['skipped'], 1)
+
+    def test_book_route_returns_422_with_row_errors_on_booking_error(self):
+        with patch(
+            'routes_imports.ImportStagingService.book_session',
+            side_effect=ImportBookingError('Booking failed', ['row_id=1: db locked']),
+        ):
+            response = self.client.post('/api/portfolio/import/staging/sess-booking-error/book', json={})
+
+        self.assertEqual(response.status_code, 422, response.get_json())
+        error_payload = response.get_json()['error']
+        self.assertEqual(error_payload['code'], 'BOOKING_ERROR')
+        self.assertEqual(error_payload['message'], 'Booking failed')
+        self.assertEqual(error_payload['details']['row_errors'], ['row_id=1: db locked'])
+
+    def test_book_route_returns_404_for_missing_session(self):
+        response = self.client.post('/api/portfolio/import/staging/sess-missing/book', json={})
+
+        self.assertEqual(response.status_code, 404, response.get_json())
+        error_payload = response.get_json()['error']
+        self.assertEqual(error_payload['code'], 'not_found')
+        self.assertEqual(error_payload['message'], 'Session not found')
+
+    def test_book_route_returns_200_for_successful_booking(self):
+        session_id = 'sess-book-success'
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                '''INSERT INTO import_staging (
+                       import_session_id, portfolio_id, ticker, type, quantity, price, total_value, date,
+                       target_sub_portfolio_id, status, conflict_type, conflict_details, row_hash, source_file, created_at
+                   ) VALUES (?, ?, 'CASH', 'DEPOSIT', 1, 100, 100, '2026-01-01',
+                             NULL, 'pending', NULL, NULL, ?, 'test.csv', '2026-01-01T10:00:00')''',
+                (session_id, self.parent_id, f'{session_id}-deposit'),
+            )
+            db.commit()
+
+        response = self.client.post(f'/api/portfolio/import/staging/{session_id}/book', json={})
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        payload = response.get_json()['payload']
+        self.assertEqual(payload['booked'], 1)
+        self.assertEqual(payload['booked_tx_only'], 0)
+        self.assertEqual(payload['errors'], [])
 
 
 if __name__ == '__main__':
