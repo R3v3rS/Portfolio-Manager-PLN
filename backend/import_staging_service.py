@@ -352,14 +352,22 @@ class ImportStagingService:
             conflict_details = row['conflict_details']
             status = 'assigned'
 
-            if row['type'] == 'SELL' and conflict_type == 'missing_holding':
+            if row['type'] == 'SELL' and conflict_type in {'missing_holding', 'insufficient_qty'}:
                 available_qty = ImportStagingService._fetch_holding_qty(
                     db,
                     row['portfolio_id'],
                     row['ticker'],
                     target_sub_portfolio_id,
                 )
-                if available_qty > 0:
+                required_qty = float(row['quantity'] or 0.0)
+
+                if available_qty <= 0:
+                    conflict_type = 'missing_holding'
+                    conflict_details = json.dumps({'required_qty': required_qty, 'available_qty': 0})
+                elif required_qty > available_qty:
+                    conflict_type = 'insufficient_qty'
+                    conflict_details = json.dumps({'required_qty': required_qty, 'available_qty': available_qty})
+                else:
                     conflict_type = None
                     conflict_details = None
 

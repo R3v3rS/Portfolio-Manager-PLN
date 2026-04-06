@@ -170,6 +170,81 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertEqual(updated['status'], 'assigned')
         self.assertIsNone(updated['conflict_type'])
 
+    def test_assign_row_recompute_sell_keeps_insufficient_qty_when_holding_too_small(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, sub_portfolio_id)
+               VALUES (?, 'AAPL', 1, 100, 100, ?)''',
+            (self.portfolio_id, self.sub_portfolio_id),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '1000', 'Comment': 'CLOSE SELL 10 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+        row = result['rows'][0]
+        self.assertEqual(row['conflict_type'], 'missing_holding')
+
+        updated = ImportStagingService.assign_row(result['session_id'], row['id'], self.sub_portfolio_id)
+        self.assertEqual(updated['conflict_type'], 'insufficient_qty')
+        self.assertEqual(updated['conflict_details'], {'required_qty': 10.0, 'available_qty': 1.0})
+
+    def test_assign_row_recompute_sell_sets_missing_holding_when_holding_zero(self):
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '1000', 'Comment': 'CLOSE SELL 10 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+        row = result['rows'][0]
+        self.assertEqual(row['conflict_type'], 'missing_holding')
+
+        updated = ImportStagingService.assign_row(result['session_id'], row['id'], self.sub_portfolio_id)
+        self.assertEqual(updated['conflict_type'], 'missing_holding')
+        self.assertEqual(updated['conflict_details'], {'required_qty': 10.0, 'available_qty': 0})
+
+    def test_assign_row_recompute_sell_clears_conflict_when_holding_sufficient(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, sub_portfolio_id)
+               VALUES (?, 'AAPL', 15, 100, 1500, ?)''',
+            (self.portfolio_id, self.sub_portfolio_id),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '1000', 'Comment': 'CLOSE SELL 10 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+        row = result['rows'][0]
+
+        updated = ImportStagingService.assign_row(result['session_id'], row['id'], self.sub_portfolio_id)
+        self.assertIsNone(updated['conflict_type'])
+
+    def test_assign_row_recompute_sell_for_original_insufficient_qty_conflict(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost)
+               VALUES (?, 'AAPL', 5, 100, 500)''',
+            (self.portfolio_id,),
+        )
+        db.execute(
+            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, sub_portfolio_id)
+               VALUES (?, 'AAPL', 1, 100, 100, ?)''',
+            (self.portfolio_id, self.sub_portfolio_id),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-03 10:00:00', 'Type': 'Stock sell', 'Amount': '1000', 'Comment': 'CLOSE SELL 10 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+        row = result['rows'][0]
+        self.assertEqual(row['conflict_type'], 'insufficient_qty')
+
+        updated = ImportStagingService.assign_row(result['session_id'], row['id'], self.sub_portfolio_id)
+        self.assertEqual(updated['conflict_type'], 'insufficient_qty')
+        self.assertEqual(updated['conflict_details'], {'required_qty': 10.0, 'available_qty': 1.0})
+
     def test_book_session_books_normal_rows(self):
         df = self._df([
             {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
