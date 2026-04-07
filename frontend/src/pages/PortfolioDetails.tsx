@@ -21,6 +21,7 @@ import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
 import ImportStagingModal from '../components/modals/ImportStagingModal';
 import { createStagingSession, deleteSession, type ImportMode } from '../api_import_staging';
 import type { BookResult, StagingSession } from '../types/importStaging';
+import PortfolioAIChat from '../components/ai/PortfolioAIChat';
 
 
 const PortfolioAnalytics = lazy(() => import('../components/PortfolioAnalytics'));
@@ -406,7 +407,7 @@ const formatSellDate = (value?: string | null) => {
   return parsed.toLocaleDateString('pl-PL');
 };
 
-type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history';
+type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history'| 'ai';
 
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -874,7 +875,8 @@ const PortfolioDetails: React.FC = () => {
     closed: 'Zamknięte Pozycje',
     closed_cycles: 'Zamknięte Pozycje (cykle)',
     ppk: 'PPK',
-    ppk_history: 'Historia wpłat'
+    ppk_history: 'Historia wpłat',
+    ai: 'AI',
   };
 
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
@@ -902,12 +904,12 @@ const PortfolioDetails: React.FC = () => {
 
   const visibleTabs: ActiveTab[] =
     portfolio.account_type === 'SAVINGS'
-      ? ['savings', 'history']
+      ? ['savings', 'history', 'ai']
       : portfolio.account_type === 'BONDS'
-        ? ['bonds', 'history']
+        ? ['bonds', 'history', 'ai']
         : portfolio.account_type === 'PPK'
-          ? ['ppk', 'ppk_history']
-          : ['holdings', 'analytics', 'analytics_dashboard', 'results', 'value_history', 'history', 'closed', 'closed_cycles'];
+          ? ['ppk', 'ppk_history', 'ai']
+          : ['holdings', 'analytics', 'analytics_dashboard', 'results', 'value_history', 'history', 'closed', 'closed_cycles', 'ai'];
 
   const toggleTxSelection = (id: number) => {
     setSelectedTxIds(prev => 
@@ -1442,6 +1444,8 @@ const PortfolioDetails: React.FC = () => {
               </div>
             </div>
           )}
+
+          {activeTab === 'ai' && <PortfolioAIChat portfolioId={portfolio.id} />}
 
           {activeTab === 'holdings' && (
             <div className="space-y-6">
