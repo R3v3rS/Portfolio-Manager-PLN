@@ -191,7 +191,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ portfolioId, su
     return <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
   }
 
-  if (sharpe === null) {
+  if (sharpe == null) {
     return (
       <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
         Portfolio ma zbyt mało danych historycznych, aby wyliczyć Sharpe Ratio i pełne metryki analityczne.
@@ -222,7 +222,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ portfolioId, su
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="Sharpe Ratio"
-          value={sharpe === undefined ? '—' : sharpe.toFixed(2)}
+          value={sharpe == null ? '—' : sharpe.toFixed(2)}
           tone={getSharpeTone(sharpe)}
         />
         <MetricCard

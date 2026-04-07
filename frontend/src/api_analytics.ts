@@ -14,6 +14,7 @@ export interface AnalyticsSummaryPayload {
   risk?: {
     var_1d?: number | null;
     var_1d_percent?: number | null;
+    var_1d_pct?: number | null;
   };
   correlation?: {
     recharts_data?: Array<Record<string, string | number | null>>;
@@ -29,15 +30,52 @@ export interface AnalyticsSummaryPayload {
   };
 }
 
+interface AnalyticsSummaryPayloadLegacy {
+  performance_summary?: AnalyticsSummaryPayload['performance'];
+  portfolio_var?: {
+    var_1d_pct?: number | null;
+    var_1d_percent?: number | null;
+    var_1d?: number | null;
+  } & AnalyticsSummaryPayload['risk'];
+  correlation_risk?: AnalyticsSummaryPayload['correlation'];
+}
+
+type AnalyticsSummaryApiPayload = AnalyticsSummaryPayload & AnalyticsSummaryPayloadLegacy;
+
+const normalizeSummaryPayload = (payload?: AnalyticsSummaryApiPayload): AnalyticsSummaryPayload => {
+  if (!payload) return {};
+
+  const performance = payload.performance ?? payload.performance_summary;
+  const riskSource = payload.risk ?? payload.portfolio_var;
+  const correlation = payload.correlation ?? payload.correlation_risk;
+
+  return {
+    ...payload,
+    performance,
+    risk: riskSource
+      ? {
+          ...riskSource,
+          var_1d_percent: riskSource.var_1d_percent ?? riskSource.var_1d_pct ?? null,
+        }
+      : undefined,
+    correlation: correlation
+      ? {
+          ...correlation,
+          recharts_data: correlation.recharts_data ?? [],
+        }
+      : undefined,
+  };
+};
+
 export const analyticsApi = {
   getSummary: async (portfolioId: number, subPortfolioId?: number): Promise<AnalyticsSummaryPayload> => {
-    const response = await analyticsHttp.get<ApiEnvelope<AnalyticsSummaryPayload>>(ANALYTICS_ENDPOINTS.summary, {
+    const response = await analyticsHttp.get<ApiEnvelope<AnalyticsSummaryApiPayload>>(ANALYTICS_ENDPOINTS.summary, {
       params: {
         portfolio_id: portfolioId,
         sub_portfolio_id: subPortfolioId,
       },
     });
 
-    return response?.payload ?? {};
+    return normalizeSummaryPayload(response?.payload);
   },
 };

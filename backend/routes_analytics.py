@@ -137,6 +137,34 @@ def _run_with_app_context(func, app, *args, **kwargs):
         return func(*args, **kwargs)
 
 
+def _build_analytics_contract(result: dict[str, Any]) -> dict[str, Any]:
+    performance = result.get("performance") or result.get("performance_summary") or {}
+    risk_raw = result.get("risk") or result.get("portfolio_var") or {}
+    correlation_raw = result.get("correlation") or result.get("correlation_risk") or {}
+    diversification = result.get("diversification") or {}
+
+    risk = {
+        **risk_raw,
+        "var_1d_percent": risk_raw.get("var_1d_percent", risk_raw.get("var_1d_pct")),
+    }
+
+    correlation = {
+        **correlation_raw,
+        "recharts_data": correlation_raw.get("recharts_data", []),
+    }
+
+    return {
+        "performance": performance,
+        "risk": risk,
+        "correlation": correlation,
+        "diversification": diversification,
+        # Backward-compatible aliases for clients still on legacy names
+        "performance_summary": performance,
+        "portfolio_var": risk,
+        "correlation_risk": correlation,
+    }
+
+
 @analytics_bp.route("/api/analytics/summary", methods=["GET"])
 def analytics_summary():
     try:
@@ -149,12 +177,13 @@ def analytics_summary():
 
         cached_result = _load_from_cache(portfolio_id, sub_portfolio_id, period)
         if cached_result is not None:
+            payload = _build_analytics_contract(cached_result)
             return success_response({
                 "portfolio_id": portfolio_id,
                 "sub_portfolio_id": sub_portfolio_id,
                 "period": period,
                 "cached": True,
-                **cached_result,
+                **payload,
             })
 
         app = current_app._get_current_object()
@@ -198,6 +227,7 @@ def analytics_summary():
             }
 
         _save_cache(portfolio_id, sub_portfolio_id, period, result)
+        payload = _build_analytics_contract(result)
 
         return success_response(
             {
@@ -205,7 +235,7 @@ def analytics_summary():
                 "sub_portfolio_id": sub_portfolio_id,
                 "period": period,
                 "cached": False,
-                **result,
+                **payload,
             }
         )
     except (ValidationError, NotFoundError):
