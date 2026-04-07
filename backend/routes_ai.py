@@ -211,6 +211,8 @@ STRUKTURA SUB-PORTFELI:
 POZYCJE BEZ SUB-PORTFELA (jeśli są):
 {no_sub_lines_text}
 
+Założenie analityczne: konto nie pobiera prowizji dla transakcji akcjami w PLN — nie doliczaj prowizji do kosztów ani rekomendacji.
+
 Pytanie użytkownika: {question}
 
 Odpowiedz konkretnie po polsku. Uwzględnij:
