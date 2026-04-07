@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from backend.services.analytics.market_data_adapter import MarketDataAdapter
+from services.analytics.market_data_adapter import MarketDataAdapter
 
 CORRELATION_CLUSTER_THRESHOLD = 0.75
 

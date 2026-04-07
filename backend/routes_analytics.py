@@ -8,9 +8,9 @@ from typing import Any
 
 from flask import Blueprint, current_app, request
 
-from backend.api.exceptions import NotFoundError, ValidationError
-from backend.api.response import error_response, success_response
-from backend.services.analytics import correlation_service, diversification_service, performance_metrics
+from api.exceptions import NotFoundError, ValidationError
+from api.response import error_response, success_response
+from services.analytics import correlation_service, diversification_service, performance_metrics
 
 analytics_bp = Blueprint("analytics_bp", __name__)
 

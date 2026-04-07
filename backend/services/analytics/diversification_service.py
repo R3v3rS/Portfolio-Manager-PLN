@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from backend.services.analytics.market_data_adapter import MarketDataAdapter
+from services.analytics.market_data_adapter import MarketDataAdapter
 
 
 def herfindahl_index(weights: list[float]) -> float:

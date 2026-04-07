@@ -8,8 +8,8 @@ import pandas as pd
 import yfinance as yf
 from flask import g, has_app_context
 
-from backend.api.exceptions import ValidationError
-from backend.database import get_db
+from api.exceptions import ValidationError
+from database import get_db
 
 
 class MarketDataAdapter:
