@@ -175,6 +175,7 @@ def portfolio_correlation_risk(
             "risk_level": "low",
             "clusters": [],
             "high_correlation_pairs": [],
+            "recharts_data": [],
             "recommendation": "Portfel ma mniej niż 2 aktywa; dodaj nieskorelowane instrumenty dla lepszej dywersyfikacji.",
         }
 
@@ -207,5 +208,6 @@ def portfolio_correlation_risk(
         "risk_level": risk_level,
         "clusters": clusters,
         "high_correlation_pairs": high_correlation_pairs,
+        "recharts_data": matrix_data["recharts_data"],
         "recommendation": recommendation,
     }
