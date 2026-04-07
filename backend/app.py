@@ -19,6 +19,7 @@ from routes_dashboard import dashboard_bp
 from routes_loans import loans_bp
 from routes_radar import radar_bp
 from routes_symbol_map import symbol_map_bp
+from routes_analytics import analytics_bp
 from routes_ai import ai_bp
 from dotenv import load_dotenv
 
@@ -108,6 +109,7 @@ def create_app():
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(radar_bp, url_prefix='/api/radar')
     app.register_blueprint(symbol_map_bp, url_prefix='/api/symbol-map')
+    app.register_blueprint(analytics_bp)
     app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
     app.register_blueprint(ai_bp)
 

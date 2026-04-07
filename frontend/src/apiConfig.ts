@@ -23,3 +23,7 @@ export const buildApiPath = (path: string): string => {
 // Architektura frontendu: komponenty nie wykonują bezpośrednich requestów HTTP.
 // Każdy request do backendu powinien przechodzić przez moduł API korzystający ze wspólnego klienta HTTP.
 export const createApiClient = (path: string) => createHttpClient(buildApiPath(path));
+
+export const ANALYTICS_ENDPOINTS = {
+  summary: '/summary',
+} as const;
