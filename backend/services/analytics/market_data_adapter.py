@@ -10,6 +10,7 @@ from flask import g, has_app_context
 
 from api.exceptions import ValidationError
 from database import get_db
+from price_service import PriceService
 
 
 class MarketDataAdapter:
@@ -111,32 +112,27 @@ class MarketDataAdapter:
             return
 
         db = cls._db()
-        downloaded = yf.download(
-            tickers=tickers,
-            period=period,
-            group_by="ticker",
-            auto_adjust=False,
-            threads=False,
-            progress=False,
-        )
+        
+        # Try bulk download first
+        try:
+            downloaded = yf.download(
+                tickers=tickers,
+                period=period,
+                group_by="ticker",
+                auto_adjust=False,
+                threads=False,
+                progress=False,
+            )
+        except Exception:
+            downloaded = None
 
-        if downloaded is None or downloaded.empty:
-            return
-
-        for ticker in tickers:
-            ticker_frame = None
-            if isinstance(downloaded.columns, pd.MultiIndex):
-                if ticker in downloaded.columns.levels[0]:
-                    ticker_frame = downloaded[ticker]
-            else:
-                ticker_frame = downloaded
-
-            if ticker_frame is None or ticker_frame.empty or "Close" not in ticker_frame.columns:
-                continue
-
-            closes = ticker_frame["Close"].dropna()
+        def _process_frame(ticker: str, frame: pd.DataFrame | None) -> bool:
+            if frame is None or frame.empty or "Close" not in frame.columns:
+                return False
+            
+            closes = frame["Close"].dropna()
             if closes.empty:
-                continue
+                return False
 
             for idx, close_value in closes.items():
                 db.execute(
@@ -151,6 +147,35 @@ class MarketDataAdapter:
                         float(close_value),
                     ),
                 )
+            return True
+
+        processed_tickers = set()
+        if downloaded is not None and not downloaded.empty:
+            for ticker in tickers:
+                ticker_frame = None
+                if isinstance(downloaded.columns, pd.MultiIndex):
+                    if ticker in downloaded.columns.levels[0]:
+                        ticker_frame = downloaded[ticker]
+                elif len(tickers) == 1:
+                    ticker_frame = downloaded
+                
+                if _process_frame(ticker, ticker_frame):
+                    processed_tickers.add(ticker)
+
+        # Fallback for tickers that failed bulk download
+        remaining_tickers = [t for t in tickers if t not in processed_tickers]
+        for ticker in remaining_tickers:
+            try:
+                ticker_data = yf.download(
+                    tickers=ticker,
+                    period=period,
+                    auto_adjust=False,
+                    threads=False,
+                    progress=False,
+                )
+                _process_frame(ticker, ticker_data)
+            except Exception:
+                continue
 
         db.commit()
 
@@ -219,12 +244,28 @@ class MarketDataAdapter:
             avg_buy_price = float(row["average_buy_price"] or 0)
 
             if ticker not in aggregated:
+                # Fill missing sector from metadata if possible
+                sector = row["sector"]
+                if not sector or str(sector).strip().lower() in ["unknown", "nieznany", ""]:
+                    try:
+                        metadata = PriceService.fetch_metadata(ticker)
+                        if metadata and metadata.get("sector"):
+                            sector = metadata["sector"]
+                            # Also update the holdings table so we don't fetch it again
+                            db.execute(
+                                "UPDATE holdings SET sector = ? WHERE ticker = ?",
+                                (sector, ticker)
+                            )
+                            db.commit()
+                    except Exception:
+                        pass
+
                 aggregated[ticker] = {
                     "ticker": ticker,
                     "quantity": 0.0,
                     "total_cost": 0.0,
                     "weighted_buy_value": 0.0,
-                    "sector": row["sector"],
+                    "sector": sector,
                     "currency": row["currency"],
                 }
 
@@ -233,6 +274,12 @@ class MarketDataAdapter:
             aggregated[ticker]["weighted_buy_value"] += quantity * avg_buy_price
 
         tickers = sorted(aggregated.keys())
+        if not tickers:
+            return []
+
+        # Ensure current prices are in the cache
+        PriceService.get_prices(tickers)
+
         placeholders = ",".join("?" for _ in tickers)
         price_rows = db.execute(
             f"SELECT ticker, price FROM price_cache WHERE ticker IN ({placeholders})",

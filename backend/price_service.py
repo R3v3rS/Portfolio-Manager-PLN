@@ -402,6 +402,17 @@ class PriceService:
         if not normalized_tickers:
             return {}
 
+        # Handle CASH explicitly
+        if 'CASH' in normalized_tickers:
+            now_iso = datetime.now().isoformat(timespec='seconds')
+            cls._price_cache['CASH'] = 1.0
+            cls._price_cache_updated_at['CASH'] = now_iso
+            cls._save_price_cache_to_db('CASH', 1.0, now_iso)
+            normalized_tickers = [t for t in normalized_tickers if t != 'CASH']
+
+        if not normalized_tickers:
+            return cls._price_cache
+
         cls._load_price_cache_from_db(normalized_tickers)
 
         missing_tickers = []

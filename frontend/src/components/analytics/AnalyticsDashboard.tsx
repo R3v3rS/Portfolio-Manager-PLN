@@ -19,7 +19,10 @@ const piePalette = ['#2563EB', '#16A34A', '#EAB308', '#F97316', '#7C3AED', '#14B
 
 const formatPercent = (value?: number | null) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
-  return `${value.toFixed(2)}%`;
+  // Check if it's already a percentage (e.g. 5.0 for 5%) or a decimal (e.g. 0.05 for 5%)
+  // Typically total_return_pct is 100-based, while max_drawdown and var are 1-based decimals.
+  // In this project, performance metrics return 1-based decimals for drawdown/var.
+  return `${(value * 100).toFixed(2)}%`;
 };
 
 const MetricCard = ({ label, value, tone }: { label: string; value: string; tone: MetricTone }) => (
@@ -77,7 +80,7 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
     const colSet = new Set<string>();
     rows.forEach((row) => {
       Object.keys(row).forEach((key) => {
-        if (key !== 'name' && key !== 'asset' && key !== 'label') {
+        if (key !== 'name' && key !== 'asset' && key !== 'label' && key !== 'symbol') {
           colSet.add(key);
         }
       });
@@ -86,7 +89,7 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
   }, [rows]);
 
   const rowLabel = (row: Record<string, string | number | null>) =>
-    (row.asset ?? row.name ?? row.label ?? '').toString() || '—';
+    (row.symbol ?? row.asset ?? row.name ?? row.label ?? '').toString() || '—';
 
   const cellColor = (value: number | null): string => {
     if (value === null || Number.isNaN(value)) return 'bg-gray-100';
@@ -143,12 +146,12 @@ const DiversificationPie = ({ data }: { data: Array<{ sector: string; value: num
     <h3 className="mb-4 text-lg font-semibold text-gray-900">Diversification by Sector</h3>
     <ResponsiveContainer width="100%" height={300}>
       <PieChart>
-        <Pie data={data} dataKey="value" nameKey="sector" outerRadius={110} label>
+        <Pie data={data} dataKey="value" nameKey="sector" outerRadius={110} label={({ name, value }) => `${name}: ${value.toFixed(1)}%`}>
           {data.map((entry, index) => (
             <Cell key={entry.sector} fill={piePalette[index % piePalette.length]} />
           ))}
         </Pie>
-        <Tooltip formatter={(value: number) => value.toLocaleString('pl-PL', { maximumFractionDigits: 2 })} />
+        <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
       </PieChart>
     </ResponsiveContainer>
   </div>
@@ -193,7 +196,8 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ portfolioId, su
 
   const hasIncompleteHistory = sharpe == null;
 
-  const maxDrawdown = data?.performance?.max_drawdown;
+  const rawMaxDrawdown = data?.performance?.max_drawdown;
+  const maxDrawdown = typeof rawMaxDrawdown === 'number' ? rawMaxDrawdown : rawMaxDrawdown?.value;
   const var1dPercent = data?.risk?.var_1d_percent;
   const diversificationScore = data?.diversification?.score;
 
@@ -203,7 +207,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ portfolioId, su
     const candidate = item.value ?? item.weight ?? 0;
     const numeric = Number(candidate);
     if (Number.isFinite(numeric)) {
-      acc[sectorName] = (acc[sectorName] ?? 0) + numeric;
+      acc[sectorName] = (acc[sectorName] ?? 0) + (numeric * 100);
     }
     return acc;
   }, {});
