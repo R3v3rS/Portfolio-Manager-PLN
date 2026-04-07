@@ -31,6 +31,7 @@ const PortfolioHistoryChart = lazy(() => import('../components/PortfolioHistoryC
 const PortfolioProfitChart = lazy(() => import('../components/PortfolioProfitChart'));
 const PerformanceHeatmap = lazy(() => import('../components/portfolio/PerformanceHeatmap'));
 const Profit30dMatrix = lazy(() => import('../components/portfolio/Profit30dMatrix'));
+const AnalyticsDashboard = lazy(() => import('../components/analytics/AnalyticsDashboard'));
 
 const createMissingSymbolDrafts = (symbols: string[]) =>
   symbols.reduce<Record<string, { ticker: string; currency: MappingCurrency }>>((acc, symbol) => {
@@ -406,7 +407,7 @@ const formatSellDate = (value?: string | null) => {
   return parsed.toLocaleDateString('pl-PL');
 };
 
-type ActiveTab = 'holdings' | 'analytics' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history' | 'ai';
+type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history' | 'ai';
 
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -865,6 +866,7 @@ const PortfolioDetails: React.FC = () => {
   const tabLabels: Record<string, string> = {
     holdings: 'Aktywa',
     analytics: 'Analiza',
+    analytics_dashboard: 'Analytics',
     results: 'Wyniki',
     value_history: 'Wartość Historyczna',
     history: 'Historia Transakcji',
@@ -907,7 +909,7 @@ const PortfolioDetails: React.FC = () => {
         ? ['bonds', 'history', 'ai']
         : portfolio.account_type === 'PPK'
           ? ['ppk', 'ppk_history', 'ai']
-          : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed', 'closed_cycles', 'ai'];
+          : ['holdings', 'analytics', 'analytics_dashboard', 'results', 'value_history', 'history', 'closed', 'closed_cycles', 'ai'];
 
   const toggleTxSelection = (id: number) => {
     setSelectedTxIds(prev => 
@@ -1404,6 +1406,10 @@ const PortfolioDetails: React.FC = () => {
         <div className="p-6">
           {activeTab === 'analytics' && (
             <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} equityAllocation={equityAllocation} />
+          )}
+
+          {activeTab === 'analytics_dashboard' && (
+            <AnalyticsDashboard portfolioId={portfolio.id} />
           )}
 
           {activeTab === 'results' && (
