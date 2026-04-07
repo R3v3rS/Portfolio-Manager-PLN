@@ -1,4 +1,5 @@
 import os
+import logging
 
 from flask import Blueprint
 
@@ -11,18 +12,20 @@ try:
 except ImportError:  # pragma: no cover - handled at runtime if dependency missing
     genai = None
 
-
+logger = logging.getLogger(__name__)
 ai_bp = Blueprint('ai', __name__)
 
 
 @ai_bp.route('/api/ai/portfolio-analysis', methods=['POST'])
 def portfolio_analysis():
+    logger.info("AI: Received portfolio-analysis request")
     try:
         data = require_json_body()
         portfolio_id = require_positive_int(data, 'portfolio_id')
         question = require_non_empty_string(data, 'question')
 
         db = get_db()
+        # ... (rest of the code)
         rows = db.execute(
             '''
             SELECT
@@ -113,17 +116,25 @@ Odpowiedz konkretnie po polsku. Wskaż:
             )
 
         api_key = os.getenv('GEMINI_API_KEY')
+        logger.info(f"AI: GEMINI_API_KEY found: {bool(api_key)}")
         if not api_key:
+            logger.error("AI: Missing GEMINI_API_KEY")
             return error_response(
                 'gemini_config_error',
                 'Missing GEMINI_API_KEY environment variable.',
                 status=500,
             )
 
-        genai.configure(api_key=api_key)
+        logger.info(f"AI: Configuring genai with key: {api_key[:5]}... (using transport='rest')")
+        genai.configure(api_key=api_key, transport='rest')
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+        
+        logger.info("AI: Sending request to Gemini...")
         gemini_response = model.generate_content(prompt)
+        logger.info("AI: Received response from Gemini")
+        
         answer = (gemini_response.text or '').strip()
+        logger.info(f"AI: Answer length: {len(answer)}")
 
         if not answer:
             return error_response(
