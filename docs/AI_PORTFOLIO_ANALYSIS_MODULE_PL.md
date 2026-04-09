@@ -1,23 +1,24 @@
 # Dokumentacja modułu AI: analiza portfela (`/api/ai/portfolio-analysis`)
 
-## 1. Cel modułu
-Moduł AI umożliwia szybkie uzyskanie opisowej analizy portfela inwestycyjnego na podstawie aktualnych pozycji użytkownika. Funkcja jest dostępna z poziomu UI (sekcja **„🤖 Zapytaj AI o portfel”**) i odpowiada po polsku, skupiając się na ryzyku, jakości pozycji oraz potencjalnych kierunkach zmian.
+## 1) Cel modułu i zakres odpowiedzialności
+Moduł AI odpowiada za **opisową analizę portfela inwestycyjnego** na podstawie realnych danych użytkownika zapisanych w bazie. Funkcja działa jako warstwa interpretacyjna nad danymi transakcyjnymi i cenowymi — nie składa zleceń, nie podejmuje decyzji automatycznie i nie modyfikuje portfela.
 
-W praktyce moduł:
-- pobiera otwarte pozycje (`quantity > 0`) z bazy,
-- wylicza metryki pomocnicze dla każdej pozycji,
-- buduje prompt z kontekstem portfela,
-- wysyła prompt do modelu Gemini,
-- zwraca odpowiedź tekstową do frontendu.
+Główna rola modułu:
+- zebrać stan aktualnych pozycji,
+- policzyć najważniejsze wskaźniki kontekstowe (wartość pozycji, PnL, udział w portfelu),
+- przekazać je do modelu LLM w uporządkowanym promptcie,
+- zwrócić użytkownikowi zwięzłą rekomendacyjną odpowiedź po polsku.
+
+To rozwiązanie jest podpięte pod UI „🤖 Zapytaj AI o portfel”.
 
 ---
 
-## 2. Endpoint API
+## 2) Endpoint API
 - **Metoda:** `POST`
-- **Ścieżka:** `/api/ai/portfolio-analysis`
+- **URL:** `/api/ai/portfolio-analysis`
 - **Content-Type:** `application/json`
 
-### 2.1. Body request
+### 2.1 Wejście (request body)
 ```json
 {
   "portfolio_id": 1,
@@ -25,119 +26,199 @@ W praktyce moduł:
 }
 ```
 
-### 2.2. Wymagane pola
-- `portfolio_id` — dodatnia liczba całkowita,
-- `question` — niepusty string (po przycięciu białych znaków).
+### 2.2 Wymagania wejściowe
+- `portfolio_id`:
+  - wymagane,
+  - liczba całkowita,
+  - wartość dodatnia (`> 0`).
+- `question`:
+  - wymagane,
+  - niepusty string,
+  - po `trim()` nie może być pusty.
 
-Walidacja wejścia realizowana jest przez helpery backendowe:
-- `require_json_body`,
-- `require_positive_int`,
-- `require_non_empty_string`.
+### 2.3 Walidacja backendowa
+Endpoint korzysta z helperów:
+- `require_json_body()` — wymusza poprawne JSON body,
+- `require_positive_int(..., 'portfolio_id')` — waliduje `portfolio_id`,
+- `require_non_empty_string(..., 'question')` — waliduje pytanie.
 
----
-
-## 3. Źródło danych i obliczenia
-Endpoint wykonuje zapytanie SQL łączące:
-- `holdings` (pozycje portfela),
-- `price_cache` (aktualna cena po tickerze).
-
-Filtrowane są tylko aktywne pozycje (`h.quantity > 0`) dla wskazanego `portfolio_id`.
-
-Dla każdej pozycji backend wylicza:
-- `current_value = quantity * current_price`,
-- `unrealized_pnl = current_value - total_cost`,
-- `unrealized_pnl_pct = (unrealized_pnl / total_cost) * 100` (gdy `total_cost > 0`),
-- `weight_pct` — udział pozycji w wartości całego portfela.
-
-Jeżeli `current_price` jest `NULL` lub nie daje się sparsować, backend przyjmuje `0.0`, aby nie przerywać analizy błędem konwersji.
+Jeśli walidacja nie przejdzie, zwracany jest kontrolowany błąd API (status 4xx/5xx zależnie od scenariusza).
 
 ---
 
-## 4. Budowa promptu i zachowanie modelu
-Prompt zawiera:
-1. krótką rolę modelu („doradca finansowy analizujący portfel”),
-2. listę pozycji z sektorami, wagami i niezrealizowanym PnL,
-3. pytanie użytkownika,
-4. instrukcje dot. formatu odpowiedzi.
+## 3) Dane wejściowe do analizy: skąd pochodzą
+Dane są pobierane z SQLite zapytaniem łączącym:
+- `holdings h` (pozycje portfela),
+- `price_cache pc` (ostatnia znana cena po tickerze).
 
-### Wymuszenia w promptcie
-Model dostaje jawne wytyczne, by:
-- odpowiedzieć konkretnie po polsku,
-- wskazać największe ryzyka (koncentracja, sektor, strata),
-- wskazać pozycje wyglądające dobrze,
-- zasugerować co ewentualnie dokupić/sprzedać wraz z uzasadnieniem,
-- zmieścić się w limicie ~300 słów.
+Wybierane kolumny:
+- `ticker`,
+- `quantity`,
+- `total_cost`,
+- `sector`,
+- `currency`,
+- `current_price` (`pc.price`).
 
----
+Filtry:
+- tylko wskazany `portfolio_id`,
+- tylko pozycje otwarte: `h.quantity > 0`.
 
-## 5. Konfiguracja integracji Gemini
-Wymagania runtime:
-- zainstalowany pakiet `google-generativeai`,
-- ustawiona zmienna środowiskowa `GEMINI_API_KEY`.
+Sortowanie:
+- malejąco po `h.total_cost` (największa ekspozycja kosztowa na początku).
 
-Konfiguracja po stronie backendu:
-- transport: `rest`,
-- model: `gemini-3.1-flash-lite-preview`.
-
-Jeśli konfiguracja jest niekompletna, endpoint zwraca kontrolowany błąd API (szczegóły niżej).
+Jeżeli zapytanie nie zwróci żadnych pozycji, endpoint odpowiada błędem `portfolio_empty` (HTTP 404).
 
 ---
 
-## 6. Kontrakt odpowiedzi
-### 6.1. Sukces
+## 4) Co dokładnie moduł wylicza i jak
+Po pobraniu rekordów backend przelicza każdą pozycję do wspólnego zestawu metryk.
+
+### 4.1 Normalizacja danych liczbowych
+Dla każdego wiersza:
+- `quantity = float(row['quantity'] or 0)`
+- `total_cost = float(row['total_cost'] or 0)`
+- `current_price`:
+  - jeśli `pc.price` jest `NULL` → `0.0`,
+  - jeśli parsowanie się nie powiedzie (`ValueError`/`TypeError`) → `0.0`.
+
+To zabezpiecza endpoint przed przerwaniem analizy przez pojedynczy wadliwy rekord ceny.
+
+### 4.2 Metryki pozycji
+Dla każdej pozycji liczone są:
+
+1. **Aktualna wartość pozycji**
+   - `current_value = quantity * current_price`
+
+2. **Niezrealizowany wynik kwotowo**
+   - `unrealized_pnl = current_value - total_cost`
+
+3. **Niezrealizowany wynik procentowo**
+   - `unrealized_pnl_pct = (unrealized_pnl / total_cost) * 100`, gdy `total_cost > 0`
+   - w przeciwnym razie `0.0` (ochrona przed dzieleniem przez zero)
+
+4. **Udział pozycji w portfelu (`weight_pct`)**
+   - najpierw liczona jest suma `total_portfolio_value = Σ current_value`,
+   - potem:
+     - `weight_pct = (current_value / total_portfolio_value) * 100`, gdy `total_portfolio_value > 0`,
+     - w przeciwnym razie `0.0`.
+
+### 4.3 Jakie pola trafiają dalej do promptu
+Dla każdej pozycji budowany jest obiekt zawierający co najmniej:
+- `ticker`,
+- `sector` (fallback: `Nieznany`),
+- `currency` (fallback: `PLN`),
+- `quantity`,
+- `total_cost`,
+- `current_price`,
+- `current_value`,
+- `unrealized_pnl`,
+- `unrealized_pnl_pct`,
+- `weight_pct`.
+
+---
+
+## 5) Budowa promptu: na jakiej podstawie AI odpowiada
+Model dostaje 3 główne bloki informacji:
+1. **Rola i kontekst** (doradca finansowy analizujący portfel).
+2. **Stan portfela** (łączna wartość + lista pozycji z wagą, sektorem i PnL%).
+3. **Pytanie użytkownika** (`question`).
+
+Do tego dokładane są instrukcje formatu odpowiedzi:
+- odpowiedź po polsku,
+- fokus na ryzyku koncentracji/sektora/strat,
+- wskazanie pozycji relatywnie mocnych,
+- propozycje „dokupić/sprzedać” z uzasadnieniem,
+- limit długości do ~300 słów.
+
+### Ważne
+AI **nie dostaje pełnej historii transakcji** ani makroekonomii; bazuje głównie na:
+- bieżącym przekroju pozycji,
+- wagach,
+- niezrealizowanych wynikach,
+- treści pytania użytkownika.
+
+---
+
+## 6) Wymagania techniczne i środowiskowe
+Aby endpoint działał poprawnie, środowisko musi mieć:
+
+1. **Pakiet Python**
+   - `google-generativeai` (importowany jako `google.generativeai`).
+
+2. **Zmienną środowiskową**
+   - `GEMINI_API_KEY` (klucz API).
+
+3. **Dostęp do bazy danych**
+   - tabele `holdings` i `price_cache` z danymi portfela/cen.
+
+### Konfiguracja modelu
+- `genai.configure(api_key=..., transport='rest')`
+- model: `gemini-3.1-flash-lite-preview`
+
+---
+
+## 7) Kontrakt odpowiedzi
+### 7.1 Sukces
 ```json
 {
   "payload": {
-    "answer": "...tekst odpowiedzi AI..."
+    "answer": "...odpowiedź AI..."
   }
 }
 ```
 
-### 6.2. Typowe błędy
-- `portfolio_empty` (404) — portfel nie ma otwartych pozycji,
+Pole `answer` to tekst gotowy do wyświetlenia w UI.
+
+### 7.2 Błędy kontrolowane
+- `portfolio_empty` (404) — brak otwartych pozycji,
 - `gemini_unavailable` (500) — brak pakietu `google-generativeai`,
 - `gemini_config_error` (500) — brak `GEMINI_API_KEY`,
-- `gemini_empty_response` (502) — model zwrócił pustą odpowiedź,
-- `debug_error` (500) — nieoczekiwany wyjątek.
+- `gemini_empty_response` (502) — pusta odpowiedź od modelu,
+- `debug_error` (500) — nieobsłużony wyjątek runtime.
 
 ---
 
-## 7. Integracja z frontendem
-Komponent UI: `frontend/src/components/ai/PortfolioAIChat.tsx`.
+## 8) Integracja frontendowa
+Komponent: `frontend/src/components/ai/PortfolioAIChat.tsx`.
 
-Funkcjonalność po stronie UI:
-- szybkie akcje pytań:
-  - „Gdzie są największe ryzyka?”,
-  - „Co warto dokupić?”,
-  - „Co rozważyć do sprzedaży?”,
-- własne pytanie wpisywane w textarea,
+UI zapewnia:
+- gotowe szybkie pytania (quick actions),
+- ręczne pytanie w `textarea`,
 - stan ładowania (`Analizuję portfel...`),
-- obsługa błędu i fallback odpowiedzi.
+- prezentację błędu po stronie klienta,
+- render odpowiedzi zwróconej w `payload.answer`.
 
-Wywołanie API jest realizowane przez `http.post('/api/ai/portfolio-analysis', { portfolio_id, question })`.
+Wywołanie:
+```ts
+http.post('/api/ai/portfolio-analysis', {
+  portfolio_id: portfolioId,
+  question: trimmed,
+})
+```
 
 ---
 
-## 8. Ograniczenia i uwagi praktyczne
-- Jakość odpowiedzi zależy od jakości danych wejściowych (`holdings`, `price_cache`).
-- Braki cen (`current_price`) zaniżają `current_value`, a więc także udział `weight_pct` i kontekst dla modelu.
-- Odpowiedź ma charakter informacyjny; nie jest to automatyczny silnik transakcyjny.
-- Logi backendowe zawierają etapy działania endpointu, co ułatwia diagnostykę problemów integracyjnych.
+## 9) Ograniczenia interpretacyjne i jakość danych
+Najważniejsze ograniczenia tej analizy:
+- jeżeli ceny w `price_cache` są nieaktualne lub puste, wnioski AI mogą być zaniżone/zaburzone,
+- `current_price = 0.0` dla braków danych obniża `current_value`, a więc także `weight_pct`,
+- analiza jest punktowa (snapshot), nie uwzględnia pełnej dynamiki historycznej,
+- odpowiedź ma charakter informacyjny i edukacyjny (nie jest poradą inwestycyjną).
 
 ---
 
-## 9. Przykład użycia (curl)
+## 10) Przykład użycia (curl)
 ```bash
 curl -X POST "http://localhost:5000/api/ai/portfolio-analysis" \
   -H "Content-Type: application/json" \
   -d '{
     "portfolio_id": 1,
-    "question": "Jak oceniasz ryzyko koncentracji w moim portfelu?"
+    "question": "Jak oceniasz ryzyko koncentracji i co mógłbym zdywersyfikować?"
   }'
 ```
 
 ---
 
-## 10. Powiązane pliki w repo
-- Backend endpoint: `backend/routes_ai.py`
-- Frontend UI: `frontend/src/components/ai/PortfolioAIChat.tsx`
+## 11) Powiązane pliki
+- Backend endpoint i logika promptu: `backend/routes_ai.py`
+- Frontend UI i obsługa odpowiedzi: `frontend/src/components/ai/PortfolioAIChat.tsx`
