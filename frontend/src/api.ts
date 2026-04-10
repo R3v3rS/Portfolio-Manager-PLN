@@ -295,6 +295,7 @@ const normalizeHolding = (value: unknown): Holding => {
     current_price: source.current_price == null ? undefined : toNumber(source.current_price),
     current_value: source.current_value == null ? undefined : toNumber(source.current_value),
     profit_loss: source.profit_loss == null ? undefined : toNumber(source.profit_loss),
+    realized_profit: source.realized_profit == null ? undefined : toNumber(source.realized_profit),
     profit_loss_percent: source.profit_loss_percent == null ? undefined : toNumber(source.profit_loss_percent),
     weight_percent: source.weight_percent == null ? undefined : toNumber(source.weight_percent),
     company_name: typeof source.company_name === 'string' ? source.company_name : undefined,

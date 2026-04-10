@@ -6,6 +6,7 @@ from math_utils import xirr
 from modules.ppk.ppk_service import PPKService
 from portfolio_core_service import PortfolioCoreService
 from portfolio_trade_service import PortfolioTradeService
+from collections import defaultdict
 
 
 class PortfolioValuationService(PortfolioCoreService):
@@ -214,6 +215,53 @@ class PortfolioValuationService(PortfolioCoreService):
         return allocation
 
     @staticmethod
+    def _get_open_cycle_realized_profit_map(portfolio_id, sub_portfolio_id=None, aggregate=True):
+        db = get_db()
+        query = '''
+            SELECT ticker, type, quantity, realized_profit, date, id
+            FROM transactions
+            WHERE portfolio_id = ?
+              AND type IN ('BUY', 'SELL')
+        '''
+        params = [portfolio_id]
+
+        if sub_portfolio_id is not None:
+            query += ' AND sub_portfolio_id = ?'
+            params.append(sub_portfolio_id)
+        elif not aggregate:
+            query += ' AND sub_portfolio_id IS NULL'
+
+        query += ' ORDER BY date ASC, id ASC'
+        tx_rows = db.execute(query, tuple(params)).fetchall()
+
+        ticker_state = defaultdict(lambda: {'open_qty': 0.0, 'realized_profit': 0.0})
+        for tx in tx_rows:
+            ticker = tx['ticker']
+            tx_type = tx['type']
+            quantity = float(tx['quantity'] or 0.0)
+            state = ticker_state[ticker]
+
+            if tx_type == 'BUY':
+                if state['open_qty'] <= 1e-9:
+                    state['realized_profit'] = 0.0
+                state['open_qty'] += quantity
+                continue
+
+            if tx_type == 'SELL':
+                if state['open_qty'] <= 1e-9:
+                    continue
+                state['open_qty'] = max(0.0, state['open_qty'] - quantity)
+                state['realized_profit'] += float(tx['realized_profit'] or 0.0)
+                if state['open_qty'] <= 1e-9:
+                    state['realized_profit'] = 0.0
+
+        return {
+            ticker: float(state['realized_profit'])
+            for ticker, state in ticker_state.items()
+            if state['open_qty'] > 1e-9
+        }
+
+    @staticmethod
     def get_holdings(portfolio_id, force_price_refresh=False, sub_portfolio_id=None, aggregate=True):
         db = get_db()
         
@@ -268,6 +316,11 @@ class PortfolioValuationService(PortfolioCoreService):
         fx_rates = PortfolioTradeService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
         updates_needed = False
         holdings_value = 0.0
+        open_cycle_realized_profit_by_ticker = PortfolioValuationService._get_open_cycle_realized_profit_map(
+            actual_portfolio_id,
+            sub_portfolio_id=actual_sub_portfolio_id,
+            aggregate=aggregate,
+        )
 
         for h in holdings:
             if h['quantity'] < 0.000001:
@@ -301,6 +354,7 @@ class PortfolioValuationService(PortfolioCoreService):
             h_dict['auto_fx_fees'] = 1 if currency != 'PLN' else h_dict.get('auto_fx_fees', 0)
             h_dict['profit_loss'] = h_dict['current_value'] - h_dict['total_cost']
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
+            h_dict['realized_profit'] = open_cycle_realized_profit_by_ticker.get(h_dict['ticker'], 0.0)
             holdings_value += h_dict['current_value']
             results.append(h_dict)
 

@@ -70,6 +70,7 @@ export interface Holding {
   current_price?: number; 
   current_value?: number;
   profit_loss?: number;
+  realized_profit?: number;
   profit_loss_percent?: number;
   weight_percent?: number;
   company_name?: string;
