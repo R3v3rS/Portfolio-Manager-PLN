@@ -175,7 +175,17 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
             },
         }
         ticker_currency = {'AAPL': 'USD'}
-        mock_build_price_context.return_value = (ticker_currency, prices)
+        mock_build_price_context.return_value = ticker_currency
+        def mock_price_at(ticker, target_date, cache=None):
+            target_str = target_date.strftime('%Y-%m-%d')
+            if ticker not in prices or not prices[ticker]: return 0
+            if target_str in prices[ticker]: return prices[ticker][target_str]
+            past_dates = [d for d in prices[ticker].keys() if d <= target_str]
+            if past_dates: return prices[ticker][max(past_dates)]
+            return 0
+        patcher = patch('portfolio_history_service.PortfolioHistoryService._price_at', side_effect=mock_price_at)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         live_value = {'portfolio_value': 25200, 'net_contributions': 9700}
         mock_live_value.return_value = live_value
 
@@ -216,10 +226,18 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         t_cur.fetchall.return_value = transactions
         db.execute.side_effect = [p_cur, t_cur]
 
-        mock_build_price_context.return_value = (
-            {'AAA': 'PLN'},
-            {'AAA': {'2026-01-31': 220, '2026-02-28': 240, '2026-04-03': 250}},
-        )
+        mock_build_price_context.return_value = {'AAA': 'PLN'}
+        prices = {'AAA': {'2026-01-31': 220, '2026-02-28': 240, '2026-04-03': 250}}
+        def mock_price_at(ticker, target_date, cache=None):
+            target_str = target_date.strftime('%Y-%m-%d')
+            if ticker not in prices or not prices[ticker]: return 0
+            if target_str in prices[ticker]: return prices[ticker][target_str]
+            past_dates = [d for d in prices[ticker].keys() if d <= target_str]
+            if past_dates: return prices[ticker][max(past_dates)]
+            return 0
+        patcher = patch('portfolio_history_service.PortfolioHistoryService._price_at', side_effect=mock_price_at)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         mock_inflation_series.return_value = [
             {'date': '2026-01', 'index_value': 100.0},
             {'date': '2026-02', 'index_value': 101.0},
@@ -232,7 +250,11 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         self.assertAlmostEqual(monthly['2026-02']['net_contributions'], 1500.0)
         self.assertIn('benchmark_inflation_value', monthly['2026-04'])
 
-    def test_benchmark_shows_operation_reduction(self):
+    @patch('portfolio_history_service.get_db')
+    def test_benchmark_shows_operation_reduction(self, mock_get_db):
+        db = MagicMock()
+        db.execute.return_value.fetchone.return_value = None
+        mock_get_db.return_value = db
         points = 365
         tx_count = 500
         legacy_ops = points * tx_count
@@ -250,7 +272,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
                 'total_value': 10.0,
                 'date': (start + timedelta(days=i % points)).isoformat(),
             })
-        price_index = PortfolioHistoryService._build_sorted_price_index({})
+        
         date_points = [start + timedelta(days=i) for i in range(points)]
 
         legacy_start = perf_counter()
@@ -270,7 +292,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
             while tx_idx < len(ordered) and date.fromisoformat(ordered[tx_idx]['date']) <= point:
                 _cash += ordered[tx_idx]['total_value']
                 tx_idx += 1
-            _ = PortfolioHistoryService._price_at(price_index, 'NONE', point, cache)
+            _ = PortfolioHistoryService._price_at('NONE', point, cache)
         rolling_elapsed = perf_counter() - rolling_start
         print(f"time_before={legacy_elapsed:.6f}s time_after={rolling_elapsed:.6f}s")
 
@@ -292,7 +314,10 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
         db.execute.side_effect = [p_cur, t_cur]
-        mock_build_price_context.return_value = ({}, {})
+        mock_build_price_context.return_value = {}
+        patcher = patch('portfolio_history_service.PortfolioHistoryService._price_at', return_value=0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(11, days=365, metric='value')
         self.assertEqual(len(data), 365)
@@ -320,7 +345,17 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
         db.execute.side_effect = [p_cur, t_cur]
         price_history = {ticker: {'2026-01-02': 100 + i, '2026-04-03': 110 + i} for i, ticker in enumerate(tickers)}
-        mock_build_price_context.return_value = ({ticker: 'PLN' for ticker in tickers}, price_history)
+        mock_build_price_context.return_value = {ticker: 'PLN' for ticker in tickers}
+        def mock_price_at(ticker, target_date, cache=None):
+            target_str = target_date.strftime('%Y-%m-%d')
+            if ticker not in price_history or not price_history[ticker]: return 0
+            if target_str in price_history[ticker]: return price_history[ticker][target_str]
+            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
+            if past_dates: return price_history[ticker][max(past_dates)]
+            return 0
+        patcher = patch('portfolio_history_service.PortfolioHistoryService._price_at', side_effect=mock_price_at)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(12, days=90, metric='value')
         self.assertEqual(len(data), 90)
@@ -348,7 +383,17 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
             'ABC': {'2026-03-25': 100, '2026-04-03': 100},
             'USDPLN=X': {'2026-03-25': 4.0, '2026-03-30': 4.2, '2026-04-03': 4.1},
         }
-        mock_build_price_context.return_value = ({'ABC': 'USD'}, price_history)
+        mock_build_price_context.return_value = {'ABC': 'USD'}
+        def mock_price_at(ticker, target_date, cache=None):
+            target_str = target_date.strftime('%Y-%m-%d')
+            if ticker not in price_history or not price_history[ticker]: return 0
+            if target_str in price_history[ticker]: return price_history[ticker][target_str]
+            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
+            if past_dates: return price_history[ticker][max(past_dates)]
+            return 0
+        patcher = patch('portfolio_history_service.PortfolioHistoryService._price_at', side_effect=mock_price_at)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(13, days=10, metric='value')
         day_2026_03_29 = [x for x in data if x['date'] == '2026-03-29'][0]
         day_2026_03_31 = [x for x in data if x['date'] == '2026-03-31'][0]
@@ -376,7 +421,18 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
         db.execute.side_effect = [p_cur, t_cur]
-        mock_build_price_context.return_value = ({'AAA': 'PLN'}, {'AAA': {'2026-03-31': 60, '2026-04-03': 60}})
+        mock_build_price_context.return_value = {'AAA': 'PLN'}
+        price_history = {'AAA': {'2026-03-31': 60, '2026-04-03': 60}}
+        def mock_price_at(ticker, target_date, cache=None):
+            target_str = target_date.strftime('%Y-%m-%d')
+            if ticker not in price_history or not price_history[ticker]: return 0
+            if target_str in price_history[ticker]: return price_history[ticker][target_str]
+            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
+            if past_dates: return price_history[ticker][max(past_dates)]
+            return 0
+        patcher = patch('portfolio_history_service.PortfolioHistoryService._price_at', side_effect=mock_price_at)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(14, days=7, metric='value')
         before_sell = [x for x in data if x['date'] == '2026-03-31'][0]
         after_sell = [x for x in data if x['date'] == '2026-04-01'][0]
@@ -401,7 +457,18 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
         db.execute.side_effect = [p_cur, t_cur]
-        mock_build_price_context.return_value = ({'AAA': 'PLN'}, {'AAA': {'2026-03-26': 500, '2026-04-03': 500}})
+        mock_build_price_context.return_value = {'AAA': 'PLN'}
+        price_history = {'AAA': {'2026-03-26': 500, '2026-04-03': 500}}
+        def mock_price_at(ticker, target_date, cache=None):
+            target_str = target_date.strftime('%Y-%m-%d')
+            if ticker not in price_history or not price_history[ticker]: return 0
+            if target_str in price_history[ticker]: return price_history[ticker][target_str]
+            past_dates = [d for d in price_history[ticker].keys() if d <= target_str]
+            if past_dates: return price_history[ticker][max(past_dates)]
+            return 0
+        patcher = patch('portfolio_history_service.PortfolioHistoryService._price_at', side_effect=mock_price_at)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(20, days=5, metric='value')
         self.assertEqual(len(data), 5)

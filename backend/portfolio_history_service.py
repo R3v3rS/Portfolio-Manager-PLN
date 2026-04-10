@@ -45,11 +45,14 @@ class PortfolioHistoryService(PortfolioCoreService):
             today_str = date.today().strftime('%Y-%m-%d')
             if target_str == today_str:
                 row_cache = db.execute(
-                    'SELECT price FROM price_cache WHERE ticker = ?',
+                    'SELECT price, updated_at FROM price_cache WHERE ticker = ?',
                     (ticker,)
                 ).fetchone()
                 if row_cache and row_cache['price'] is not None:
-                    price = float(row_cache['price'])
+                    updated_at_raw = row_cache['updated_at']
+                    cache_date = str(updated_at_raw).split(' ')[0].split('T')[0]
+                    if cache_date == today_str:
+                        price = float(row_cache['price'])
                     
         if rolling_cache is not None:
             cache['last_date'] = target_str
@@ -152,13 +155,8 @@ class PortfolioHistoryService(PortfolioCoreService):
                 except Exception as e:
                     logger.exception("Failed to sync history for %s: %s", ticker, e)
 
-        price_history = {}
-        if account_type not in ['SAVINGS', 'BONDS'] or (benchmark_ticker and benchmark_ticker != '__INFLATION__'):
-            for ticker in sync_tickers:
-                rows = db.execute('SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC', (ticker,)).fetchall()
-                price_history[ticker] = {str(row['date']).split(' ')[0].split('T')[0]: row['close_price'] for row in rows}
         
-        return ticker_currency, price_history
+        return ticker_currency
 
     @staticmethod
     def _calculate_historical_metrics(portfolio_id, benchmark_ticker=None):
@@ -213,7 +211,7 @@ class PortfolioHistoryService(PortfolioCoreService):
             curr_m, curr_y = next_m, next_y
 
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
-        ticker_currency, price_history = PortfolioHistoryService._build_price_context(
+        ticker_currency = PortfolioHistoryService._build_price_context(
             portfolio_id, tickers, start_date, account_type, benchmark_ticker
         )
 
@@ -395,7 +393,7 @@ class PortfolioHistoryService(PortfolioCoreService):
         date_points = [start_date + timedelta(days=offset) for offset in range(days)]
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
 
-        ticker_currency, price_history = PortfolioHistoryService._build_price_context(
+        ticker_currency = PortfolioHistoryService._build_price_context(
             portfolio_id, tickers, start_date, account_type
         )
 
