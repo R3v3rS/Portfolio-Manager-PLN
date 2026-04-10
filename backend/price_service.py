@@ -869,6 +869,18 @@ class PriceService:
             )
             db.rollback()
 
+        try:
+            audit_result = cls.audit_price_history_quality(
+                days=7,
+                jump_threshold_percent=25.0,
+                refresh_flagged=False,
+                delete_flagged=False
+            )
+            if audit_result.get('flagged_count', 0) > 0:
+                logger.warning("Audit after sync found anomalies: %s", audit_result['issues'])
+        except Exception as e:
+            logger.warning("Failed to run price audit after sync for %s: %s", ticker, e)
+
         # Return latest date in DB
         new_max = db.execute(
             'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
@@ -1501,7 +1513,7 @@ class PriceService:
             return None
 
     @classmethod
-    def audit_price_history_quality(cls, days=30, jump_threshold_percent=25.0, refresh_flagged=False):
+    def audit_price_history_quality(cls, days=30, jump_threshold_percent=25.0, refresh_flagged=False, delete_flagged=False):
         """
         Checks recent price history quality and flags suspicious day-over-day jumps.
         Optionally refreshes flagged tickers from the provider and re-evaluates.
@@ -1524,6 +1536,7 @@ class PriceService:
                 'flagged_tickers': [],
                 'issues': [],
                 'refreshed_tickers': [],
+                'deleted_entries': [],
             }
 
         def _scan_once():
@@ -1565,6 +1578,7 @@ class PriceService:
 
         issues, flagged_tickers = _scan_once()
         refreshed_tickers = []
+        deleted_entries = []
 
         if refresh_flagged and flagged_tickers:
             for ticker in flagged_tickers:
@@ -1582,6 +1596,20 @@ class PriceService:
             # Re-run scan after refresh.
             issues, flagged_tickers = _scan_once()
 
+            if delete_flagged:
+                for issue in issues:
+                    t = issue['ticker']
+                    d = issue['date']
+                    c = issue['close']
+                    pct = issue['change_percent']
+                    logger.warning(f"Deleted anomalous price entry: {t} {d} {c} (change: {pct}%)")
+                    db.execute(
+                        "DELETE FROM stock_prices WHERE ticker = ? AND date = ?",
+                        (t, d)
+                    )
+                    deleted_entries.append(issue)
+                db.commit()
+
         return {
             'days': days,
             'jump_threshold_percent': jump_threshold_percent,
@@ -1589,4 +1617,5 @@ class PriceService:
             'flagged_tickers': flagged_tickers,
             'issues': issues,
             'refreshed_tickers': refreshed_tickers,
+            'deleted_entries': deleted_entries,
         }
