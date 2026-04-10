@@ -23,53 +23,39 @@ class PortfolioHistoryService(PortfolioCoreService):
         return datetime.strptime(raw, '%Y-%m-%d').date()
 
     @staticmethod
-    def _build_sorted_price_index(price_history):
-        index = {}
-        for ticker, history in price_history.items():
-            if not history:
-                index[ticker] = {'dates': [], 'prices': []}
-                continue
-            sorted_dates = sorted(history.keys())
-            index[ticker] = {
-                'dates': sorted_dates,
-                'prices': [history[d] for d in sorted_dates],
-            }
-        return index
-
-    @staticmethod
-    def _price_at(price_index, ticker, target_date, rolling_cache=None):
-        node = price_index.get(ticker)
-        if not node or not node['dates']:
-            return 0
-
+    def _price_at(ticker, target_date, rolling_cache=None):
         target_str = target_date.strftime('%Y-%m-%d')
+        
         if rolling_cache is not None:
-            cache = rolling_cache.setdefault(ticker, {'idx': -1, 'last_date': None, 'last_price': 0})
-            last_date = cache['last_date']
-            if last_date == target_str:
+            cache = rolling_cache.setdefault(ticker, {'last_date': None, 'last_price': 0.0})
+            if cache['last_date'] == target_str:
                 return cache['last_price']
 
-            dates = node['dates']
-            prices = node['prices']
-            idx = cache['idx']
-            if idx >= 0 and target_str < dates[idx]:
-                idx = bisect_right(dates, target_str) - 1
-            else:
-                next_idx = idx + 1
-                while next_idx < len(dates) and dates[next_idx] <= target_str:
-                    idx = next_idx
-                    next_idx += 1
-            price = prices[idx] if idx >= 0 else 0
-            cache['idx'] = idx
+        db = get_db()
+        price = 0.0
+        
+        row = db.execute(
+            'SELECT close_price FROM stock_prices WHERE ticker = ? AND date <= ? ORDER BY date DESC LIMIT 1',
+            (ticker, target_str)
+        ).fetchone()
+        
+        if row:
+            price = float(row['close_price'])
+        else:
+            today_str = date.today().strftime('%Y-%m-%d')
+            if target_str == today_str:
+                row_cache = db.execute(
+                    'SELECT price FROM price_cache WHERE ticker = ?',
+                    (ticker,)
+                ).fetchone()
+                if row_cache and row_cache['price'] is not None:
+                    price = float(row_cache['price'])
+                    
+        if rolling_cache is not None:
             cache['last_date'] = target_str
             cache['last_price'] = price
-            return price
-
-        dates = node['dates']
-        idx = bisect_right(dates, target_str) - 1
-        if idx < 0:
-            return 0
-        return node['prices'][idx]
+            
+        return price
 
     @staticmethod
     def _apply_tx_to_rolling(tx, state, price_getter, benchmark_ticker=None):
@@ -236,7 +222,6 @@ class PortfolioHistoryService(PortfolioCoreService):
         inf_series = InflationService.get_inflation_series(start_date.strftime('%Y-%m'), today.strftime('%Y-%m'))
         inflation_map = {item['date']: item['index_value'] for item in inf_series}
 
-        market_price_index = PortfolioHistoryService._build_sorted_price_index(price_history)
         inflation_months = sorted(inflation_map.keys())
         market_price_cache = {}
         inflation_cache = {'idx': -1, 'last_month': None, 'last_price': 0}
@@ -259,7 +244,7 @@ class PortfolioHistoryService(PortfolioCoreService):
                 inflation_cache['last_month'] = month_key
                 inflation_cache['last_price'] = value
                 return value
-            return PortfolioHistoryService._price_at(market_price_index, ticker, target_date, market_price_cache)
+            return PortfolioHistoryService._price_at(ticker, target_date, market_price_cache)
 
         monthly_data = {}
         normalized_transactions = sorted(({
@@ -414,11 +399,10 @@ class PortfolioHistoryService(PortfolioCoreService):
             portfolio_id, tickers, start_date, account_type
         )
 
-        price_index = PortfolioHistoryService._build_sorted_price_index(price_history)
         price_cache = {}
 
         def get_price_at_date(ticker, target_date):
-            return PortfolioHistoryService._price_at(price_index, ticker, target_date, price_cache)
+            return PortfolioHistoryService._price_at(ticker, target_date, price_cache)
 
         result = []
         normalized_transactions = sorted(({
