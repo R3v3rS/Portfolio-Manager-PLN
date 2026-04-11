@@ -286,6 +286,8 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
         self.assertEqual(transfer_response.status_code, 200, transfer_response.get_json())
         self.assert_contract(transfer_response, ('/api/portfolio/transfer/cash', 'POST'))
         transfer_id = transfer_response.get_json()['payload']['transfer_id']
+        missing_staging_session_id = 'missing-session'
+        missing_staging_row_id = 1
 
         non_contract_assertions = {
             ('/monitoring', 'GET'): self.assert_monitoring_dashboard_response,
@@ -399,6 +401,11 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 },
             ),
             ('/api/dashboard/global-summary', 'GET'): lambda: self.client.get('/api/dashboard/global-summary'),
+            ('/api/analytics/summary', 'GET'): lambda: self.client.get('/api/analytics/summary?portfolio_id=1'),
+            ('/api/ai/portfolio-analysis', 'POST'): lambda: self.client.post(
+                '/api/ai/portfolio-analysis',
+                json={'portfolio_id': 1, 'question': 'test'},
+            ),
             ('/api/loans/', 'GET'): lambda: self.client.get('/api/loans/'),
             ('/api/loans/', 'POST'): lambda: self.client.post(
                 '/api/loans/',
@@ -447,6 +454,36 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 f'/api/portfolio/{self.portfolio_id}/import/xtb',
                 data={},
                 content_type='multipart/form-data',
+            ),
+            ('/api/portfolio/import/staging', 'POST'): lambda: self.client.post(
+                '/api/portfolio/import/staging',
+                data={
+                    'portfolio_id': '1',
+                    'mode': 'staging',
+                    'file': (io.BytesIO(b'open_time,symbol,operation,volume,price\n'), 'staging.csv'),
+                },
+                content_type='multipart/form-data',
+            ),
+            ('/api/portfolio/import/staging/<session_id>', 'GET'): lambda: self.client.get(
+                f'/api/portfolio/import/staging/{missing_staging_session_id}'
+            ),
+            ('/api/portfolio/import/staging/<session_id>/rows/<int:row_id>/assign', 'PUT'): lambda: self.client.put(
+                f'/api/portfolio/import/staging/{missing_staging_session_id}/rows/{missing_staging_row_id}/assign',
+                json={'target_sub_portfolio_id': 1},
+            ),
+            ('/api/portfolio/import/staging/<session_id>/assign-all', 'PUT'): lambda: self.client.put(
+                f'/api/portfolio/import/staging/{missing_staging_session_id}/assign-all',
+                json={'target_sub_portfolio_id': 1},
+            ),
+            ('/api/portfolio/import/staging/<session_id>/rows/<int:row_id>', 'DELETE'): lambda: self.client.delete(
+                f'/api/portfolio/import/staging/{missing_staging_session_id}/rows/{missing_staging_row_id}'
+            ),
+            ('/api/portfolio/import/staging/<session_id>/book', 'POST'): lambda: self.client.post(
+                f'/api/portfolio/import/staging/{missing_staging_session_id}/book',
+                json={'confirmed_row_ids': [missing_staging_row_id]},
+            ),
+            ('/api/portfolio/import/staging/<session_id>', 'DELETE'): lambda: self.client.delete(
+                f'/api/portfolio/import/staging/{missing_staging_session_id}'
             ),
             ('/api/portfolio/<int:portfolio_id>/performance', 'GET'): lambda: self.client.get(
                 f'/api/portfolio/{self.portfolio_id}/performance'
