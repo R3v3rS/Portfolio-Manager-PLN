@@ -23,6 +23,17 @@ export interface GlobalSummary {
   };
 }
 
+export interface CurrentMonthDividends {
+  received_this_month: number;
+  expected_this_month: number;
+  month_label: string;
+  top_payers: Array<{
+    ticker: string;
+    amount: number;
+    date: string;
+  }>;
+}
+
 const dashboardHttp = createApiClient('/dashboard');
 
 const EMPTY_GLOBAL_SUMMARY: GlobalSummary = {
@@ -66,6 +77,11 @@ const toNullableString = (value: unknown): string | null => {
   return normalized || null;
 };
 
+const toString = (value: unknown, fallback = ''): string => {
+  if (typeof value !== 'string') return fallback;
+  return value.trim();
+};
+
 const normalizeGlobalSummary = (value: unknown): GlobalSummary => {
   const source = isRecord(value) ? value : {};
   const liabilities = isRecord(source.liabilities_breakdown) ? source.liabilities_breakdown : {};
@@ -96,10 +112,33 @@ const normalizeGlobalSummary = (value: unknown): GlobalSummary => {
   };
 };
 
+const normalizeCurrentMonthDividends = (value: unknown): CurrentMonthDividends => {
+  const source = isRecord(value) ? value : {};
+  const topPayers = Array.isArray(source.top_payers) ? source.top_payers : [];
+
+  return {
+    received_this_month: toNumber(source.received_this_month),
+    expected_this_month: toNumber(source.expected_this_month),
+    month_label: toString(source.month_label),
+    top_payers: topPayers
+      .filter(isRecord)
+      .map((payer) => ({
+        ticker: toString(payer.ticker),
+        amount: toNumber(payer.amount),
+        date: toString(payer.date),
+      }))
+      .filter((payer) => payer.ticker.length > 0),
+  };
+};
+
 export const dashboardApi = {
   getGlobalSummary: async (): Promise<GlobalSummary> => {
     const response = await dashboardHttp.get<unknown>('/global-summary');
     return normalizeGlobalSummary(response ?? EMPTY_GLOBAL_SUMMARY);
+  },
+  getCurrentMonthDividends: async (): Promise<CurrentMonthDividends> => {
+    const response = await dashboardHttp.get<unknown>('/dividends/current-month');
+    return normalizeCurrentMonthDividends(response ?? {});
   },
 };
 
