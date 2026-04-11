@@ -1459,6 +1459,7 @@ const PortfolioDetails: React.FC = () => {
                       <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Obecna Cena</th>
                       <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Wartość</th>
                       <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk/Strata</th>
+                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">PnL zrealizowany</th>
                       <th className="min-w-[90px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Waga</th>
                       <th className="min-w-[130px] px-3 py-3 text-center text-xs font-bold uppercase tracking-wider text-gray-700 bg-gray-100/80 border-l border-gray-200">Akcje</th>
                     </tr>
@@ -1519,6 +1520,12 @@ const PortfolioDetails: React.FC = () => {
                               )}
                           </div>
                         </td>
+                        <td className={cn(
+                          "px-3 py-4 text-sm text-right font-medium whitespace-nowrap",
+                          (h.realized_profit || 0) >= 0 ? "text-green-600" : "text-red-600"
+                        )}>
+                          {typeof h.realized_profit === 'number' ? `${h.realized_profit.toFixed(2)} PLN` : '-'}
+                        </td>
                         <td className="px-3 py-4 text-sm text-right text-gray-500 font-medium">
                           {h.weight_percent ? `${h.weight_percent}%` : '-'}
                         </td>
@@ -1551,7 +1558,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {holdings.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
+                        <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
                       </tr>
                     )}
                   </tbody>
