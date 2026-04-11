@@ -229,6 +229,15 @@ const toNumber = (value: unknown, fallback = 0): number => {
   return fallback;
 };
 
+const toOptionalNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
 const toString = (value: unknown, fallback = ''): string => {
   if (typeof value === 'string') return value;
   if (value === null || value === undefined) return fallback;
@@ -296,8 +305,8 @@ const normalizeHolding = (value: unknown): Holding => {
     current_value: source.current_value == null ? undefined : toNumber(source.current_value),
     profit_loss: source.profit_loss == null ? undefined : toNumber(source.profit_loss),
     realized_profit: source.realized_profit == null ? undefined : toNumber(source.realized_profit),
-    break_even_sell_price_pln: source.break_even_sell_price_pln == null ? null : toNumber(source.break_even_sell_price_pln),
-    break_even_sell_price_native: source.break_even_sell_price_native == null ? null : toNumber(source.break_even_sell_price_native),
+    break_even_sell_price_pln: toOptionalNumber(source.break_even_sell_price_pln),
+    break_even_sell_price_native: toOptionalNumber(source.break_even_sell_price_native),
     profit_loss_percent: source.profit_loss_percent == null ? undefined : toNumber(source.profit_loss_percent),
     weight_percent: source.weight_percent == null ? undefined : toNumber(source.weight_percent),
     company_name: typeof source.company_name === 'string' ? source.company_name : undefined,

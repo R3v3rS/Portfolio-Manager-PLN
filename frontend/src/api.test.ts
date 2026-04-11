@@ -58,6 +58,14 @@ describe('portfolioApi + helpers', () => {
         total_cost: '300',
         break_even_sell_price_pln: '95.5',
         break_even_sell_price_native: '24.1',
+      }, {
+        id: '2',
+        portfolio_id: '2',
+        ticker: 'MSFT',
+        quantity: '1',
+        average_buy_price: '50',
+        total_cost: '50',
+        break_even_sell_price_pln: null,
       }],
     });
 
@@ -65,6 +73,10 @@ describe('portfolioApi + helpers', () => {
     expect(holdings[0]).toMatchObject({
       break_even_sell_price_pln: 95.5,
       break_even_sell_price_native: 24.1,
+    });
+    expect(holdings[1]).toMatchObject({
+      break_even_sell_price_pln: null,
+      break_even_sell_price_native: null,
     });
   });
 
