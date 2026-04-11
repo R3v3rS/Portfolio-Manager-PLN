@@ -1,5 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { dashboardApi, EMPTY_GLOBAL_SUMMARY, type GlobalSummary } from '../api_dashboard';
+import {
+  dashboardApi,
+  EMPTY_GLOBAL_SUMMARY,
+  type CurrentMonthDividends,
+  type GlobalSummary,
+} from '../api_dashboard';
 import { portfolioApi } from '../api';
 import { extractErrorMessageFromUnknown } from '../http/response';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -11,6 +16,7 @@ import type { Holding } from '../types';
 
 const MainDashboard: React.FC = () => {
   const [data, setData] = useState<GlobalSummary>(EMPTY_GLOBAL_SUMMARY);
+  const [dividendsData, setDividendsData] = useState<CurrentMonthDividends | null>(null);
   const [allHoldings, setAllHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,8 +24,11 @@ const MainDashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const summary = await dashboardApi.getGlobalSummary();
-        const allPortfolios = await portfolioApi.list();
+        const [summary, allPortfolios, dividends] = await Promise.all([
+          dashboardApi.getGlobalSummary(),
+          portfolioApi.list(),
+          dashboardApi.getCurrentMonthDividends().catch(() => null),
+        ]);
         const holdingsPerPortfolio = await Promise.all(
           allPortfolios.portfolios
             .filter(p => ['STANDARD', 'IKE'].includes(p.account_type))
@@ -29,12 +38,14 @@ const MainDashboard: React.FC = () => {
           .flat()
           .filter(h => h.quantity >= 0.000001 && (h.current_value ?? 0) >= 1);
         setData(summary);
+        setDividendsData(dividends);
         setAllHoldings(flattenedHoldings);
         setError(null);
       } catch (err) {
         console.error(err);
         setError(extractErrorMessageFromUnknown(err));
         setData(EMPTY_GLOBAL_SUMMARY);
+        setDividendsData(null);
         setAllHoldings([]);
       } finally {
         setLoading(false);
@@ -65,6 +76,13 @@ const MainDashboard: React.FC = () => {
   const topLosers = [...holdingsWithDailyChange]
     .sort((a, b) => (a.change_1d_percent ?? 0) - (b.change_1d_percent ?? 0))
     .slice(0, 3);
+  const hasNoDividendsThisMonth = dividendsData !== null
+    && dividendsData.received_this_month === 0
+    && dividendsData.expected_this_month === 0;
+  const totalDividendTarget = (dividendsData?.received_this_month ?? 0) + (dividendsData?.expected_this_month ?? 0);
+  const dividendProgress = totalDividendTarget > 0
+    ? Math.min(100, ((dividendsData?.received_this_month ?? 0) / totalDividendTarget) * 100)
+    : 0;
 
   const renderMovers = (holdings: Holding[], colorClass: 'text-green-600' | 'text-red-600', icon: string) => {
     return holdings.map((holding) => (
@@ -222,6 +240,39 @@ const MainDashboard: React.FC = () => {
                 <p className="text-green-600 font-medium">Brak nadchodzących rat</p>
               )}
            </div>
+
+           {dividendsData && (
+             <div className="border-t border-gray-100 pt-6">
+                <h4 className="text-sm font-medium text-gray-500 uppercase mb-2">Dywidendy — {dividendsData.month_label}</h4>
+                {hasNoDividendsThisMonth ? (
+                  <p className="text-sm text-gray-500">Brak dywidend w tym miesiącu</p>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-green-600 font-semibold">
+                      Otrzymane: {dividendsData.received_this_month.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
+                    </p>
+                    {dividendsData.expected_this_month > 0 && (
+                      <p className="text-gray-500">
+                        Oczekiwane: {dividendsData.expected_this_month.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
+                      </p>
+                    )}
+                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500 transition-all" style={{ width: `${dividendProgress}%` }} />
+                    </div>
+                    {dividendsData.top_payers.length > 0 && (
+                      <div className="space-y-1">
+                        {dividendsData.top_payers.slice(0, 3).map((payer) => (
+                          <div key={`${payer.ticker}-${payer.date}`} className="text-sm text-gray-700">
+                            💰 {payer.ticker} {payer.amount.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN{' '}
+                            {payer.date ? new Date(payer.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' }) : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+             </div>
+           )}
         </div>
       </div>
 

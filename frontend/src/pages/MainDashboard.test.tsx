@@ -11,6 +11,7 @@ vi.mock('../api_dashboard', async () => {
     ...actual,
     dashboardApi: {
       getGlobalSummary: vi.fn(),
+      getCurrentMonthDividends: vi.fn(),
     },
   };
 });
@@ -36,12 +37,19 @@ vi.mock('recharts', () => ({
 }));
 
 const mockedGetGlobalSummary = vi.mocked(dashboardApi.getGlobalSummary);
+const mockedGetCurrentMonthDividends = vi.mocked(dashboardApi.getCurrentMonthDividends);
 const mockedListPortfolios = vi.mocked(portfolioApi.list);
 const mockedGetHoldings = vi.mocked(portfolioApi.getHoldings);
 
 describe('MainDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetCurrentMonthDividends.mockResolvedValue({
+      received_this_month: 234.5,
+      expected_this_month: 180,
+      month_label: 'Kwiecień 2026',
+      top_payers: [{ ticker: 'DNP.WA', amount: 120, date: '2026-04-15' }],
+    });
     mockedListPortfolios.mockResolvedValue({ portfolios: [] } as never);
     mockedGetHoldings.mockResolvedValue([]);
   });
@@ -100,8 +108,11 @@ describe('MainDashboard', () => {
     expect((await screen.findAllByText(/1.*567,89 PLN/)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/76.*543,21/)).toBeInTheDocument();
     expect(await screen.findByText('Termin: 15.03.2026')).toBeInTheDocument();
+    expect(await screen.findByText('Dywidendy — Kwiecień 2026')).toBeInTheDocument();
+    expect(await screen.findByText(/Otrzymane: 234,50 PLN/)).toBeInTheDocument();
+    expect(await screen.findByText(/💰 DNP.WA 120,00 PLN/i)).toBeInTheDocument();
     expect(await screen.findByText('Dzisiejsze ruchy')).toBeInTheDocument();
-    expect(await screen.findByText('CDR.WA')).toBeInTheDocument();
+    expect((await screen.findAllByText('CDR.WA')).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: /Zarządzaj Portfelami/ })).toBeInTheDocument();
   });
 
@@ -125,6 +136,12 @@ describe('MainDashboard', () => {
         next_loan_date: null,
       },
     });
+    mockedGetCurrentMonthDividends.mockResolvedValue({
+      received_this_month: 0,
+      expected_this_month: 0,
+      month_label: 'Kwiecień 2026',
+      top_payers: [],
+    });
     mockedListPortfolios.mockResolvedValue({ portfolios: [{ id: 1, account_type: 'STANDARD' }] } as never);
     mockedGetHoldings.mockResolvedValue([
       { id: 1, portfolio_id: 1, ticker: 'AAA', quantity: 1, average_buy_price: 100, total_cost: 100, current_value: 100, change_1d_percent: 0 },
@@ -137,7 +154,41 @@ describe('MainDashboard', () => {
     );
 
     expect(await screen.findByText('Brak nadchodzących rat')).toBeInTheDocument();
+    expect(await screen.findByText('Brak dywidend w tym miesiącu')).toBeInTheDocument();
     expect(await screen.findByText('Brak danych zmian dziennych')).toBeInTheDocument();
+  });
+
+  it('hides dividends widget when dividends endpoint fails', async () => {
+    mockedGetGlobalSummary.mockResolvedValue({
+      net_worth: 0,
+      total_assets: 1000,
+      total_liabilities: 0,
+      liabilities_breakdown: { short_term: 0, long_term: 0 },
+      assets_breakdown: {
+        budget_cash: 1000,
+        invest_cash: 0,
+        savings: 0,
+        bonds: 0,
+        stocks: 0,
+        ppk: 0,
+      },
+      quick_stats: {
+        free_pool: 0,
+        next_loan_installment: 0,
+        next_loan_date: null,
+      },
+    });
+    mockedGetCurrentMonthDividends.mockRejectedValue(new Error('endpoint down'));
+    mockedListPortfolios.mockResolvedValue({ portfolios: [] } as never);
+
+    render(
+      <MemoryRouter>
+        <MainDashboard />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Pulpit Dowódcy' })).toBeInTheDocument();
+    expect(screen.queryByText(/Dywidendy —/)).not.toBeInTheDocument();
   });
 
   it('renders error state when API request fails', async () => {
