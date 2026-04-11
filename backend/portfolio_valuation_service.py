@@ -237,7 +237,9 @@ class PortfolioValuationService(PortfolioCoreService):
         ticker_context_state = defaultdict(lambda: {'open_qty': 0.0, 'realized_profit': 0.0})
         for tx in tx_rows:
             ticker = tx['ticker']
-            context_key = (ticker, tx['sub_portfolio_id'])
+            raw_sub = tx['sub_portfolio_id']
+            normalized_sub = None if (raw_sub is None or raw_sub == 0) else raw_sub
+            context_key = (ticker, normalized_sub)
             tx_type = tx['type']
             quantity = float(tx['quantity'] or 0.0)
             state = ticker_context_state[context_key]
@@ -381,7 +383,8 @@ class PortfolioValuationService(PortfolioCoreService):
                 h_dict['realized_profit'],
                 currency,
             )
-            if h_dict['break_even_sell_price_pln'] is not None and fx_rate:
+            currency = (h_dict.get('currency') or 'PLN').upper()
+            if h_dict['break_even_sell_price_pln'] is not None and fx_rate and (currency == 'PLN' or fx_rate != 1.0):
                 h_dict['break_even_sell_price_native'] = h_dict['break_even_sell_price_pln'] / fx_rate
             else:
                 h_dict['break_even_sell_price_native'] = None
