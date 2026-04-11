@@ -8,6 +8,21 @@ from datetime import date, datetime
 
 dashboard_bp = Blueprint('dashboard_bp', __name__)
 
+POLISH_MONTHS = {
+    1: "Styczeń",
+    2: "Luty",
+    3: "Marzec",
+    4: "Kwiecień",
+    5: "Maj",
+    6: "Czerwiec",
+    7: "Lipiec",
+    8: "Sierpień",
+    9: "Wrzesień",
+    10: "Październik",
+    11: "Listopad",
+    12: "Grudzień",
+}
+
 @dashboard_bp.route('/global-summary', methods=['GET'])
 def global_summary():
     db = get_db()
@@ -143,5 +158,72 @@ def global_summary():
             "next_loan_installment": round(next_installment_amount, 2),
             "next_loan_date": next_installment_date.isoformat() if next_installment_date else None
         }
+    }
+    return success_response(payload)
+
+
+@dashboard_bp.route('/dividends/current-month', methods=['GET'])
+def current_month_dividends():
+    db = get_db()
+    today = date.today()
+    current_month = today.strftime('%Y-%m')
+
+    received_row = db.execute(
+        """
+        SELECT COALESCE(SUM(amount), 0) AS received_this_month
+        FROM dividends
+        WHERE strftime('%Y-%m', date) = ?
+        """,
+        (current_month,),
+    ).fetchone()
+    received_this_month = float(received_row['received_this_month'] or 0.0)
+
+    expected_row = db.execute(
+        """
+        SELECT COALESCE(
+            SUM(
+                COALESCE(h.quantity, 0)
+                * COALESCE(rc.price, 0)
+                * (COALESCE(rc.dividend_yield, 0) / 100.0)
+                / 12.0
+            ),
+            0
+        ) AS expected_this_month
+        FROM holdings h
+        JOIN radar_cache rc ON rc.ticker = h.ticker
+        WHERE strftime('%Y-%m', rc.ex_dividend_date) = ?
+          AND COALESCE(h.quantity, 0) > 0
+        """,
+        (current_month,),
+    ).fetchone()
+    expected_this_month = float(expected_row['expected_this_month'] or 0.0)
+
+    top_payers_rows = db.execute(
+        """
+        SELECT
+            ticker,
+            SUM(amount) AS amount,
+            MAX(date) AS date
+        FROM dividends
+        WHERE strftime('%Y-%m', date) = ?
+        GROUP BY ticker
+        ORDER BY amount DESC
+        LIMIT 3
+        """,
+        (current_month,),
+    ).fetchall()
+
+    payload = {
+        "received_this_month": round(received_this_month, 2),
+        "expected_this_month": round(expected_this_month, 2),
+        "month_label": f"{POLISH_MONTHS[today.month]} {today.year}",
+        "top_payers": [
+            {
+                "ticker": row["ticker"],
+                "amount": round(float(row["amount"] or 0.0), 2),
+                "date": row["date"],
+            }
+            for row in top_payers_rows
+        ],
     }
     return success_response(payload)
