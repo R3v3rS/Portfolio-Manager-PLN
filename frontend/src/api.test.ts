@@ -46,6 +46,40 @@ describe('portfolioApi + helpers', () => {
     expect(getMock).toHaveBeenCalledWith('/history/monthly/7', { params: { benchmark: 'SP500' } });
   });
 
+  it('normalizes holdings including break-even fields', async () => {
+    const { portfolioApi } = await import('./api');
+    getMock.mockResolvedValueOnce({
+      holdings: [{
+        id: '1',
+        portfolio_id: '2',
+        ticker: 'AAPL',
+        quantity: '3',
+        average_buy_price: '100',
+        total_cost: '300',
+        break_even_sell_price_pln: '95.5',
+        break_even_sell_price_native: '24.1',
+      }, {
+        id: '2',
+        portfolio_id: '2',
+        ticker: 'MSFT',
+        quantity: '1',
+        average_buy_price: '50',
+        total_cost: '50',
+        break_even_sell_price_pln: null,
+      }],
+    });
+
+    const holdings = await portfolioApi.getHoldings(2);
+    expect(holdings[0]).toMatchObject({
+      break_even_sell_price_pln: 95.5,
+      break_even_sell_price_native: 24.1,
+    });
+    expect(holdings[1]).toMatchObject({
+      break_even_sell_price_pln: null,
+      break_even_sell_price_native: null,
+    });
+  });
+
   it.each([400, 401, 403, 404, 409, 422, 500])('normalizeXtbImportError keeps error envelope shape for status %s', async (status) => {
     const { normalizeXtbImportError } = await import('./api');
     const error = new HttpError('Import failed', status, {

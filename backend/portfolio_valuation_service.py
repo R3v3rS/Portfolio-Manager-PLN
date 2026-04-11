@@ -218,7 +218,7 @@ class PortfolioValuationService(PortfolioCoreService):
     def _get_open_cycle_realized_profit_map(portfolio_id, sub_portfolio_id=None, aggregate=True):
         db = get_db()
         query = '''
-            SELECT ticker, type, quantity, realized_profit, date, id
+            SELECT ticker, type, quantity, realized_profit, date, id, sub_portfolio_id
             FROM transactions
             WHERE portfolio_id = ?
               AND type IN ('BUY', 'SELL')
@@ -234,12 +234,15 @@ class PortfolioValuationService(PortfolioCoreService):
         query += ' ORDER BY date ASC, id ASC'
         tx_rows = db.execute(query, tuple(params)).fetchall()
 
-        ticker_state = defaultdict(lambda: {'open_qty': 0.0, 'realized_profit': 0.0})
+        ticker_context_state = defaultdict(lambda: {'open_qty': 0.0, 'realized_profit': 0.0})
         for tx in tx_rows:
             ticker = tx['ticker']
+            raw_sub = tx['sub_portfolio_id']
+            normalized_sub = None if (raw_sub is None or raw_sub == 0) else raw_sub
+            context_key = (ticker, normalized_sub)
             tx_type = tx['type']
             quantity = float(tx['quantity'] or 0.0)
-            state = ticker_state[ticker]
+            state = ticker_context_state[context_key]
 
             if tx_type == 'BUY':
                 if state['open_qty'] <= 1e-9:
@@ -255,11 +258,30 @@ class PortfolioValuationService(PortfolioCoreService):
                 if state['open_qty'] <= 1e-9:
                     state['realized_profit'] = 0.0
 
-        return {
-            ticker: float(state['realized_profit'])
-            for ticker, state in ticker_state.items()
-            if state['open_qty'] > 1e-9
-        }
+        if not aggregate:
+            return {
+                ticker: float(state['realized_profit'])
+                for (ticker, _), state in ticker_context_state.items()
+                if state['open_qty'] > 1e-9
+            }
+
+        by_ticker = defaultdict(float)
+        for (ticker, _), state in ticker_context_state.items():
+            if state['open_qty'] > 1e-9:
+                by_ticker[ticker] += float(state['realized_profit'])
+        return dict(by_ticker)
+
+    @staticmethod
+    def _calculate_break_even_sell_price_pln(quantity, total_cost, realized_profit, currency):
+        qty = float(quantity or 0.0)
+        if qty <= 1e-9:
+            return None
+        target_net_proceeds = float(total_cost or 0.0) - float(realized_profit or 0.0)
+        fee_multiplier = 1.0 - PortfolioTradeService.FX_FEE_RATE if (currency or 'PLN').upper() != 'PLN' else 1.0
+        if fee_multiplier <= 1e-9:
+            return None
+        gross_proceeds = target_net_proceeds / fee_multiplier
+        return max(0.0, gross_proceeds / qty)
 
     @staticmethod
     def get_holdings(portfolio_id, force_price_refresh=False, sub_portfolio_id=None, aggregate=True):
@@ -355,6 +377,17 @@ class PortfolioValuationService(PortfolioCoreService):
             h_dict['profit_loss'] = h_dict['current_value'] - h_dict['total_cost']
             h_dict['profit_loss_percent'] = (h_dict['profit_loss'] / h_dict['total_cost'] * 100) if h_dict['total_cost'] != 0 else 0.0
             h_dict['realized_profit'] = open_cycle_realized_profit_by_ticker.get(h_dict['ticker'], 0.0)
+            h_dict['break_even_sell_price_pln'] = PortfolioValuationService._calculate_break_even_sell_price_pln(
+                h_dict['quantity'],
+                h_dict['total_cost'],
+                h_dict['realized_profit'],
+                currency,
+            )
+            currency = (h_dict.get('currency') or 'PLN').upper()
+            if h_dict['break_even_sell_price_pln'] is not None and fx_rate and (currency == 'PLN' or fx_rate != 1.0):
+                h_dict['break_even_sell_price_native'] = h_dict['break_even_sell_price_pln'] / fx_rate
+            else:
+                h_dict['break_even_sell_price_native'] = None
             holdings_value += h_dict['current_value']
             results.append(h_dict)
 
