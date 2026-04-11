@@ -71,6 +71,8 @@ export interface Holding {
   current_value?: number;
   profit_loss?: number;
   realized_profit?: number;
+  break_even_sell_price_pln?: number | null;
+  break_even_sell_price_native?: number | null;
   profit_loss_percent?: number;
   weight_percent?: number;
   company_name?: string;
