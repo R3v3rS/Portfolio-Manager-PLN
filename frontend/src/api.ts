@@ -316,6 +316,7 @@ const normalizeHolding = (value: unknown): Holding => {
     fx_rate_used: source.fx_rate_used == null ? undefined : toNumber(source.fx_rate_used),
     currency: typeof source.currency === 'string' ? source.currency : undefined,
     price_last_updated_at: source.price_last_updated_at == null ? null : toString(source.price_last_updated_at),
+    change_1d_percent: source.change_1d_percent == null ? undefined : toNumber(source.change_1d_percent),
   };
 };
 

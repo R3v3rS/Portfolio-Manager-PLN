@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { dashboardApi, EMPTY_GLOBAL_SUMMARY, type GlobalSummary } from '../api_dashboard';
+import { portfolioApi } from '../api';
 import { extractErrorMessageFromUnknown } from '../http/response';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
 import { cn } from '../lib/utils';
 import AuditConsistencyPanel from '../components/AuditConsistencyPanel';
+import type { Holding } from '../types';
 
 const MainDashboard: React.FC = () => {
   const [data, setData] = useState<GlobalSummary>(EMPTY_GLOBAL_SUMMARY);
+  const [allHoldings, setAllHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,12 +19,23 @@ const MainDashboard: React.FC = () => {
     const fetchData = async () => {
       try {
         const summary = await dashboardApi.getGlobalSummary();
+        const allPortfolios = await portfolioApi.list();
+        const holdingsPerPortfolio = await Promise.all(
+          allPortfolios.portfolios
+            .filter(p => ['STANDARD', 'IKE'].includes(p.account_type))
+            .map(p => portfolioApi.getHoldings(p.id))
+        );
+        const flattenedHoldings = holdingsPerPortfolio
+          .flat()
+          .filter(h => h.quantity >= 0.000001 && (h.current_value ?? 0) >= 1);
         setData(summary);
+        setAllHoldings(flattenedHoldings);
         setError(null);
       } catch (err) {
         console.error(err);
         setError(extractErrorMessageFromUnknown(err));
         setData(EMPTY_GLOBAL_SUMMARY);
+        setAllHoldings([]);
       } finally {
         setLoading(false);
       }
@@ -43,6 +57,32 @@ const MainDashboard: React.FC = () => {
 
   const netWorthShortTermOnly = data.total_assets - data.liabilities_breakdown.short_term;
   const netWorthAllLiabilities = data.total_assets - (data.liabilities_breakdown.short_term + data.liabilities_breakdown.long_term);
+  const holdingsWithDailyChange = allHoldings.filter((h) => h.change_1d_percent !== undefined && h.change_1d_percent !== 0);
+  const hasDailyChangeData = holdingsWithDailyChange.length > 0;
+  const topGainers = [...holdingsWithDailyChange]
+    .sort((a, b) => (b.change_1d_percent ?? 0) - (a.change_1d_percent ?? 0))
+    .slice(0, 3);
+  const topLosers = [...holdingsWithDailyChange]
+    .sort((a, b) => (a.change_1d_percent ?? 0) - (b.change_1d_percent ?? 0))
+    .slice(0, 3);
+
+  const renderMovers = (holdings: Holding[], colorClass: 'text-green-600' | 'text-red-600', icon: string) => {
+    return holdings.map((holding) => (
+      <div key={`${holding.portfolio_id}-${holding.ticker}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-2">
+        <div>{icon}</div>
+        <div className="min-w-0">
+          <div className="font-mono font-bold text-gray-900 truncate">{holding.ticker}</div>
+          <div className={cn('text-sm font-semibold', colorClass)}>
+            {(holding.change_1d_percent ?? 0) > 0 ? '+' : ''}
+            {(holding.change_1d_percent ?? 0).toFixed(2)}%
+          </div>
+        </div>
+        <div className="text-sm text-gray-500 text-right">
+          {(holding.current_value ?? 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
+        </div>
+      </div>
+    ));
+  };
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -183,6 +223,24 @@ const MainDashboard: React.FC = () => {
               )}
            </div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Dzisiejsze ruchy</h3>
+        {hasDailyChangeData ? (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Gainers</h4>
+              <div className="space-y-1">{renderMovers(topGainers, 'text-green-600', '🟢')}</div>
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Losers</h4>
+              <div className="space-y-1">{renderMovers(topLosers, 'text-red-600', '🔴')}</div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">Brak danych zmian dziennych</p>
+        )}
       </div>
 
       <AuditConsistencyPanel />

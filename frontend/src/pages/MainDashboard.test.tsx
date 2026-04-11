@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import MainDashboard from './MainDashboard';
 import { dashboardApi } from '../api_dashboard';
+import { portfolioApi } from '../api';
 import { vi } from 'vitest';
 
 vi.mock('../api_dashboard', async () => {
@@ -18,6 +19,13 @@ vi.mock('../components/AuditConsistencyPanel', () => ({
   default: () => <section>Audit Panel</section>,
 }));
 
+vi.mock('../api', () => ({
+  portfolioApi: {
+    list: vi.fn(),
+    getHoldings: vi.fn(),
+  },
+}));
+
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: unknown }) => <div>{children as never}</div>,
   PieChart: ({ children }: { children: unknown }) => <div>{children as never}</div>,
@@ -28,10 +36,20 @@ vi.mock('recharts', () => ({
 }));
 
 const mockedGetGlobalSummary = vi.mocked(dashboardApi.getGlobalSummary);
+const mockedListPortfolios = vi.mocked(portfolioApi.list);
+const mockedGetHoldings = vi.mocked(portfolioApi.getHoldings);
 
 describe('MainDashboard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedListPortfolios.mockResolvedValue({ portfolios: [] } as never);
+    mockedGetHoldings.mockResolvedValue([]);
+  });
+
   it('renders loading state before data is loaded', async () => {
     mockedGetGlobalSummary.mockReturnValue(new Promise(() => undefined));
+    mockedListPortfolios.mockResolvedValue({ portfolios: [] });
+    mockedGetHoldings.mockResolvedValue([]);
 
     render(
       <MemoryRouter>
@@ -62,6 +80,12 @@ describe('MainDashboard', () => {
         next_loan_date: '2026-03-15',
       },
     });
+    mockedListPortfolios.mockResolvedValue({
+      portfolios: [{ id: 1, account_type: 'STANDARD' }],
+    } as never);
+    mockedGetHoldings.mockResolvedValue([
+      { id: 1, portfolio_id: 1, ticker: 'CDR.WA', quantity: 1, average_buy_price: 100, total_cost: 100, current_value: 123.45, change_1d_percent: 3.24 },
+    ] as never);
 
     render(
       <MemoryRouter>
@@ -76,6 +100,8 @@ describe('MainDashboard', () => {
     expect((await screen.findAllByText(/1.*567,89 PLN/)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/76.*543,21/)).toBeInTheDocument();
     expect(await screen.findByText('Termin: 15.03.2026')).toBeInTheDocument();
+    expect(await screen.findByText('Dzisiejsze ruchy')).toBeInTheDocument();
+    expect(await screen.findByText('CDR.WA')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Zarządzaj Portfelami/ })).toBeInTheDocument();
   });
 
@@ -99,6 +125,10 @@ describe('MainDashboard', () => {
         next_loan_date: null,
       },
     });
+    mockedListPortfolios.mockResolvedValue({ portfolios: [{ id: 1, account_type: 'STANDARD' }] } as never);
+    mockedGetHoldings.mockResolvedValue([
+      { id: 1, portfolio_id: 1, ticker: 'AAA', quantity: 1, average_buy_price: 100, total_cost: 100, current_value: 100, change_1d_percent: 0 },
+    ] as never);
 
     render(
       <MemoryRouter>
@@ -107,10 +137,13 @@ describe('MainDashboard', () => {
     );
 
     expect(await screen.findByText('Brak nadchodzących rat')).toBeInTheDocument();
+    expect(await screen.findByText('Brak danych zmian dziennych')).toBeInTheDocument();
   });
 
   it('renders error state when API request fails', async () => {
     mockedGetGlobalSummary.mockRejectedValue(new Error('Błąd pobierania dashboardu'));
+    mockedListPortfolios.mockResolvedValue({ portfolios: [] });
+    mockedGetHoldings.mockResolvedValue([]);
 
     render(
       <MemoryRouter>

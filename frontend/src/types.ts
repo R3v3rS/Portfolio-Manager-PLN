@@ -82,6 +82,7 @@ export interface Holding {
   fx_rate_used?: number;
   currency?: string;
   price_last_updated_at?: string | null;
+  change_1d_percent?: number;
 }
 
 export interface PortfolioValue {
