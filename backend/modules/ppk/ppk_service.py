@@ -10,6 +10,7 @@ from .ppk_calculation import PPKCalculation
 from .ppk_dto import PPKSummaryDTO
 
 PPK_PRICE_URL = 'https://mojefundusze.pl/Fundusze/PPK/Nationale-Nederlanden-DFE-Nasze-Jutro-2055-PPK'
+PPK_BIZNESRADAR_HISTORY_URL = 'https://www.biznesradar.pl/notowania-historyczne/NNDN55.TFI'
 
 def _to_decimal(value) -> Decimal:
     return Decimal(str(value or 0))
@@ -18,6 +19,23 @@ def _q(value: Decimal, places: str = '0.01') -> float:
     return float(value.quantize(Decimal(places), rounding=ROUND_HALF_UP))
 
 class PPKService:
+    @staticmethod
+    def _parse_biznesradar_history(html: str) -> list[dict]:
+        rows = re.findall(
+            r'(\d{2}\.\d{2}\.\d{4})\s*</td>\s*<td[^>]*>\s*([0-9]+(?:[.,][0-9]+)?)',
+            html,
+            re.IGNORECASE,
+        )
+        parsed: list[dict] = []
+        for date_pl, price_raw in rows:
+            day, month, year = date_pl.split('.')
+            iso_date = f'{year}-{month}-{day}'
+            parsed.append({
+                'date': iso_date,
+                'price': float(price_raw.replace(',', '.')),
+            })
+        return parsed
+
     @staticmethod
     def _iso_week_key(date_str: str) -> tuple:
         dt = date.fromisoformat(date_str)
@@ -63,6 +81,35 @@ class PPKService:
 
     @staticmethod
     def fetch_daily_history(fund_id: str) -> list[dict]:
+        history_by_date: dict[str, float] = {}
+
+        # Primary source: BiznesRadar historical table (supports pagination via ",<page>").
+        try:
+            for page in range(1, 40):
+                page_url = PPK_BIZNESRADAR_HISTORY_URL if page == 1 else f'{PPK_BIZNESRADAR_HISTORY_URL},{page}'
+                request = Request(
+                    page_url,
+                    headers={
+                        'User-Agent': 'Mozilla/5.0',
+                        'Accept': 'text/html',
+                    },
+                )
+                with urlopen(request, timeout=10) as response:
+                    html = response.read().decode('utf-8', errors='ignore')
+                    parsed_page = PPKService._parse_biznesradar_history(html)
+                    if not parsed_page:
+                        break
+                    for entry in parsed_page:
+                        history_by_date[entry['date']] = entry['price']
+        except Exception as e:
+            print(f"Error fetching BiznesRadar daily history: {e}")
+
+        if history_by_date:
+            history = [{'date': dt, 'price': price} for dt, price in history_by_date.items()]
+            history.sort(key=lambda x: x['date'])
+            return history
+
+        # Fallback source: mojefundusze JSON endpoint.
         url = f'https://mojefundusze.pl/inc/wykres_small.php?ID={fund_id}&OK=9'
         request = Request(
             url,
@@ -71,22 +118,17 @@ class PPKService:
                 'Accept': 'application/json',
             },
         )
-
         try:
             with urlopen(request, timeout=10) as response:
                 raw_data = response.read().decode('utf-8', errors='ignore')
                 parsed = json.loads(raw_data)
-                
-                # Check if we have the expected structure
                 if 'series' not in parsed or not parsed['series']:
                     return []
-                
                 data_points = parsed['series'][0].get('data', [])
                 history = []
                 for point in data_points:
                     if len(point) == 2:
                         history.append({'date': point[0], 'price': float(point[1])})
-                
                 history.sort(key=lambda x: x['date'])
                 return history
         except Exception as e:
