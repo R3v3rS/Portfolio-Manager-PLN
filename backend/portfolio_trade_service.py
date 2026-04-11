@@ -1,8 +1,10 @@
+import sqlite3
+
 from price_service import PriceService
 from database import get_db
 from datetime import datetime, date
 from portfolio_core_service import PortfolioCoreService
-from api.exceptions import ApiError
+from api.exceptions import ApiError, ValidationError
 
 
 class PortfolioTradeService(PortfolioCoreService):
@@ -143,6 +145,8 @@ class PortfolioTradeService(PortfolioCoreService):
     def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False, sub_portfolio_id=None):
         db = get_db()
         try:
+            db.execute('BEGIN IMMEDIATE')
+
             # If sub_portfolio_id is provided, validate it belongs to the parent
             if sub_portfolio_id:
                 child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
@@ -151,8 +155,10 @@ class PortfolioTradeService(PortfolioCoreService):
                 if child['is_archived']:
                     raise ValueError("Cannot record buy for an archived sub-portfolio")
 
-            existing_holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'), 
-                                         (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)).fetchone()
+            existing_holding = db.execute(
+                'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ?',
+                (portfolio_id, ticker, sub_portfolio_id),
+            ).fetchone()
             
             # Determine instrument currency (pobranie z symbol_mappings lub metadata)
             instrument_currency = None
@@ -194,50 +200,46 @@ class PortfolioTradeService(PortfolioCoreService):
                    (portfolio_id, ticker, type, quantity, price, total_value, date, commission, sub_portfolio_id) 
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, ticker, 'BUY', quantity, unit_price_pln, total_cost, purchase_date, total_commission, sub_portfolio_id))
             
-            holding = existing_holding
-            if holding:
-                new_quantity = holding['quantity'] + quantity
-                new_total_cost = holding['total_cost'] + total_cost
-                new_avg_price = new_total_cost / new_quantity
-                
-                # Update existing holding including technical columns if they were missing or need sync
-                db.execute('''UPDATE holdings 
-                       SET quantity = ?, total_cost = ?, average_buy_price = ?, auto_fx_fees = ?, currency = ?,
-                           instrument_currency = ?, avg_buy_price_native = ?, avg_buy_fx_rate = ?
-                       WHERE id = ?''', (
-                           new_quantity, 
-                           new_total_cost, 
-                           new_avg_price, 
-                           1 if (auto_fx_fees or currency != 'PLN') else holding['auto_fx_fees'], 
-                           currency,
-                           holding['instrument_currency'] or instrument_currency,
-                           holding['avg_buy_price_native'] or new_avg_price, # Default to PLN price if native is missing
-                           holding['avg_buy_fx_rate'] or 1.0,                 # Default to 1.0 if FX rate is missing
-                           holding['id']
-                       ))
-                PortfolioTradeService._assert_holding_consistency(db, holding['id'])
-            else:
-                # INSERT new holding with all technical columns to avoid NOT NULL constraint errors
-                avg_price = total_cost / quantity
-                inserted = db.execute('''INSERT INTO holdings 
-                       (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, sub_portfolio_id,
-                        instrument_currency, avg_buy_price_native, avg_buy_fx_rate) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
-                           portfolio_id, 
-                           ticker, 
-                           quantity, 
-                           avg_price, 
-                           total_cost, 
-                           1 if (auto_fx_fees or currency != 'PLN') else 0, 
-                           currency, 
-                           sub_portfolio_id,
-                           instrument_currency, # Waluta instrumentu (np. USD)
-                           avg_price,           # Domyślnie cena w PLN jako native (brak FX w tym kontekście)
-                           1.0                  # Domyślny kurs FX = 1.0
-                       ))
-                PortfolioTradeService._assert_holding_consistency(db, inserted.lastrowid)
+            avg_price = total_cost / quantity
+            db.execute('''INSERT OR IGNORE INTO holdings
+                   (portfolio_id, ticker, quantity, average_buy_price, total_cost, auto_fx_fees, currency, sub_portfolio_id,
+                    instrument_currency, avg_buy_price_native, avg_buy_fx_rate)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                       portfolio_id,
+                       ticker,
+                       0,
+                       avg_price,
+                       0,
+                       1 if (auto_fx_fees or currency != 'PLN') else 0,
+                       currency,
+                       sub_portfolio_id,
+                       instrument_currency,
+                       avg_price,
+                       1.0,
+                   ))
+            db.execute('''UPDATE holdings
+                   SET quantity = quantity + ?,
+                       total_cost = total_cost + ?,
+                       average_buy_price = (total_cost + ?) / (quantity + ?)
+                   WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ?''', (
+                       quantity,
+                       total_cost,
+                       total_cost,
+                       quantity,
+                       portfolio_id,
+                       ticker,
+                       sub_portfolio_id,
+                   ))
+            holding = db.execute(
+                'SELECT id FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ?',
+                (portfolio_id, ticker, sub_portfolio_id),
+            ).fetchone()
+            PortfolioTradeService._assert_holding_consistency(db, holding['id'] if holding else None)
             db.commit()
             return True
+        except sqlite3.IntegrityError as e:
+            db.rollback()
+            raise ValidationError(f"Concurrent buy conflict for {ticker}: {str(e)}") from e
         except Exception as e:
             db.rollback()
             raise e
