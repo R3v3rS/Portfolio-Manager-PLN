@@ -399,6 +399,11 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 },
             ),
             ('/api/dashboard/global-summary', 'GET'): lambda: self.client.get('/api/dashboard/global-summary'),
+            ('/api/analytics/summary', 'GET'): lambda: self.client.get('/api/analytics/summary?portfolio_id=1'),
+            ('/api/ai/portfolio-analysis', 'POST'): lambda: self.client.post(
+                '/api/ai/portfolio-analysis',
+                json={'portfolio_id': 1, 'question': 'test'},
+            ),
             ('/api/loans/', 'GET'): lambda: self.client.get('/api/loans/'),
             ('/api/loans/', 'POST'): lambda: self.client.post(
                 '/api/loans/',
@@ -447,6 +452,35 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 f'/api/portfolio/{self.portfolio_id}/import/xtb',
                 data={},
                 content_type='multipart/form-data',
+            ),
+            ('/api/portfolio/import/staging', 'POST'): lambda: self.client.post(
+                '/api/portfolio/import/staging',
+                data={
+                    'portfolio_id': self.portfolio_id,
+                    'file': (io.BytesIO(b'Symbol,Open time,Type,Volume,Price\nAAPL.US,2026-03-01 10:00:00,buy,1,100\n'), 'staging.csv'),
+                },
+                content_type='multipart/form-data',
+            ),
+            ('/api/portfolio/import/staging/<session_id>', 'GET'): lambda: self.client.get(
+                '/api/portfolio/import/staging/non-existent-session'
+            ),
+            ('/api/portfolio/import/staging/<session_id>/rows/<int:row_id>/assign', 'PUT'): lambda: self.client.put(
+                '/api/portfolio/import/staging/non-existent-session/rows/1/assign',
+                json={'target_sub_portfolio_id': child_portfolio_id},
+            ),
+            ('/api/portfolio/import/staging/<session_id>/assign-all', 'PUT'): lambda: self.client.put(
+                '/api/portfolio/import/staging/non-existent-session/assign-all',
+                json={'target_sub_portfolio_id': child_portfolio_id},
+            ),
+            ('/api/portfolio/import/staging/<session_id>/rows/<int:row_id>', 'DELETE'): lambda: self.client.delete(
+                '/api/portfolio/import/staging/non-existent-session/rows/1'
+            ),
+            ('/api/portfolio/import/staging/<session_id>/book', 'POST'): lambda: self.client.post(
+                '/api/portfolio/import/staging/non-existent-session/book',
+                json={'confirmed_row_ids': [1]},
+            ),
+            ('/api/portfolio/import/staging/<session_id>', 'DELETE'): lambda: self.client.delete(
+                '/api/portfolio/import/staging/non-existent-session'
             ),
             ('/api/portfolio/<int:portfolio_id>/performance', 'GET'): lambda: self.client.get(
                 f'/api/portfolio/{self.portfolio_id}/performance'
