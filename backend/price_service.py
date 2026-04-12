@@ -778,6 +778,7 @@ class PriceService:
             message=f"Syncing history from {fetch_start.isoformat()}",
         )
 
+        inserted_rows = 0
         try:
             # 3. Fetch from yfinance (with retry)
             # Use fetch_start to today
@@ -824,7 +825,6 @@ class PriceService:
 
             # 4. Save to DB (duplicate-safe)
             cursor = db.cursor()
-            inserted_rows = 0
             for timestamp, row in data.iterrows():
                 price_date = timestamp.date() if hasattr(timestamp, 'date') else pd.to_datetime(timestamp).date()
                 price = cls._safe_float_from_value(row.get('Close'))
@@ -874,6 +874,24 @@ class PriceService:
             'SELECT MAX(date) as max_date FROM stock_prices WHERE ticker = ?',
             (ticker,)
         ).fetchone()
+
+        try:
+            if inserted_rows > 0:
+                anomalies = cls.audit_price_history_quality(
+                    days=30,
+                    jump_threshold_percent=25.0,
+                    refresh_flagged=False,
+                    delete_flagged=True
+                )
+                if anomalies.get('flagged_count', 0) > 0:
+                    logger.warning(
+                        "Price anomalies auto-deleted for %s: %s entries",
+                        ticker,
+                        anomalies['flagged_count']
+                    )
+        except Exception as audit_exc:
+            logger.warning("Price audit failed for %s: %s", ticker, audit_exc)
+
         return new_max['max_date']
 
     @classmethod

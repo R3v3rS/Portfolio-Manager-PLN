@@ -249,8 +249,9 @@ class PortfolioImportService(PortfolioCoreService):
             tx_ticker = ticker or 'CASH'
             tx_qty = 1.0
             tx_total = abs(amount)
-            if tx_total < 0:
-                raise ValueError(f"Transaction total must be non-negative, got: {tx_total} for row {idx + 1}")
+            # abs() gwarantuje non-negative, walidacja poniżej jest defensive check
+            if not isinstance(tx_total, (int, float)) or tx_total != tx_total:  # NaN check
+                raise ValueError(f"Invalid transaction amount at row {idx + 1}")
             logger.debug(
                 "Prepared transaction values row=%s typ=%s amount=%s tx_total=%s",
                 idx + 1,
@@ -357,8 +358,14 @@ class PortfolioImportService(PortfolioCoreService):
         from collections import Counter
         confirmed_counts = Counter(confirmed_list)
         
-        # Sprawdzamy czy wszystkie konflikty zostały potwierdzone (tylko jeśli confirmed_hashes jest None)
-        unconfirmed_conflicts = [c for c in potential_conflicts if confirmed_hashes is None]
+        confirmed_set = set(confirmed_hashes) if confirmed_hashes is not None else None
+        if confirmed_set is None:
+            unconfirmed_conflicts = potential_conflicts
+        else:
+            unconfirmed_conflicts = [
+                c for c in potential_conflicts
+                if c['row_hash'] not in confirmed_set
+            ]
         
         if unconfirmed_conflicts:
             return {
