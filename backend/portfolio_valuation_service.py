@@ -486,14 +486,26 @@ class PortfolioValuationService(PortfolioCoreService):
                 ppk_summary = PPKService.get_portfolio_summary(p_id, current_price)
                 net_contributions += float(ppk_summary['totalPurchaseValue'])
             else:
-                flows = db.execute(
-                    '''SELECT
-                        COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN total_value ELSE 0 END), 0) AS deposits,
-                        COALESCE(SUM(CASE WHEN type = 'WITHDRAW' THEN total_value ELSE 0 END), 0) AS withdrawals
-                    FROM transactions
-                    WHERE portfolio_id = ?''',
-                    (p_id,)
-                ).fetchone()
+                if p.get('parent_portfolio_id'):
+                    # To jest dziecko — transakcje są pod parent_id
+                    flows = db.execute(
+                        '''SELECT
+                            COALESCE(SUM(CASE WHEN type='DEPOSIT' THEN total_value ELSE 0 END),0) AS deposits,
+                            COALESCE(SUM(CASE WHEN type='WITHDRAW' THEN total_value ELSE 0 END),0) AS withdrawals
+                        FROM transactions
+                        WHERE portfolio_id = ? AND sub_portfolio_id = ?''',
+                        (p['parent_portfolio_id'], p_id)
+                    ).fetchone()
+                else:
+                    # To jest rodzic — tylko jego własne (sub_portfolio_id IS NULL)
+                    flows = db.execute(
+                        '''SELECT
+                            COALESCE(SUM(CASE WHEN type='DEPOSIT' THEN total_value ELSE 0 END),0) AS deposits,
+                            COALESCE(SUM(CASE WHEN type='WITHDRAW' THEN total_value ELSE 0 END),0) AS withdrawals
+                        FROM transactions
+                        WHERE portfolio_id = ? AND sub_portfolio_id IS NULL''',
+                        (p_id,)
+                    ).fetchone()
                 net_contributions += float(flows['deposits']) - float(flows['withdrawals'])
 
         total_result = total_value - net_contributions
