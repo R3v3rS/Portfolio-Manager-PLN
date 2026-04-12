@@ -128,7 +128,18 @@ class PortfolioHistoryService(PortfolioCoreService):
         db = get_db()
         ticker_currency: dict[str, str] = {}
         # Fetch current holdings to get currencies
-        holding_rows = db.execute('SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL', (portfolio_id,)).fetchall()
+        scope = db.execute(
+            'SELECT id, parent_portfolio_id FROM portfolios WHERE id = ?',
+            (portfolio_id,)
+        ).fetchone()
+        holdings_portfolio_id = portfolio_id
+        if scope and scope['parent_portfolio_id']:
+            holdings_portfolio_id = scope['parent_portfolio_id']
+
+        holding_rows = db.execute(
+            'SELECT DISTINCT ticker, currency FROM holdings WHERE portfolio_id = ? AND ticker IS NOT NULL',
+            (holdings_portfolio_id,)
+        ).fetchall()
         for row in holding_rows:
             if row['ticker'] and row['ticker'] != 'CASH':
                 ticker = row['ticker']
@@ -175,6 +186,13 @@ class PortfolioHistoryService(PortfolioCoreService):
         return ticker_currency, price_history
 
     @staticmethod
+    def _sql_parent_scope_transactions():
+        return (
+            'portfolio_id = ? AND (sub_portfolio_id IS NULL OR sub_portfolio_id IN '
+            '(SELECT id FROM portfolios WHERE parent_portfolio_id = ?))'
+        )
+
+    @staticmethod
     def _calculate_historical_metrics(portfolio_id, benchmark_ticker=None):
         cache_key = (portfolio_id, benchmark_ticker)
         if cache_key in PortfolioHistoryService._metrics_cache:
@@ -195,10 +213,11 @@ class PortfolioHistoryService(PortfolioCoreService):
             tx_query = 'SELECT * FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? ORDER BY date ASC, id ASC'
             tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
         else:
-            # It's a parent - aggregate ALL transactions for this portfolio_id
+            # It's a parent - aggregate parent + children while excluding orphans
             actual_portfolio_id = portfolio['id']
-            tx_query = 'SELECT * FROM transactions WHERE portfolio_id = ? ORDER BY date ASC, id ASC'
-            tx_params = (actual_portfolio_id,)
+            parent_filter = PortfolioHistoryService._sql_parent_scope_transactions()
+            tx_query = f'SELECT * FROM transactions WHERE {parent_filter} ORDER BY date ASC, id ASC'
+            tx_params = (actual_portfolio_id, actual_portfolio_id)
 
         transactions = db.execute(tx_query, tx_params).fetchall()
         if not transactions:
@@ -397,10 +416,11 @@ class PortfolioHistoryService(PortfolioCoreService):
             tx_query = 'SELECT id, ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? ORDER BY date ASC, id ASC'
             tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
         else:
-            # It's a parent - aggregate ALL transactions for this portfolio_id
+            # It's a parent - aggregate parent + children while excluding orphans
             actual_portfolio_id = portfolio['id']
-            tx_query = 'SELECT id, ticker, type, quantity, total_value, date FROM transactions WHERE portfolio_id = ? ORDER BY date ASC, id ASC'
-            tx_params = (actual_portfolio_id,)
+            parent_filter = PortfolioHistoryService._sql_parent_scope_transactions()
+            tx_query = f'SELECT id, ticker, type, quantity, total_value, date FROM transactions WHERE {parent_filter} ORDER BY date ASC, id ASC'
+            tx_params = (actual_portfolio_id, actual_portfolio_id)
 
         transactions = db.execute(tx_query, tx_params).fetchall()
         if not transactions:
