@@ -278,6 +278,7 @@ class PortfolioTradeService(PortfolioCoreService):
         if not sell_date:
             sell_date = date.today().isoformat()
         try:
+            db.execute('BEGIN IMMEDIATE')
             target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
             db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (total_value, target_id))
             db.execute('''INSERT INTO transactions 

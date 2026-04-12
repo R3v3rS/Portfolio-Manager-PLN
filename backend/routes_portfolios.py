@@ -57,12 +57,12 @@ def list_portfolios():
     portfolios = PortfolioService.list_portfolios(include_children=include_children)
     result = []
     
-    def enrich_portfolio(p):
+    def enrich_portfolio(p, depth=0):
         value_data = PortfolioService.get_portfolio_value(p['id'])
         p.update(value_data)
-        if 'children' in p and p['children']:
+        if depth == 0 and 'children' in p and p['children']:
             for child in p['children']:
-                enrich_portfolio(child)
+                enrich_portfolio(child, depth=depth + 1)
         return p
 
     for portfolio in portfolios:
