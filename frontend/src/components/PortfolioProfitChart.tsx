@@ -11,6 +11,7 @@ import {
   Filler,
   ScriptableScaleContext,
   ScriptableContext,
+  TooltipItem,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { useTheme } from '../hooks/useTheme';
@@ -91,7 +92,7 @@ const PortfolioProfitChart: React.FC<PortfolioProfitChartProps> = ({ data, title
         display: !!title,
         text: title,
         color: colors.text,
-        font: { family: 'Inter', size: 14, weight: '500' as const }
+        font: { family: 'Inter', size: 14, weight: 500 }
       },
       tooltip: {
         backgroundColor: colors.tooltipBg,
@@ -103,7 +104,7 @@ const PortfolioProfitChart: React.FC<PortfolioProfitChartProps> = ({ data, title
         boxPadding: 6,
         usePointStyle: true,
         callbacks: {
-          label: (context: any) => {
+          label: (context: TooltipItem<'line'>) => {
             let label = context.dataset.label || '';
             if (label) {
               label += ': ';

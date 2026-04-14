@@ -9,7 +9,7 @@ import {
   Tooltip,
   Legend,
   Filler,
-  ScriptableScaleContext
+  TooltipItem,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { useTheme } from '../hooks/useTheme';
@@ -75,7 +75,7 @@ const PriceHistoryChart: React.FC<PriceHistoryChartProps> = ({ ticker, data }) =
         display: true,
         text: `Historia Wyników ${ticker}`,
         color: colors.text,
-        font: { family: 'Inter', size: 14, weight: '500' as const }
+        font: { family: 'Inter', size: 14, weight: 500 }
       },
       tooltip: {
         backgroundColor: colors.tooltipBg,
@@ -87,7 +87,7 @@ const PriceHistoryChart: React.FC<PriceHistoryChartProps> = ({ ticker, data }) =
         boxPadding: 6,
         usePointStyle: true,
         callbacks: {
-          label: (context: any) => {
+          label: (context: TooltipItem<'line'>) => {
             let label = context.dataset.label || '';
             if (label) {
               label += ': ';
@@ -115,9 +115,7 @@ const PriceHistoryChart: React.FC<PriceHistoryChartProps> = ({ ticker, data }) =
       y: {
         beginAtZero: false,
         grid: {
-          color: (context: ScriptableScaleContext) => {
-              return colors.gridLine;
-          },
+          color: () => colors.gridLine,
           drawBorder: false,
         },
         ticks: {

@@ -242,7 +242,7 @@ Max 400 słów, konkretnie, bez ogólników.
                 status=500,
             )
 
-        logger.info(f"AI: Configuring genai with key: {api_key[:5]}... (using transport='rest')")
+        logger.info("AI: Configuring genai (using transport='rest')")
         genai.configure(api_key=api_key, transport='rest')
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
 
@@ -270,7 +270,6 @@ Max 400 słów, konkretnie, bez ogólników.
             }
         )
 
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return error_response('debug_error', str(e), status=500)
+    except Exception:
+        logger.exception("AI: portfolio-analysis failed")
+        return error_response('portfolio_analysis_error', 'Internal server error', status=500)

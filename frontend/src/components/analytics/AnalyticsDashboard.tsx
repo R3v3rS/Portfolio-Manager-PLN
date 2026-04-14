@@ -19,9 +19,6 @@ const piePalette = ['#2563EB', '#16A34A', '#EAB308', '#F97316', '#7C3AED', '#14B
 
 const formatPercent = (value?: number | null) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
-  // Check if it's already a percentage (e.g. 5.0 for 5%) or a decimal (e.g. 0.05 for 5%)
-  // Typically total_return_pct is 100-based, while max_drawdown and var are 1-based decimals.
-  // In this project, performance metrics return 1-based decimals for drawdown/var.
   return `${(value * 100).toFixed(2)}%`;
 };
 
@@ -55,8 +52,8 @@ const getSharpeTone = (value?: number | null): MetricTone => {
 
 const getMaxDrawdownTone = (value?: number | null): MetricTone => {
   if (value === null || value === undefined) return 'yellow';
-  if (value > -10) return 'green';
-  if (value >= -20) return 'yellow';
+  if (value > -0.1) return 'green';
+  if (value >= -0.2) return 'yellow';
   return 'red';
 };
 
@@ -70,8 +67,8 @@ const getDiversificationTone = (value?: number | null): MetricTone => {
 const getVarTone = (value?: number | null): MetricTone => {
   if (value === null || value === undefined) return 'yellow';
   const absolute = Math.abs(value);
-  if (absolute < 1) return 'green';
-  if (absolute <= 2) return 'yellow';
+  if (absolute < 0.01) return 'green';
+  if (absolute <= 0.02) return 'yellow';
   return 'red';
 };
 

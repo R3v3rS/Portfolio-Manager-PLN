@@ -95,7 +95,7 @@ describe('PortfolioDashboard', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('No portfolios found. Create one to get started!')).toBeInTheDocument();
+    expect(await screen.findByText('Brak portfeli. Utwórz nowy, aby rozpocząć!')).toBeInTheDocument();
   });
 
   it('renders error state when dashboard fetch fails', async () => {

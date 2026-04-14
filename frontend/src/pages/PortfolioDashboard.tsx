@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart, Plus } from 'lucide-react';
-import { portfolioApi, type TaxLimitsResponse, type ConfigResponse } from '../api';
+import { portfolioApi, type TaxLimitsResponse } from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils';
 import { ChevronRight, ChevronDown, Archive } from 'lucide-react';
@@ -81,7 +81,6 @@ const PortfolioRow: React.FC<{
 const PortfolioDashboard: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [taxLimits, setTaxLimits] = useState<TaxLimitsResponse | null>(null);
-  const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -93,14 +92,12 @@ const PortfolioDashboard: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const [listRes, limitsRes, configRes] = await Promise.all([
+      const [listRes, limitsRes] = await Promise.all([
         portfolioApi.list(),
         portfolioApi.limits(),
-        portfolioApi.config()
       ]);
       setPortfolios(listRes.portfolios);
       setTaxLimits(limitsRes.limits);
-      setConfig(configRes);
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error(err);
