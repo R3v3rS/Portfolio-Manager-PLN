@@ -1449,67 +1449,67 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'holdings' && (
             <div className="space-y-6">
-              <div className="overflow-x-auto">
-                <table className="min-w-[980px] divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
+                <table className="min-w-[980px] w-full divide-y divide-gray-200 dark:divide-gray-800">
+                  <thead className="bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
                     <tr>
-                      <th className="min-w-[220px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Symbol</th>
-                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Ilość</th>
-                      <th className="min-w-[110px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Śr. Cena</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Obecna Cena</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Wartość</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Zysk/Strata</th>
-                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">PnL zrealizowany</th>
-                      <th className="min-w-[140px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Cena BE</th>
-                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Waga</th>
-                      <th className="min-w-[130px] px-3 py-3 text-center text-xs font-bold uppercase tracking-wider text-gray-700 bg-gray-100/80 border-l border-gray-200">Akcje</th>
+                      <th className="min-w-[220px] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Symbol</th>
+                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Ilość</th>
+                      <th className="min-w-[110px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Śr. Cena</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Obecna Cena</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wartość</th>
+                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Zysk/Strata</th>
+                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">PnL zrealizowany</th>
+                      <th className="min-w-[140px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Cena BE</th>
+                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Waga</th>
+                      <th className="min-w-[130px] px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 bg-gray-100/50 dark:bg-gray-800/50 border-l border-gray-200 dark:border-gray-800">Akcje</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-white dark:bg-gray-950 divide-y divide-gray-100 dark:divide-gray-800/50">
                     {holdings.map((h) => (
                       <tr 
                         key={h.ticker} 
-                        className={cn("cursor-pointer hover:bg-gray-50", selectedTicker === h.ticker && "bg-blue-50")}
+                        className={cn("cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50", selectedTicker === h.ticker && "bg-blue-50/50 dark:bg-blue-900/20")}
                         onClick={() => fetchHistory(h.ticker)}
                       >
-                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900">
+                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900 dark:text-gray-100">
                           <div className="min-w-[220px]">
                             <div className="font-bold leading-snug break-words whitespace-normal">{h.company_name || h.ticker}</div>
-                            <div className="text-xs text-gray-500 break-all sm:break-normal">{h.ticker}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 break-all sm:break-normal">{h.ticker}</div>
                             <div className="mt-1 flex flex-wrap gap-1">
                               {h.sector && h.sector !== 'Unknown' && (
-                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 whitespace-normal break-words">
-                                  🏢 {h.sector}
+                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 whitespace-normal break-words border border-blue-100 dark:border-blue-800/50">
+                                  {h.sector}
                                 </span>
                               )}
                               {h.industry && h.industry !== 'Unknown' && (
-                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800 whitespace-normal break-words">
-                                  💻 {h.industry}
+                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 whitespace-normal break-words border border-gray-200 dark:border-gray-700">
+                                  {h.industry}
                                 </span>
                               )}
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500">
+                        <td className="px-3 py-4 text-sm text-right font-medium text-gray-700 dark:text-gray-300 tabular-nums">
                           {parseFloat(Number(h.quantity).toFixed(4))}
                         </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500">{h.average_buy_price.toFixed(2)} PLN</td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">{h.average_buy_price.toFixed(2)} PLN</td>
+                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">
                           {h.current_price ? `${h.current_price.toFixed(2)} ${h.currency || 'PLN'}` : '-'}
                         </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500">
+                        <td className="px-3 py-4 text-sm text-right font-medium text-gray-900 dark:text-gray-100 tabular-nums">
                           {h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}
                         </td>
                         <td className={cn(
-                          "px-4 py-4 text-sm text-right font-medium",
-                          (h.profit_loss || 0) >= 0 ? "text-green-600" : "text-red-600"
+                          "px-4 py-4 text-sm text-right font-bold tabular-nums",
+                          (h.profit_loss || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
                         )}>
                           <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                               {h.profit_loss ? `${h.profit_loss.toFixed(2)} PLN` : '-'}
                               {h.auto_fx_fees && (
                                   <div className="group relative">
-                                      <HelpCircle className="w-3 h-3 text-gray-400 cursor-help" />
-                                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-56 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-20 text-left">
+                                      <HelpCircle className="w-3 h-3 text-gray-400 dark:text-gray-500 cursor-help" />
+                                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-56 p-2 bg-gray-900 text-white text-xs rounded shadow-lg z-20 text-left border border-gray-700">
                                           Zysk netto ("na rękę") uwzględniający szacowaną prowizję 0.5% przy sprzedaży.
                                           {h.fx_rate_used && (
                                               <div className="mt-1 text-gray-300">
@@ -1522,27 +1522,27 @@ const PortfolioDetails: React.FC = () => {
                           </div>
                         </td>
                         <td className={cn(
-                          "px-3 py-4 text-sm text-right font-medium whitespace-nowrap",
-                          (h.realized_profit || 0) >= 0 ? "text-green-600" : "text-red-600"
+                          "px-3 py-4 text-sm text-right font-bold whitespace-nowrap tabular-nums",
+                          (h.realized_profit || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
                         )}>
                           {typeof h.realized_profit === 'number' ? `${h.realized_profit.toFixed(2)} PLN` : '-'}
                         </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 whitespace-nowrap">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 whitespace-nowrap tabular-nums">
                           {typeof h.break_even_sell_price_pln === 'number'
                             ? `${h.break_even_sell_price_pln.toFixed(2)} PLN`
                             : '-'}
                         </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 font-medium">
+                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 font-medium tabular-nums">
                           {h.weight_percent ? `${h.weight_percent}%` : '-'}
                         </td>
-                        <td className="px-3 py-4 text-sm text-center font-medium bg-gray-50/30 border-l border-gray-100/50">
+                        <td className="px-3 py-4 text-sm text-center font-medium bg-gray-50/30 dark:bg-gray-900/30 border-l border-gray-100/50 dark:border-gray-800/50">
                           <div className="flex flex-wrap justify-center gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 initiateSell(h);
                               }}
-                              className="rounded-md bg-red-50 px-2.5 py-1 text-xs text-red-600 transition-colors hover:bg-red-100 hover:text-red-900 sm:px-3 sm:text-sm"
+                              className="rounded-md bg-red-50 dark:bg-red-900/20 px-2.5 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40"
                             >
                               Sprzedaj
                             </button>
@@ -1552,7 +1552,7 @@ const PortfolioDetails: React.FC = () => {
                                   e.stopPropagation();
                                   closePositionAtLastPrice(h);
                                 }}
-                                className="rounded-md bg-orange-100 px-2.5 py-1 text-xs text-orange-700 transition-colors hover:bg-orange-200 hover:text-orange-900 sm:px-3 sm:text-sm"
+                                className="rounded-md bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 transition-colors hover:bg-orange-100 dark:hover:bg-orange-900/40"
                                 title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
                               >
                                 Zamknij
@@ -1564,7 +1564,7 @@ const PortfolioDetails: React.FC = () => {
                     ))}
                     {holdings.length === 0 && (
                       <tr>
-                        <td colSpan={10} className="px-6 py-4 text-center text-sm text-gray-500">Brak aktywów.</td>
+                        <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak aktywów w tym portfelu.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1757,71 +1757,77 @@ const PortfolioDetails: React.FC = () => {
                 </div>
               )}
 
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+                <thead className="bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
                   <tr>
                     <th className="px-6 py-3 text-left">
                       <input 
                         type="checkbox" 
-                        className="rounded border-gray-300 text-blue-600"
+                        className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
                         checked={selectedTxIds.length === filteredPortfolioTransactions.length && filteredPortfolioTransactions.length > 0}
                         onChange={toggleAllVisibleTx}
                       />
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Typ</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ilość</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Zrealizowany Zysk</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Data</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Typ</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Symbol</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ilość</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Cena</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Wartość</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Zrealizowany Zysk</th>
                     {subPortfolios.length > 0 && (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub-portfel</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sub-portfel</th>
                     )}
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-950 divide-y divide-gray-100 dark:divide-gray-800/50">
                   {filteredPortfolioTransactions.map((t) => (
-                    <tr key={t.id} className={cn(selectedTxIds.includes(t.id) && "bg-blue-50/50")}>
+                    <tr key={t.id} className={cn(
+                      "transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50",
+                      selectedTxIds.includes(t.id) && "bg-blue-50/50 dark:bg-blue-900/20"
+                    )}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <input 
                           type="checkbox" 
-                          className="rounded border-gray-300 text-blue-600"
+                          className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
                           checked={selectedTxIds.includes(t.id)}
                           onChange={() => toggleTxSelection(t.id)}
                         />
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 tabular-nums">
                         {new Date(t.date).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={cn(
-                          "px-2 inline-flex text-xs leading-5 font-semibold rounded-full",
-                          t.type === 'BUY' ? "bg-green-100 text-green-800" :
-                          t.type === 'SELL' ? "bg-red-100 text-red-800" :
-                          t.type === 'DEPOSIT' ? "bg-blue-100 text-blue-800" :
-                          t.type === 'DIVIDEND' ? "bg-indigo-100 text-indigo-800" :
-                          t.type === 'INTEREST' ? "bg-emerald-100 text-emerald-800" :
-                          "bg-orange-100 text-orange-800"
+                          "px-2.5 py-0.5 inline-flex text-[11px] leading-5 font-bold uppercase rounded-full border",
+                          t.type === 'BUY' ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800/50" :
+                          t.type === 'SELL' ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800/50" :
+                          t.type === 'DEPOSIT' ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800/50" :
+                          t.type === 'DIVIDEND' ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800/50" :
+                          t.type === 'INTEREST' ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50" :
+                          "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800/50"
                         )}>
                           {t.type}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
                         {t.ticker === 'CASH' ? '-' : t.ticker}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-gray-300 tabular-nums">
                         {parseFloat(Number(t.quantity).toFixed(4))}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">
                         {t.price.toFixed(2)} PLN
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
                         {t.total_value.toFixed(2)} PLN
                       </td>
-                      <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-medium", t.realized_profit >= 0 ? "text-green-600" : "text-red-600")}>{typeof t.realized_profit === 'number' ? t.realized_profit.toFixed(2) + ' PLN' : '-'}</td>
+                      <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-bold tabular-nums", t.realized_profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                        {typeof t.realized_profit === 'number' ? t.realized_profit.toFixed(2) + ' PLN' : '-'}
+                      </td>
                       {subPortfolios.length > 0 && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                           <select
                             value={t.sub_portfolio_id || ''}
                             onChange={(e) => {
@@ -1829,7 +1835,7 @@ const PortfolioDetails: React.FC = () => {
                               const subId = val === "" ? null : parseInt(val);
                               handleAssignTransaction(t.id, subId);
                             }}
-                            className="text-xs border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-1 border bg-transparent"
+                            className="text-xs border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-1.5 border bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                           >
                             <option value="">Główny</option>
                             {subPortfolios.map(sp => (
@@ -1842,11 +1848,12 @@ const PortfolioDetails: React.FC = () => {
                   ))}
                   {filteredPortfolioTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={subPortfolios.length > 0 ? 9 : 8} className="px-6 py-4 text-center text-sm text-gray-500">Brak transakcji.</td>
+                      <td colSpan={subPortfolios.length > 0 ? 9 : 8} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak transakcji w tym widoku.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 

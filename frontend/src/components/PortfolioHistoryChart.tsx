@@ -9,6 +9,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
+import { useTheme } from '../hooks/useTheme';
 
 interface PortfolioHistoryChartProps {
   data: {
@@ -29,22 +30,37 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
   benchmarkName = 'Benchmark'
 }) => {
   const [showInflation, setShowInflation] = useState(false);
+  const { isDark } = useTheme();
   
   const hasContributionsLine = data.some((point) => point.net_contributions !== undefined);
   const hasNetValueLine = data.some((point) => point.net_value !== undefined);
   const hasBenchmarkLine = data.some((point) => point.benchmark_value !== undefined);
   const hasInflationData = data.some((point) => point.benchmark_inflation !== undefined);
 
+  // Modern colors
+  const colors = {
+    value: isDark ? '#34d399' : '#10b981', // emerald-400 : emerald-500
+    netValue: isDark ? '#a78bfa' : '#8b5cf6', // violet-400 : violet-500
+    contributions: isDark ? '#60a5fa' : '#3b82f6', // blue-400 : blue-500
+    benchmark: isDark ? '#94a3b8' : '#9ca3af', // slate-400 : gray-400
+    inflation: isDark ? '#fb923c' : '#f97316', // orange-400 : orange-500
+    grid: isDark ? '#334155' : '#e2e8f0', // slate-700 : slate-200
+    text: isDark ? '#94a3b8' : '#64748b', // slate-400 : slate-500
+    tooltipBg: isDark ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.9)', // slate-950 : white
+    tooltipBorder: isDark ? '#334155' : '#e2e8f0',
+    tooltipText: isDark ? '#f8fafc' : '#0f172a',
+  };
+
   return (
-    <div className="flex flex-col h-80 w-full">
-      <div className="flex justify-end items-center mb-2 px-4 space-x-4">
+    <div className="flex flex-col h-[400px] w-full">
+      <div className="flex justify-end items-center mb-4 px-4 space-x-4">
         {hasInflationData && (
-          <label className="flex items-center space-x-2 text-sm text-gray-600 cursor-pointer">
+          <label className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={showInflation}
               onChange={(e) => setShowInflation(e.target.checked)}
-              className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+              className="rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-orange-500 focus:ring-orange-500"
             />
             <span>Inflacja (PL)</span>
           </label>
@@ -62,30 +78,38 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
               bottom: 5,
             }}
           >
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={colors.grid} />
             <XAxis 
               dataKey="label" 
-              tick={{ fontSize: 12, fill: '#6b7280' }}
-              axisLine={{ stroke: '#e5e7eb' }}
+              tick={{ fontSize: 12, fill: colors.text }}
+              axisLine={{ stroke: colors.grid }}
               tickLine={false}
+              dy={10}
             />
             <YAxis 
-              tick={{ fontSize: 12, fill: '#6b7280' }}
+              tick={{ fontSize: 12, fill: colors.text }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(value) => `${value}`}
+              tickFormatter={(value) => `${value.toLocaleString('pl-PL')}`}
+              dx={-10}
             />
             <Tooltip 
-              contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+              contentStyle={{ 
+                backgroundColor: colors.tooltipBg, 
+                borderRadius: '12px', 
+                border: `1px solid ${colors.tooltipBorder}`, 
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)',
+                backdropFilter: 'blur(8px)'
+              }}
               formatter={(value: number, name: string) => {
                 if (name === 'benchmark_inflation') {
                   const point = data.find(p => p.benchmark_inflation === value);
                   const netContr = point?.net_contributions || 0;
                   const diff = netContr > 0 ? ((value - netContr) / netContr * 100).toFixed(2) : '0.00';
-                  return [`${value.toFixed(2)} PLN (+${diff}%)`, 'Inflacja (PL)'];
+                  return [`${value.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2})} PLN (+${diff}%)`, 'Inflacja (PL)'];
                 }
                 return [
-                  `${value.toFixed(2)} PLN`, 
+                  `${value.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2})} PLN`, 
                   name === 'benchmark_value'
                     ? benchmarkName
                     : name === 'net_contributions'
@@ -97,27 +121,27 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
                           : name
                 ];
               }}
-              labelStyle={{ color: '#374151', fontWeight: 'bold', marginBottom: '4px' }}
+              labelStyle={{ color: colors.tooltipText, fontWeight: '600', marginBottom: '8px' }}
             />
-            <Legend wrapperStyle={{ paddingTop: '20px' }} />
+            <Legend wrapperStyle={{ paddingTop: '20px', color: colors.text }} />
             <Line
               type="monotone"
               dataKey="value"
               name="Wartość Portfela"
-              stroke="#10b981"
+              stroke={colors.value}
               strokeWidth={3}
-              dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
-              activeDot={{ r: 6, strokeWidth: 0 }}
+              dot={false}
+              activeDot={{ r: 6, fill: colors.value, strokeWidth: 0 }}
             />
             {hasNetValueLine && (
               <Line
                 type="monotone"
                 dataKey="net_value"
                 name="Wartość netto (po podatku)"
-                stroke="#8b5cf6"
+                stroke={colors.netValue}
                 strokeWidth={2}
-                dot={{ r: 3, fill: '#8b5cf6', strokeWidth: 2, stroke: '#fff' }}
-                activeDot={{ r: 6, strokeWidth: 0 }}
+                dot={false}
+                activeDot={{ r: 6, fill: colors.netValue, strokeWidth: 0 }}
               />
             )}
             {hasContributionsLine && (
@@ -125,10 +149,10 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
                 type="monotone"
                 dataKey="net_contributions"
                 name="Wpłaty netto"
-                stroke="#4338ca"
+                stroke={colors.contributions}
                 strokeWidth={2}
-                dot={{ r: 3, fill: '#4338ca', strokeWidth: 2, stroke: '#fff' }}
-                activeDot={{ r: 6, strokeWidth: 0 }}
+                dot={false}
+                activeDot={{ r: 6, fill: colors.contributions, strokeWidth: 0 }}
               />
             )}
             {hasBenchmarkLine && (
@@ -136,11 +160,11 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
                 type="monotone"
                 dataKey="benchmark_value"
                 name={benchmarkName}
-                stroke="#9ca3af"
+                stroke={colors.benchmark}
                 strokeWidth={2}
                 strokeDasharray="5 5"
                 dot={false}
-                activeDot={{ r: 6, strokeWidth: 0 }}
+                activeDot={{ r: 6, fill: colors.benchmark, strokeWidth: 0 }}
               />
             )}
             {showInflation && hasInflationData && (
@@ -148,11 +172,11 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({
                 type="monotone"
                 dataKey="benchmark_inflation"
                 name="Inflacja (PL)"
-                stroke="#f97316"
+                stroke={colors.inflation}
                 strokeWidth={2}
                 strokeDasharray="3 3"
                 dot={false}
-                activeDot={{ r: 6, strokeWidth: 0 }}
+                activeDot={{ r: 6, fill: colors.inflation, strokeWidth: 0 }}
               />
             )}
           </LineChart>

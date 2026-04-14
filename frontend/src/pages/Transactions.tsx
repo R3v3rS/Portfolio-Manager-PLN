@@ -167,33 +167,33 @@ const Transactions: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 shadow-sm border border-gray-200 dark:border-slate-800 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+            <thead className="bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Portfolio</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub-portfolio</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Value</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Portfolio</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sub-portfolio</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ticker</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Quantity</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Price</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Value</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white dark:bg-gray-950 divide-y divide-gray-100 dark:divide-gray-800/50">
               {filteredTransactions.map((transaction) => (
-                <tr key={transaction.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <tr key={transaction.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 tabular-nums">
                     {new Date(transaction.date).toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
                     {transaction.portfolio_name ||
                       flatPortfolios.find((portfolio) => portfolio.id === transaction.portfolio_id)?.name ||
                       transaction.portfolio_id}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {transaction.sub_portfolio_name ||
                       (transaction.sub_portfolio_id
                         ? flatPortfolios.find((portfolio) => portfolio.id === transaction.sub_portfolio_id)?.name
@@ -204,36 +204,33 @@ const Transactions: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span
                         className={cn(
-                          'px-2 inline-flex text-xs leading-5 font-semibold rounded-full',
-                          transaction.type === 'BUY'
-                            ? 'bg-green-100 text-green-800'
-                            : transaction.type === 'SELL'
-                              ? 'bg-red-100 text-red-800'
-                              : transaction.type === 'DEPOSIT'
-                                ? 'bg-blue-100 text-blue-800'
-                                : transaction.type === 'DIVIDEND'
-                                  ? 'bg-indigo-100 text-indigo-800'
-                                  : 'bg-orange-100 text-orange-800'
+                          'px-2.5 py-0.5 inline-flex text-[11px] leading-5 font-bold uppercase rounded-full border',
+                          transaction.type === 'BUY' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800/50' :
+                          transaction.type === 'SELL' ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800/50' :
+                          transaction.type === 'DEPOSIT' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800/50' :
+                          transaction.type === 'DIVIDEND' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800/50' :
+                          transaction.type === 'INTEREST' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50' :
+                          'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800/50'
                         )}
                       >
                         {transaction.type}
                       </span>
                       {transaction.transfer_id && (
-                        <span title="Przelew wewnętrzny" className="text-gray-500">
+                        <span title="Przelew wewnętrzny" className="text-gray-400 dark:text-gray-500">
                           <ArrowLeftRight className="h-4 w-4" />
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{transaction.ticker === 'CASH' ? '-' : transaction.ticker}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{transaction.quantity}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{transaction.price.toFixed(2)} PLN</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">{transaction.total_value.toFixed(2)} PLN</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">{transaction.ticker === 'CASH' ? '-' : transaction.ticker}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-gray-300 tabular-nums">{parseFloat(Number(transaction.quantity).toFixed(4))}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">{transaction.price.toFixed(2)} PLN</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{transaction.total_value.toFixed(2)} PLN</td>
                 </tr>
               ))}
               {filteredTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     No transactions found.
                   </td>
                 </tr>
