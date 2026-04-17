@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HttpError, http } from './http';
+import { http } from './http';
 
 describe('http client', () => {
   beforeEach(() => {

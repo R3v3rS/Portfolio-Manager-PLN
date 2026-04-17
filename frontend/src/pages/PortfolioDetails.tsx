@@ -608,7 +608,7 @@ const PortfolioDetails: React.FC = () => {
       setJobStatus('queued');
       setJobProgress(0);
       pollJobStatus(response.job_id);
-    } catch (err) {
+    } catch {
       alert('Failed to assign transaction');
     }
   };
@@ -622,7 +622,7 @@ const PortfolioDetails: React.FC = () => {
       setJobStatus('queued');
       setJobProgress(0);
       pollJobStatus(response.job_id);
-    } catch (err) {
+    } catch {
       alert('Failed to perform bulk assignment');
     } finally {
       setIsBulkAssigning(false);

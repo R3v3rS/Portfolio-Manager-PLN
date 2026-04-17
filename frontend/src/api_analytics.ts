@@ -6,10 +6,18 @@ interface ApiEnvelope<T> {
   payload?: T;
 }
 
+export interface MaxDrawdownMetric {
+  value: number;
+  start_date?: string;
+  end_date?: string;
+  recovery_date?: string | null;
+  duration_days?: number;
+}
+
 export interface AnalyticsSummaryPayload {
   performance?: {
     sharpe_ratio?: number | null;
-    max_drawdown?: number | null;
+    max_drawdown?: number | MaxDrawdownMetric | null;
   };
   risk?: {
     var_1d?: number | null;

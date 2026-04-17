@@ -54,7 +54,9 @@ const EquityAllocationChart: React.FC<EquityAllocationChartProps> = ({ data }) =
     );
   }
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  type TooltipEntry = { payload: EquityAllocation };
+
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: TooltipEntry[] }) => {
     if (active && payload && payload.length) {
       const item = payload[0].payload as EquityAllocation;
       return (

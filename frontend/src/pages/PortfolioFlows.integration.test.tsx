@@ -507,7 +507,7 @@ describe('Transfer funds integration flow', () => {
 
 describe('Import transactions integration flow', () => {
   it.skip('handles successful CSV import flow', async () => {
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     const { container } = renderPortfolioDetails();
 
     await screen.findByText('Core Portfolio');

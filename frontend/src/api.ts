@@ -38,7 +38,7 @@ export interface JobStatusResponse {
   id: string;
   status: 'queued' | 'running' | 'done' | 'failed';
   progress: number;
-  result: any;
+  result: unknown;
   error: string | null;
   created_at: string;
   updated_at: string;
