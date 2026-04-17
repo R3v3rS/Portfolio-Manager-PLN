@@ -3,6 +3,7 @@ import logging
 
 from flask import Blueprint
 
+from api.exceptions import ValidationError
 from api.response import error_response, success_response
 from database import get_db
 from routes_portfolio_base import require_json_body, require_non_empty_string, require_positive_int
@@ -270,6 +271,8 @@ Max 400 słów, konkretnie, bez ogólników.
             }
         )
 
+    except ValidationError:
+        raise
     except Exception:
         logger.exception("AI: portfolio-analysis failed")
         return error_response('portfolio_analysis_error', 'Internal server error', status=500)
