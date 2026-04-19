@@ -11,6 +11,12 @@ const LoanSimulator = lazy(() => import('./components/loans/LoanSimulator'));
 const BudgetDashboard = lazy(() => import('./components/budget/BudgetDashboard'));
 const InvestmentRadar = lazy(() => import('./pages/InvestmentRadar'));
 const SymbolMappingPanel = lazy(() => import('./pages/SymbolMappingPanel'));
+const AdminHome = lazy(() => import('./pages/admin/AdminHome'));
+const AdminPortfolios = lazy(() => import('./pages/admin/AdminPortfolios'));
+const AdminPortfolioTools = lazy(() => import('./pages/admin/AdminPortfolioTools'));
+const AdminConsistencyAudit = lazy(() => import('./pages/admin/AdminConsistencyAudit'));
+const AdminBudget = lazy(() => import('./pages/admin/AdminBudget'));
+const AdminPriceHistoryAudit = lazy(() => import('./pages/admin/AdminPriceHistoryAudit'));
 
 function App() {
   return (
@@ -26,7 +32,13 @@ function App() {
             <Route path="/loans" element={<LoansDashboard />} />
             <Route path="/loans/:id" element={<LoanSimulator />} />
             <Route path="/budget" element={<BudgetDashboard />} />
-            <Route path="/settings/symbol-mapping" element={<SymbolMappingPanel />} />
+            <Route path="/admin" element={<AdminHome />} />
+            <Route path="/admin/portfolios" element={<AdminPortfolios />} />
+            <Route path="/admin/portfolio/:id" element={<AdminPortfolioTools />} />
+            <Route path="/admin/symbol-mapping" element={<SymbolMappingPanel />} />
+            <Route path="/admin/consistency-audit" element={<AdminConsistencyAudit />} />
+            <Route path="/admin/price-history-audit" element={<AdminPriceHistoryAudit />} />
+            <Route path="/admin/budget" element={<AdminBudget />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

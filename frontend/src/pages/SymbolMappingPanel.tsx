@@ -156,7 +156,7 @@ const SymbolMappingPanel: React.FC = () => {
   return (
     <div className="space-y-4 px-4 sm:px-0">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Settings → Symbol Mapping</h1>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Admin → Symbol Mapping</h1>
         <button
           onClick={openCreate}
           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
