@@ -16,10 +16,6 @@ vi.mock('../api_dashboard', async () => {
   };
 });
 
-vi.mock('../components/AuditConsistencyPanel', () => ({
-  default: () => <section>Audit Panel</section>,
-}));
-
 vi.mock('../api', () => ({
   portfolioApi: {
     list: vi.fn(),

@@ -28,11 +28,12 @@ function App() {
             <Route path="/portfolios" element={<PortfolioDashboard />} />
             <Route path="/portfolio/:id" element={<PortfolioDetails />} />
             <Route path="/radar" element={<InvestmentRadar />} />
-            <Route path="/transactions" element={<Transactions />} />
+            <Route path="/transactions" element={<Navigate to="/admin/transactions" replace />} />
             <Route path="/loans" element={<LoansDashboard />} />
             <Route path="/loans/:id" element={<LoanSimulator />} />
             <Route path="/budget" element={<BudgetDashboard />} />
             <Route path="/admin" element={<AdminHome />} />
+            <Route path="/admin/transactions" element={<Transactions />} />
             <Route path="/admin/portfolios" element={<AdminPortfolios />} />
             <Route path="/admin/portfolio/:id" element={<AdminPortfolioTools />} />
             <Route path="/admin/symbol-mapping" element={<SymbolMappingPanel />} />

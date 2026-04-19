@@ -11,7 +11,6 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import { Link } from 'react-router-dom';
 import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
 import { cn } from '../lib/utils';
-import AuditConsistencyPanel from '../components/AuditConsistencyPanel';
 import type { Holding } from '../types';
 
 const MainDashboard: React.FC = () => {
@@ -293,8 +292,6 @@ const MainDashboard: React.FC = () => {
           <p className="text-sm text-gray-500">Brak danych zmian dziennych</p>
         )}
       </div>
-
-      <AuditConsistencyPanel />
 
       {/* Bottom Row: Navigation Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

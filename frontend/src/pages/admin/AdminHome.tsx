@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Wrench, SlidersHorizontal, ListTree, PiggyBank, ShieldAlert } from 'lucide-react';
+import { Wrench, SlidersHorizontal, ListTree, PiggyBank, ShieldAlert, History } from 'lucide-react';
 
 const AdminHome: React.FC = () => {
   const tiles = [
@@ -9,6 +9,12 @@ const AdminHome: React.FC = () => {
       description: 'Lista portfeli + narzędzia (import, audit, rebuild, clear).',
       to: '/admin/portfolios',
       icon: ListTree,
+    },
+    {
+      title: 'Transakcje',
+      description: 'Globalna historia transakcji z filtrami.',
+      to: '/admin/transactions',
+      icon: History,
     },
     {
       title: 'Symbol Mapping',
