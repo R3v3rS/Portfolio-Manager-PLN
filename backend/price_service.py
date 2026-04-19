@@ -1493,8 +1493,11 @@ class PriceService:
 
             if not skip_analysis:
                 analysis = cls.get_stock_analysis(ticker)
-                score = analysis.get('score') if analysis else None
-                analysis_cached_at = now_dt.isoformat()
+                if analysis:
+                    score = analysis.get('score')
+                    analysis_cached_at = now_dt.isoformat()
+                else:
+                    skip_analysis = True
 
             if skip_analysis:
                 db.execute(

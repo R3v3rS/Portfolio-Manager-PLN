@@ -232,8 +232,9 @@ def init_db(app):
         try:
             db.execute('ALTER TABLE radar_cache ADD COLUMN analysis_cached_at TEXT')
             db.commit()
-        except Exception:
-            pass
+        except sqlite3.OperationalError as e:
+            if 'duplicate column name' not in str(e).lower():
+                raise
 
         # Asset metadata cache table (to avoid repeated yfinance info calls)
         db.execute('''

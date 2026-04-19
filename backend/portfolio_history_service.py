@@ -445,8 +445,8 @@ class PortfolioHistoryService(PortfolioCoreService):
     def get_portfolio_profit_history_daily(portfolio_id, days=30, metric="profit"):
         db = get_db()
         days = max(1, min(int(days), 365))
-
-        cache_key = f"{metric}_{days}"
+        end_date = date.today()
+        cache_key = f"{metric}_{days}_{end_date.isoformat()}"
         cached = PortfolioHistoryService._get_daily_cache(portfolio_id, cache_key)
         if cached is not None:
             return cached
@@ -474,7 +474,6 @@ class PortfolioHistoryService(PortfolioCoreService):
         transactions = db.execute(tx_query, tx_params).fetchall()
         if not transactions:
             return []
-        end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
         date_points = [start_date + timedelta(days=offset) for offset in range(days)]
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
