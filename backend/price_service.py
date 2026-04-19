@@ -1116,8 +1116,6 @@ class PriceService:
                 ticker not in cached
                 or not cls._is_same_day(updated_at)
                 or cached_quote is None
-                or cached_quote.get('change_1m') is None
-                or cached_quote.get('change_1y') is None
             ):
                 missing_tickers.append(ticker)
             else:
