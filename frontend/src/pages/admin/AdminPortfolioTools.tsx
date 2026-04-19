@@ -38,6 +38,7 @@ const AdminPortfolioTools: React.FC = () => {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditResult, setAuditResult] = useState<PortfolioAuditResult | null>(null);
 
+  const [isMutating, setIsMutating] = useState(false);
   const [rebuildLoading, setRebuildLoading] = useState(false);
   const [clearLoading, setClearLoading] = useState(false);
 
@@ -77,9 +78,11 @@ const AdminPortfolioTools: React.FC = () => {
 
   const runRebuild = async () => {
     if (!portfolio) return;
+    if (isMutating) return;
     const confirmed = window.confirm(`Rebuild z transakcji dla "${portfolio.name}"?`);
     if (!confirmed) return;
 
+    setIsMutating(true);
     setRebuildLoading(true);
     try {
       const result = await portfolioApi.rebuild(portfolio.id);
@@ -88,14 +91,17 @@ const AdminPortfolioTools: React.FC = () => {
       alert(extractErrorMessageFromUnknown(err));
     } finally {
       setRebuildLoading(false);
+      setIsMutating(false);
     }
   };
 
   const clearPortfolio = async () => {
     if (!portfolio) return;
+    if (isMutating) return;
     const confirmed = window.confirm(`To usunie wszystkie dane z portfela "${portfolio.name}". Czy kontynuować?`);
     if (!confirmed) return;
 
+    setIsMutating(true);
     setClearLoading(true);
     try {
       await portfolioApi.clear(portfolio.id);
@@ -105,6 +111,7 @@ const AdminPortfolioTools: React.FC = () => {
       alert(extractErrorMessageFromUnknown(err));
     } finally {
       setClearLoading(false);
+      setIsMutating(false);
     }
   };
 
@@ -202,7 +209,7 @@ const AdminPortfolioTools: React.FC = () => {
               <button
                 type="button"
                 onClick={runRebuild}
-                disabled={rebuildLoading}
+                disabled={isMutating}
                 className="inline-flex items-center gap-2 rounded-md border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
               >
                 {rebuildLoading ? 'Rebuild...' : 'Rebuild from transactions'}
@@ -210,7 +217,7 @@ const AdminPortfolioTools: React.FC = () => {
               <button
                 type="button"
                 onClick={clearPortfolio}
-                disabled={clearLoading}
+                disabled={isMutating}
                 className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
               >
                 {clearLoading ? 'Czyszczenie...' : 'Wyczyść portfolio'}
