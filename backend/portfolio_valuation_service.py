@@ -335,7 +335,7 @@ class PortfolioValuationService(PortfolioCoreService):
         tickers = [h['ticker'] for h in holdings]
         current_prices = PriceService.get_prices(tickers, force_refresh=force_price_refresh)
         price_updates = PriceService.get_price_updates(tickers)
-        quotes = PriceService.get_quotes(tickers)
+        quotes = PriceService.get_quotes_lite(tickers, force_refresh=force_price_refresh)
         fx_rates = PortfolioTradeService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
         updates_needed = False
         holdings_value = 0.0
@@ -778,7 +778,7 @@ class PortfolioValuationService(PortfolioCoreService):
                 fx_tickers = [f"{c.upper()}PLN=X" for c in currencies if c.upper() != 'PLN']
                 
                 all_needed_tickers = tickers + fx_tickers
-                quotes = PriceService.get_quotes(all_needed_tickers)
+                quotes = PriceService.get_quotes_lite(all_needed_tickers)
                 
                 holdings_value_now = 0.0
                 holdings_value_1d = 0.0
