@@ -14,12 +14,18 @@ const AdminPriceHistoryAudit: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const parsedDays = Number(days);
-      const parsedThreshold = Number(threshold);
+      const daysInput = days.trim();
+      const thresholdInput = threshold.trim();
+
+      const parsedDays = daysInput === '' ? undefined : Number(daysInput);
+      const parsedThreshold = thresholdInput === '' ? undefined : Number(thresholdInput);
+
+      const daysValue = parsedDays !== undefined && !Number.isNaN(parsedDays) ? parsedDays : undefined;
+      const thresholdValue = parsedThreshold !== undefined && !Number.isNaN(parsedThreshold) ? parsedThreshold : undefined;
 
       const response = await portfolioApi.runPriceHistoryAudit({
-        days: Number.isFinite(parsedDays) ? parsedDays : undefined,
-        threshold: Number.isFinite(parsedThreshold) ? parsedThreshold : undefined,
+        days: daysValue,
+        threshold: thresholdValue,
         refresh_flagged: refreshFlagged,
       });
       setResult(response);
