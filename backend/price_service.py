@@ -1466,46 +1466,100 @@ class PriceService:
         events = cls.fetch_market_events(tickers)
 
         db = get_db()
-        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        ANALYSIS_TTL_HOURS = 6
+        now_dt = datetime.utcnow()
+        now = now_dt.strftime('%Y-%m-%d %H:%M:%S')
+        analysis_ttl = timedelta(hours=ANALYSIS_TTL_HOURS)
 
         for ticker in tickers:
             quote = quotes.get(ticker, {})
             event = events.get(ticker, {})
-            
-            # Fetch score if not already present or needs refresh
-            analysis = cls.get_stock_analysis(ticker)
-            score = analysis.get('score') if analysis else None
 
-            db.execute(
-                '''INSERT INTO radar_cache
-                   (ticker, price, change_1d, change_7d, change_1m, change_1y,
-                    next_earnings, ex_dividend_date, dividend_yield, score, last_updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(ticker) DO UPDATE SET
-                     price = excluded.price,
-                     change_1d = excluded.change_1d,
-                     change_7d = excluded.change_7d,
-                     change_1m = excluded.change_1m,
-                     change_1y = excluded.change_1y,
-                     next_earnings = excluded.next_earnings,
-                     ex_dividend_date = excluded.ex_dividend_date,
-                     dividend_yield = excluded.dividend_yield,
-                     score = excluded.score,
-                     last_updated_at = excluded.last_updated_at''',
-                (
-                    ticker,
-                    quote.get('price'),
-                    quote.get('change_1d'),
-                    quote.get('change_7d'),
-                    quote.get('change_1m'),
-                    quote.get('change_1y'),
-                    event.get('next_earnings'),
-                    event.get('ex_dividend_date'),
-                    event.get('dividend_yield'),
-                    score,
-                    now
+            skip_analysis = False
+            analysis_cached_at = None
+            score = None
+
+            existing = db.execute(
+                'SELECT analysis_cached_at FROM radar_cache WHERE ticker = ?',
+                (ticker,),
+            ).fetchone()
+            if existing and existing['analysis_cached_at']:
+                try:
+                    cached_at = datetime.fromisoformat(str(existing['analysis_cached_at']))
+                    if now_dt - cached_at < analysis_ttl:
+                        skip_analysis = True
+                except ValueError:
+                    pass
+
+            if not skip_analysis:
+                analysis = cls.get_stock_analysis(ticker)
+                score = analysis.get('score') if analysis else None
+                analysis_cached_at = now_dt.isoformat()
+
+            if skip_analysis:
+                db.execute(
+                    '''INSERT INTO radar_cache
+                       (ticker, price, change_1d, change_7d, change_1m, change_1y,
+                        next_earnings, ex_dividend_date, dividend_yield, score, analysis_cached_at, last_updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(ticker) DO UPDATE SET
+                         price = excluded.price,
+                         change_1d = excluded.change_1d,
+                         change_7d = excluded.change_7d,
+                         change_1m = excluded.change_1m,
+                         change_1y = excluded.change_1y,
+                         next_earnings = excluded.next_earnings,
+                         ex_dividend_date = excluded.ex_dividend_date,
+                         dividend_yield = excluded.dividend_yield,
+                         last_updated_at = excluded.last_updated_at''',
+                    (
+                        ticker,
+                        quote.get('price'),
+                        quote.get('change_1d'),
+                        quote.get('change_7d'),
+                        quote.get('change_1m'),
+                        quote.get('change_1y'),
+                        event.get('next_earnings'),
+                        event.get('ex_dividend_date'),
+                        event.get('dividend_yield'),
+                        score,
+                        analysis_cached_at,
+                        now,
+                    ),
                 )
-            )
+            else:
+                db.execute(
+                    '''INSERT INTO radar_cache
+                       (ticker, price, change_1d, change_7d, change_1m, change_1y,
+                        next_earnings, ex_dividend_date, dividend_yield, score, analysis_cached_at, last_updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(ticker) DO UPDATE SET
+                         price = excluded.price,
+                         change_1d = excluded.change_1d,
+                         change_7d = excluded.change_7d,
+                         change_1m = excluded.change_1m,
+                         change_1y = excluded.change_1y,
+                         next_earnings = excluded.next_earnings,
+                         ex_dividend_date = excluded.ex_dividend_date,
+                         dividend_yield = excluded.dividend_yield,
+                         score = excluded.score,
+                         analysis_cached_at = excluded.analysis_cached_at,
+                         last_updated_at = excluded.last_updated_at''',
+                    (
+                        ticker,
+                        quote.get('price'),
+                        quote.get('change_1d'),
+                        quote.get('change_7d'),
+                        quote.get('change_1m'),
+                        quote.get('change_1y'),
+                        event.get('next_earnings'),
+                        event.get('ex_dividend_date'),
+                        event.get('dividend_yield'),
+                        score,
+                        analysis_cached_at,
+                        now,
+                    ),
+                )
 
         db.commit()
         return cls.get_cached_radar_data(tickers)

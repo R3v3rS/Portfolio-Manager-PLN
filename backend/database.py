@@ -217,6 +217,7 @@ def init_db(app):
                 ex_dividend_date DATE,
                 dividend_yield DECIMAL(10,6),
                 score INTEGER,
+                analysis_cached_at TEXT,
                 last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
@@ -226,6 +227,12 @@ def init_db(app):
             db.execute('ALTER TABLE radar_cache ADD COLUMN score INTEGER;')
         except:
             # Column already exists or table doesn't exist yet (handled by CREATE TABLE)
+            pass
+
+        try:
+            db.execute('ALTER TABLE radar_cache ADD COLUMN analysis_cached_at TEXT')
+            db.commit()
+        except Exception:
             pass
 
         # Asset metadata cache table (to avoid repeated yfinance info calls)
