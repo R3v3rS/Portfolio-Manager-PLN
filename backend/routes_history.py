@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from flask import request
 
+from api.exceptions import ValidationError
 from api.response import success_response
 from database import get_db
 from portfolio_service import PortfolioService
@@ -42,8 +43,22 @@ def get_portfolio_value_history(portfolio_id):
 
 @portfolio_bp.route('/history/<string:ticker>', methods=['GET'])
 def get_stock_history(ticker):
+    ticker = str(ticker).strip().upper()
     db = get_db()
-    PriceService.sync_stock_history(ticker)
+
+    force_refresh = False
+    refresh_value = request.args.get('refresh')
+    if refresh_value is not None:
+        if refresh_value not in {'0', '1'}:
+            raise ValidationError('Field refresh must be 0 or 1', details={'field': 'refresh'})
+        force_refresh = refresh_value == '1'
+
+    if force_refresh:
+        PriceService.sync_stock_history(ticker)
+    else:
+        needs_sync = PriceService.get_tickers_requiring_history_sync([ticker])
+        if needs_sync:
+            PriceService.sync_stock_history(ticker)
 
     prices = db.execute(
         'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
