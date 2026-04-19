@@ -240,6 +240,16 @@ def init_db(app):
             );
         ''')
 
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS portfolio_history_cache (
+                portfolio_id INTEGER NOT NULL,
+                cache_key TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                cached_at TEXT NOT NULL,
+                PRIMARY KEY (portfolio_id, cache_key)
+            );
+        ''')
+
         # Symbol mappings table (CSV import symbol -> ticker resolver)
         db.execute('''
             CREATE TABLE IF NOT EXISTS symbol_mappings (
