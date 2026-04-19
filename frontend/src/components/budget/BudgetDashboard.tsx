@@ -330,18 +330,6 @@ export default function BudgetDashboard() {
     }
   };
 
-  const handleReset = async () => {
-    if (confirm("WARNING: This will DELETE ALL budget data (Transactions, Envelopes, Loans). Are you sure?")) {
-      try {
-        const result = await budgetApi.reset();
-        alert(result.message);
-        window.location.reload(); // Reload to clear all states
-      } catch (err) {
-        showApiError(err);
-      }
-    }
-  };
-
   const resetForms = () => {
     setAmount('');
     setDescription('');
@@ -428,16 +416,6 @@ export default function BudgetDashboard() {
       {/* Only show content if we have an account selected */}
       {selectedAccountId && (
         <>
-          {/* Header Controls */}
-          <div className="flex justify-end mb-2">
-               <button 
-                 onClick={handleReset}
-                 className="text-xs text-red-500 hover:text-red-700 hover:underline"
-               >
-                 [DEBUG] Reset All Budget Data
-               </button>
-          </div>
-
           {/* Control Panel (Top Stats) */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             

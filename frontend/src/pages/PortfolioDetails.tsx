@@ -329,43 +329,6 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
 
 
 
-function ClearPortfolioButton({ portfolioId, portfolioName, onSuccess }: { portfolioId: number; portfolioName: string; onSuccess: () => void }) {
-  const [clearing, setClearing] = useState(false);
-
-  const handleClear = async () => {
-    const confirmed = window.confirm(
-      `To usunie wszystkie transakcje, aktywa, dywidendy i obligacje z portfela "${portfolioName}". Czy kontynuować?`
-    );
-
-    if (!confirmed) return;
-
-    setClearing(true);
-    try {
-      await portfolioApi.clear(portfolioId);
-      alert('Portfolio zostało wyczyszczone. Możesz zaimportować dane od nowa.');
-      onSuccess();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Nie udało się wyczyścić portfela';
-      alert(message);
-    } finally {
-      setClearing(false);
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      className="mb-4 inline-flex items-center gap-2 rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700 disabled:opacity-60"
-      onClick={handleClear}
-      disabled={clearing}
-    >
-      <Trash2 className="h-4 w-4" />
-      {clearing ? 'Czyszczenie...' : 'Wyczyść portfolio'}
-    </button>
-  );
-}
-
-
 function PPKContributionForm({ portfolioId, onSuccess }: { portfolioId: number; onSuccess: () => void }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [employeeUnits, setEmployeeUnits] = useState('');
@@ -927,55 +890,27 @@ const PortfolioDetails: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Import / reset actions */}
-      {portfolio && portfolio.account_type !== 'PPK' && (
+      {portfolio && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <ImportXtbCsvButton 
-            portfolioId={portfolio.id} 
-            onSuccess={fetchData} 
-            subPortfolios={subPortfolios}
-          />
-          <ClearPortfolioButton portfolioId={portfolio.id} portfolioName={portfolio.name} onSuccess={fetchData} />
-          <button
-            type="button"
-            onClick={runAudit}
-            disabled={auditLoading}
-            className="inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
-          >
-            <ShieldAlert className="h-4 w-4" />
-            {auditLoading ? 'Audytowanie...' : 'Audyt integralności'}
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              if (window.confirm('Czy na pewno chcesz sprawdzić spójność wszystkich portfeli?')) {
-                window.location.href = '/portfolios'; // Prosty sposób na przekierowanie do dashboardu gdzie jest panel audytu
-              }
-            }}
+          <Link
+            to={`/admin/portfolio/${portfolio.id}`}
             className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
           >
-            <RefreshCw className="h-4 w-4" />
-            Globalny audyt spójności
-          </button>
-          <button
-            type="button"
-            onClick={runRebuild}
-            disabled={rebuildLoading}
-            className="inline-flex items-center gap-2 rounded border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+            Admin: narzędzia portfela
+          </Link>
+          <Link
+            to="/admin/consistency-audit"
+            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
           >
-            <Wrench className="h-4 w-4" />
-            {rebuildLoading ? 'Rebuild...' : 'Rebuild from transactions'}
-          </button>
-          <button
-            type="button"
-            onClick={runPriceHistoryAudit}
-            disabled={priceAuditLoading}
-            className="inline-flex items-center gap-2 rounded border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100 disabled:opacity-60"
+            Admin: audyt spójności
+          </Link>
+          <Link
+            to="/admin/price-history-audit"
+            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
           >
-            <ShieldAlert className="h-4 w-4" />
-            {priceAuditLoading ? 'Audyt cen...' : 'Price history audit'}
-          </button>
-          
+            Admin: audyt cen
+          </Link>
+
           {isChild && !portfolio.is_archived && (
             <button
               type="button"

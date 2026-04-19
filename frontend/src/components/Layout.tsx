@@ -21,10 +21,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Pulpit', path: '/', icon: LayoutDashboard },
     { name: 'Inwestycje', path: '/portfolios', icon: Wallet },
     { name: 'Radar', path: '/radar', icon: Radar },
-    { name: 'Transakcje', path: '/transactions', icon: History },
     { name: 'Kredyty', path: '/loans', icon: Landmark },
     { name: 'Budżet', path: '/budget', icon: PiggyBank },
-    { name: 'Symbol Mapping', path: '/settings/symbol-mapping', icon: Settings },
+    { name: 'Admin', path: '/admin', icon: Settings },
   ];
 
   return (
