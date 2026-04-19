@@ -156,7 +156,7 @@ const AdminPortfolioTools: React.FC = () => {
         <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
           Ładowanie...
         </div>
-      ) : !portfolio ? (
+      ) : !error && !portfolio ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
           Nie znaleziono portfela.
         </div>
