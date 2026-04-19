@@ -32,6 +32,8 @@ logger.info("Using yfinance cache at: %s", cache_dir)
 class PriceService:
     _price_cache = {}
     _price_cache_updated_at = {}
+    _quotes_cache = {"lite": {}, "full": {}}
+    _quotes_cache_updated_at = {"lite": {}, "full": {}}
     _metadata_cache = {}
     _metadata_cache_updated_at = {}
     _metadata_ttl = timedelta(days=30)
@@ -353,6 +355,33 @@ class PriceService:
             cls._price_cache_updated_at[ticker] = row['updated_at']
 
     @classmethod
+    def _load_quotes_cache_from_db(cls, tickers, level):
+        db = get_db()
+        placeholders = ','.join('?' for _ in tickers)
+        rows = db.execute(
+            f'''SELECT ticker, price, prev_close, price_7d_ago, change_1d, change_7d, change_1m, change_1y, updated_at
+                FROM quotes_cache
+                WHERE level = ?
+                  AND ticker IN ({placeholders})''',
+            (level, *tuple(tickers))
+        ).fetchall()
+
+        cache = cls._quotes_cache.setdefault(level, {})
+        updated = cls._quotes_cache_updated_at.setdefault(level, {})
+        for row in rows:
+            ticker = row['ticker']
+            cache[ticker] = {
+                'price': float(row['price']) if row['price'] is not None else 0.0,
+                'change_1d': float(row['change_1d']) if row['change_1d'] is not None else None,
+                'change_7d': float(row['change_7d']) if row['change_7d'] is not None else None,
+                'change_1m': float(row['change_1m']) if row['change_1m'] is not None else None,
+                'change_1y': float(row['change_1y']) if row['change_1y'] is not None else None,
+                'prev_close': float(row['prev_close']) if row['prev_close'] is not None else None,
+                'price_7d_ago': float(row['price_7d_ago']) if row['price_7d_ago'] is not None else None,
+            }
+            updated[ticker] = row['updated_at']
+
+    @classmethod
     def _save_price_cache_to_db(cls, ticker, price, updated_at=None):
         db = get_db()
         now_iso = datetime.now().isoformat(timespec='seconds')
@@ -370,6 +399,45 @@ class PriceService:
         db.commit()
 
     @classmethod
+    def _save_quotes_cache_to_db(cls, ticker, level, quote, updated_at=None):
+        db = get_db()
+        now_iso = datetime.now().isoformat(timespec='seconds')
+        effective_updated_at = updated_at or now_iso
+        db.execute(
+            '''INSERT INTO quotes_cache (
+                    ticker, level, price, prev_close, price_7d_ago,
+                    change_1d, change_7d, change_1m, change_1y,
+                    updated_at, last_attempted_at
+               )
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(ticker, level)
+               DO UPDATE SET
+                    price = excluded.price,
+                    prev_close = excluded.prev_close,
+                    price_7d_ago = excluded.price_7d_ago,
+                    change_1d = excluded.change_1d,
+                    change_7d = excluded.change_7d,
+                    change_1m = excluded.change_1m,
+                    change_1y = excluded.change_1y,
+                    updated_at = excluded.updated_at,
+                    last_attempted_at = excluded.last_attempted_at''',
+            (
+                ticker,
+                level,
+                quote.get('price'),
+                quote.get('prev_close'),
+                quote.get('price_7d_ago'),
+                quote.get('change_1d'),
+                quote.get('change_7d'),
+                quote.get('change_1m'),
+                quote.get('change_1y'),
+                effective_updated_at,
+                now_iso,
+            )
+        )
+        db.commit()
+
+    @classmethod
     def _mark_price_refresh_attempt(cls, ticker):
         db = get_db()
         now_iso = datetime.now().isoformat(timespec='seconds')
@@ -383,6 +451,20 @@ class PriceService:
         )
         db.commit()
 
+    @classmethod
+    def _mark_quotes_refresh_attempt(cls, ticker, level):
+        db = get_db()
+        now_iso = datetime.now().isoformat(timespec='seconds')
+        db.execute(
+            '''INSERT INTO quotes_cache (ticker, level, last_attempted_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(ticker, level)
+               DO UPDATE SET
+                    last_attempted_at = excluded.last_attempted_at''',
+            (ticker, level, now_iso)
+        )
+        db.commit()
+
     @staticmethod
     def _is_same_day(timestamp):
         if not timestamp:
@@ -392,6 +474,12 @@ class PriceService:
         except ValueError:
             return False
         return parsed.date() == datetime.now().date()
+
+    @staticmethod
+    def _calc_change_percent(current, old):
+        if old in (None, 0):
+            return None
+        return ((current - old) / old) * 100
 
     @classmethod
     def get_prices(cls, tickers, force_refresh=False):
@@ -1011,29 +1099,108 @@ class PriceService:
             return quotes
             
         normalized_tickers = sorted({str(t).strip().upper() for t in tickers if t})
-        
-        # Try bulk download first for efficiency
-        try:
-            # Fetch 1 year of history for all tickers at once
-            data = cls._download_with_retry(
-                normalized_tickers,
-                period="1y",
-                group_by='ticker',
-                threads=False,
-                operation="get_quotes.bulk_download",
-            )
-            
-            for ticker in normalized_tickers:
-                try:
-                    ticker_df = None
-                    if isinstance(data.columns, pd.MultiIndex):
-                        if ticker in data.columns.levels[0]:
-                            ticker_df = data[ticker]
-                    elif 'Close' in data.columns and len(normalized_tickers) == 1:
-                        ticker_df = data
+        if not normalized_tickers:
+            return quotes
 
-                    ticker_df = cls._normalize_yf_dataframe(ticker_df)
-                    if ticker_df is None or ticker_df.empty or 'Close' not in ticker_df.columns:
+        level = "full"
+        cls._load_quotes_cache_from_db(normalized_tickers, level)
+
+        cached = cls._quotes_cache.get(level, {})
+        cached_updated = cls._quotes_cache_updated_at.get(level, {})
+
+        missing_tickers = []
+        for ticker in normalized_tickers:
+            updated_at = cached_updated.get(ticker)
+            cached_quote = cached.get(ticker)
+            if (
+                ticker not in cached
+                or not cls._is_same_day(updated_at)
+                or cached_quote is None
+                or cached_quote.get('change_1m') is None
+                or cached_quote.get('change_1y') is None
+            ):
+                missing_tickers.append(ticker)
+            else:
+                quotes[ticker] = dict(cached_quote)
+        
+        if missing_tickers:
+            try:
+                data = cls._download_with_retry(
+                    missing_tickers,
+                    period="1y",
+                    group_by='ticker',
+                    threads=False,
+                    operation="get_quotes.bulk_download",
+                )
+
+                for ticker in missing_tickers:
+                    try:
+                        ticker_df = None
+                        if isinstance(data.columns, pd.MultiIndex):
+                            if ticker in data.columns.levels[0]:
+                                ticker_df = data[ticker]
+                        elif 'Close' in data.columns and len(missing_tickers) == 1:
+                            ticker_df = data
+
+                        ticker_df = cls._normalize_yf_dataframe(ticker_df)
+                        if ticker_df is None or ticker_df.empty or 'Close' not in ticker_df.columns:
+                            raise ValueError("Missing Close data")
+
+                        hist = ticker_df.dropna(subset=['Close'])
+                        if hist.empty:
+                            raise ValueError("Empty Close series")
+
+                        current_price = cls._safe_float_from_value(hist['Close'].iloc[-1])
+                        if current_price is None:
+                            raise ValueError(f"No valid latest close price for {ticker}")
+
+                        prev_close = None
+                        if len(hist) >= 2:
+                            prev_close = cls._safe_float_from_value(hist['Close'].iloc[-2])
+
+                        price_7d_ago = None
+                        if len(hist) >= 6:
+                            price_7d_ago = cls._safe_float_from_value(hist['Close'].iloc[-6])
+
+                        price_1m_ago = None
+                        if len(hist) >= 22:
+                            price_1m_ago = cls._safe_float_from_value(hist['Close'].iloc[-22])
+
+                        price_1y_ago = cls._safe_float_from_value(hist['Close'].iloc[0]) if len(hist) > 0 else None
+
+                        change_1d = cls._calc_change_percent(current_price, prev_close)
+                        change_7d = cls._calc_change_percent(current_price, price_7d_ago)
+                        change_1m = cls._calc_change_percent(current_price, price_1m_ago)
+                        change_1y = cls._calc_change_percent(current_price, price_1y_ago)
+
+                        quote = {
+                            'price': round(float(current_price), 2),
+                            'change_1d': round(change_1d, 2) if change_1d is not None else None,
+                            'change_7d': round(change_7d, 2) if change_7d is not None else None,
+                            'change_1m': round(change_1m, 2) if change_1m is not None else None,
+                            'change_1y': round(change_1y, 2) if change_1y is not None else None,
+                            'prev_close': round(float(prev_close), 2) if prev_close is not None else None,
+                            'price_7d_ago': round(float(price_7d_ago), 2) if price_7d_ago is not None else None,
+                        }
+
+                        now_iso = datetime.now().isoformat(timespec='seconds')
+                        cls._quotes_cache[level][ticker] = quote
+                        cls._quotes_cache_updated_at[level][ticker] = now_iso
+                        cls._save_quotes_cache_to_db(ticker, level, quote, now_iso)
+                        cls._mark_quotes_refresh_attempt(ticker, level)
+
+                        cls._price_cache[ticker] = quote['price']
+                        cls._price_cache_updated_at[ticker] = now_iso
+
+                        quotes[ticker] = dict(quote)
+                    except Exception as e:
+                        cls._log_provider_event(
+                            level=logging.ERROR,
+                            operation="get_quotes.bulk_process",
+                            status="failed",
+                            ticker=ticker,
+                            error=e,
+                        )
                         quotes[ticker] = {
                             'price': 0.0,
                             'change_1d': None,
@@ -1043,10 +1210,18 @@ class PriceService:
                             'prev_close': None,
                             'price_7d_ago': None
                         }
-                        continue
+                        cls._mark_quotes_refresh_attempt(ticker, level)
 
-                    hist = ticker_df.dropna(subset=['Close'])
-                    if hist.empty:
+            except Exception as e:
+                cls._log_provider_event(
+                    level=logging.ERROR,
+                    operation="get_quotes.bulk",
+                    status="failed",
+                    tickers_count=len(missing_tickers),
+                    error=e,
+                )
+                for ticker in missing_tickers:
+                    if ticker not in quotes:
                         quotes[ticker] = {
                             'price': 0.0,
                             'change_1d': None,
@@ -1056,99 +1231,170 @@ class PriceService:
                             'prev_close': None,
                             'price_7d_ago': None
                         }
-                        continue
+                        cls._mark_quotes_refresh_attempt(ticker, level)
 
-                    # Get latest price
-                    current_price = cls._safe_float_from_value(hist['Close'].iloc[-1])
-                    if current_price is None:
-                        raise ValueError(f"No valid latest close price for {ticker}")
-                    
-                    # Helper to calculate percentage change safely
-                    def calc_change(current, old):
-                        if old == 0: return 0.0
-                        return ((current - old) / old) * 100
-
-                    # 1D Change (compare with previous row)
-                    change_1d = None
-                    prev_close = None
-                    if len(hist) >= 2:
-                        prev_close = cls._safe_float_from_value(hist['Close'].iloc[-2])
-                        if prev_close is not None:
-                            change_1d = calc_change(current_price, prev_close)
-
-                    # 7D Change (approx 5 trading days ago)
-                    change_7d = None
-                    price_7d_ago = None
-                    if len(hist) >= 6:
-                        price_7d_ago = cls._safe_float_from_value(hist['Close'].iloc[-6])
-                        if price_7d_ago is not None:
-                            change_7d = calc_change(current_price, price_7d_ago)
-
-                    # 1M Change (approx 21 trading days ago)
-                    change_1m = None
-                    if len(hist) >= 22:
-                        price_1m_ago = cls._safe_float_from_value(hist['Close'].iloc[-22])
-                        if price_1m_ago is not None:
-                            change_1m = calc_change(current_price, price_1m_ago)
-
-                    # 1Y Change (approx start of the dataframe if it has enough data)
-                    change_1y = None
-                    if len(hist) > 0:
-                         price_1y_ago = cls._safe_float_from_value(hist['Close'].iloc[0])
-                         if price_1y_ago is not None:
-                             change_1y = calc_change(current_price, price_1y_ago)
-
-                    quotes[ticker] = {
-                        'price': round(float(current_price), 2),
-                        'change_1d': round(change_1d, 2) if change_1d is not None else None,
-                        'change_7d': round(change_7d, 2) if change_7d is not None else None,
-                        'change_1m': round(change_1m, 2) if change_1m is not None else None,
-                        'change_1y': round(change_1y, 2) if change_1y is not None else None,
-                        'prev_close': round(float(prev_close), 2) if prev_close is not None else None,
-                        'price_7d_ago': round(float(price_7d_ago), 2) if price_7d_ago is not None else None,
-                    }
-                    
-                    # Update cache
-                    cls._price_cache[ticker] = round(float(current_price), 2)
-                    cls._price_cache_updated_at[ticker] = datetime.now().isoformat(timespec='seconds')
-                except Exception as e:
-                    cls._log_provider_event(
-                        level=logging.ERROR,
-                        operation="get_quotes.bulk_process",
-                        status="failed",
-                        ticker=ticker,
-                        error=e,
-                    )
-                    quotes[ticker] = {
-                        'price': 0.0,
-                        'change_1d': None,
-                        'change_7d': None,
-                        'change_1m': None,
-                        'change_1y': None,
-                        'prev_close': None,
-                        'price_7d_ago': None
-                    }
-
-        except Exception as e:
-            cls._log_provider_event(
-                level=logging.ERROR,
-                operation="get_quotes.bulk",
-                status="failed",
-                tickers_count=len(normalized_tickers),
-                error=e,
+        for ticker in normalized_tickers:
+            quotes.setdefault(
+                ticker,
+                {
+                    'price': 0.0,
+                    'change_1d': None,
+                    'change_7d': None,
+                    'change_1m': None,
+                    'change_1y': None,
+                    'prev_close': None,
+                    'price_7d_ago': None
+                },
             )
-            # Fallback to individual if bulk fails
-            for ticker in normalized_tickers:
-                if ticker not in quotes:
-                    cls._log_verbose_provider_event(
-                        operation="get_quotes.fallback_ticker",
-                        status="start",
-                        ticker=ticker,
-                        message="Bulk quotes failed; individual fallback placeholder",
-                    )
-                    # ... (rest of individual fetch logic if needed, but bulk usually works or everything fails)
-                    pass
-        
+
+        return quotes
+
+    @classmethod
+    def get_quotes_lite(cls, tickers, force_refresh=False):
+        quotes = {}
+        if not tickers:
+            return quotes
+
+        normalized_tickers = sorted({str(t).strip().upper() for t in tickers if t})
+        if not normalized_tickers:
+            return quotes
+
+        level = "lite"
+        cls._load_quotes_cache_from_db(normalized_tickers, level)
+
+        cached = cls._quotes_cache.get(level, {})
+        cached_updated = cls._quotes_cache_updated_at.get(level, {})
+
+        missing_tickers = []
+        for ticker in normalized_tickers:
+            updated_at = cached_updated.get(ticker)
+            cached_quote = cached.get(ticker)
+            if (
+                force_refresh
+                or ticker not in cached
+                or not cls._is_same_day(updated_at)
+                or cached_quote is None
+            ):
+                missing_tickers.append(ticker)
+            else:
+                quotes[ticker] = dict(cached_quote)
+
+        if missing_tickers:
+            try:
+                data = cls._download_with_retry(
+                    missing_tickers,
+                    period="15d",
+                    group_by='ticker',
+                    threads=False,
+                    operation="get_quotes_lite.bulk_download",
+                )
+
+                for ticker in missing_tickers:
+                    try:
+                        ticker_df = None
+                        if isinstance(data.columns, pd.MultiIndex):
+                            if ticker in data.columns.levels[0]:
+                                ticker_df = data[ticker]
+                        elif 'Close' in data.columns and len(missing_tickers) == 1:
+                            ticker_df = data
+
+                        ticker_df = cls._normalize_yf_dataframe(ticker_df)
+                        if ticker_df is None or ticker_df.empty or 'Close' not in ticker_df.columns:
+                            raise ValueError("Missing Close data")
+
+                        hist = ticker_df.dropna(subset=['Close'])
+                        if hist.empty:
+                            raise ValueError("Empty Close series")
+
+                        current_price = cls._safe_float_from_value(hist['Close'].iloc[-1])
+                        if current_price is None:
+                            raise ValueError(f"No valid latest close price for {ticker}")
+
+                        prev_close = None
+                        if len(hist) >= 2:
+                            prev_close = cls._safe_float_from_value(hist['Close'].iloc[-2])
+
+                        price_7d_ago = None
+                        if len(hist) >= 6:
+                            price_7d_ago = cls._safe_float_from_value(hist['Close'].iloc[-6])
+
+                        change_1d = cls._calc_change_percent(current_price, prev_close)
+                        change_7d = cls._calc_change_percent(current_price, price_7d_ago)
+
+                        quote = {
+                            'price': round(float(current_price), 2),
+                            'change_1d': round(change_1d, 2) if change_1d is not None else None,
+                            'change_7d': round(change_7d, 2) if change_7d is not None else None,
+                            'change_1m': None,
+                            'change_1y': None,
+                            'prev_close': round(float(prev_close), 2) if prev_close is not None else None,
+                            'price_7d_ago': round(float(price_7d_ago), 2) if price_7d_ago is not None else None,
+                        }
+
+                        now_iso = datetime.now().isoformat(timespec='seconds')
+                        cls._quotes_cache[level][ticker] = quote
+                        cls._quotes_cache_updated_at[level][ticker] = now_iso
+                        cls._save_quotes_cache_to_db(ticker, level, quote, now_iso)
+                        cls._mark_quotes_refresh_attempt(ticker, level)
+
+                        cls._price_cache[ticker] = quote['price']
+                        cls._price_cache_updated_at[ticker] = now_iso
+
+                        quotes[ticker] = dict(quote)
+                    except Exception as e:
+                        cls._log_provider_event(
+                            level=logging.ERROR,
+                            operation="get_quotes_lite.bulk_process",
+                            status="failed",
+                            ticker=ticker,
+                            error=e,
+                        )
+                        quotes[ticker] = {
+                            'price': 0.0,
+                            'change_1d': None,
+                            'change_7d': None,
+                            'change_1m': None,
+                            'change_1y': None,
+                            'prev_close': None,
+                            'price_7d_ago': None
+                        }
+                        cls._mark_quotes_refresh_attempt(ticker, level)
+
+            except Exception as e:
+                cls._log_provider_event(
+                    level=logging.ERROR,
+                    operation="get_quotes_lite.bulk",
+                    status="failed",
+                    tickers_count=len(missing_tickers),
+                    error=e,
+                )
+                for ticker in missing_tickers:
+                    if ticker not in quotes:
+                        quotes[ticker] = {
+                            'price': 0.0,
+                            'change_1d': None,
+                            'change_7d': None,
+                            'change_1m': None,
+                            'change_1y': None,
+                            'prev_close': None,
+                            'price_7d_ago': None
+                        }
+                        cls._mark_quotes_refresh_attempt(ticker, level)
+
+        for ticker in normalized_tickers:
+            quotes.setdefault(
+                ticker,
+                {
+                    'price': 0.0,
+                    'change_1d': None,
+                    'change_7d': None,
+                    'change_1m': None,
+                    'change_1y': None,
+                    'prev_close': None,
+                    'price_7d_ago': None
+                },
+            )
+
         return quotes
 
     @classmethod

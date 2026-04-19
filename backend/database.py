@@ -180,6 +180,23 @@ def init_db(app):
             );
         ''')
 
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS quotes_cache (
+                ticker VARCHAR(20) NOT NULL,
+                level TEXT NOT NULL,
+                price DECIMAL(12,4),
+                prev_close DECIMAL(12,4),
+                price_7d_ago DECIMAL(12,4),
+                change_1d DECIMAL(12,4),
+                change_7d DECIMAL(12,4),
+                change_1m DECIMAL(12,4),
+                change_1y DECIMAL(12,4),
+                updated_at TEXT,
+                last_attempted_at TEXT,
+                PRIMARY KEY (ticker, level)
+            );
+        ''')
+
         # Radar cache table (snapshot to avoid frequent API calls)
         db.execute('''
             CREATE TABLE IF NOT EXISTS radar_cache (
