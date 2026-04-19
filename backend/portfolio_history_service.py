@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class PortfolioHistoryService(PortfolioCoreService):
     _metrics_cache = {}
+    DAILY_CACHE_TTL_MINUTES = 60
 
     @staticmethod
     def _to_date(value):
@@ -122,6 +123,49 @@ class PortfolioHistoryService(PortfolioCoreService):
                 del PortfolioHistoryService._metrics_cache[k]
         else:
             PortfolioHistoryService._metrics_cache = {}
+
+        db = get_db()
+        if portfolio_id:
+            db.execute(
+                'DELETE FROM portfolio_history_cache WHERE portfolio_id = ?',
+                (portfolio_id,),
+            )
+        else:
+            db.execute('DELETE FROM portfolio_history_cache')
+        db.commit()
+
+    @staticmethod
+    def _get_daily_cache(portfolio_id: int, cache_key: str) -> list | None:
+        import json
+        from datetime import datetime, timedelta
+
+        db = get_db()
+        row = db.execute(
+            'SELECT result_json, cached_at FROM portfolio_history_cache '
+            'WHERE portfolio_id = ? AND cache_key = ?',
+            (portfolio_id, cache_key),
+        ).fetchone()
+        if not row:
+            return None
+        cached_at = datetime.fromisoformat(row['cached_at'])
+        ttl = timedelta(minutes=PortfolioHistoryService.DAILY_CACHE_TTL_MINUTES)
+        if datetime.utcnow() - cached_at > ttl:
+            return None
+        return json.loads(row['result_json'])
+
+    @staticmethod
+    def _set_daily_cache(portfolio_id: int, cache_key: str, data: list) -> None:
+        import json
+        from datetime import datetime
+
+        db = get_db()
+        db.execute(
+            '''INSERT OR REPLACE INTO portfolio_history_cache
+               (portfolio_id, cache_key, result_json, cached_at)
+               VALUES (?, ?, ?, ?)''',
+            (portfolio_id, cache_key, json.dumps(data), datetime.utcnow().isoformat()),
+        )
+        db.commit()
 
     @staticmethod
     def _build_price_context(portfolio_id, tickers, start_date, account_type, benchmark_ticker=None):
@@ -401,6 +445,11 @@ class PortfolioHistoryService(PortfolioCoreService):
     def get_portfolio_profit_history_daily(portfolio_id, days=30, metric="profit"):
         db = get_db()
         days = max(1, min(int(days), 365))
+        end_date = date.today()
+        cache_key = f"{metric}_{days}_{end_date.isoformat()}"
+        cached = PortfolioHistoryService._get_daily_cache(portfolio_id, cache_key)
+        if cached is not None:
+            return cached
         
         # Resolve portfolio and its parent/child status
         portfolio = db.execute('SELECT id, account_type, parent_portfolio_id FROM portfolios WHERE id = ?', (portfolio_id,)).fetchone()
@@ -425,7 +474,6 @@ class PortfolioHistoryService(PortfolioCoreService):
         transactions = db.execute(tx_query, tx_params).fetchall()
         if not transactions:
             return []
-        end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
         date_points = [start_date + timedelta(days=offset) for offset in range(days)]
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
@@ -511,6 +559,8 @@ class PortfolioHistoryService(PortfolioCoreService):
 
             value = total_value if metric == 'value' else total_value - state['invested_capital']
             result.append({'date': point_date.strftime('%Y-%m-%d'), 'label': point_date.strftime('%d %b'), 'value': round(value, 2)})
+
+        PortfolioHistoryService._set_daily_cache(portfolio_id, cache_key, result)
         return result
 
     @staticmethod

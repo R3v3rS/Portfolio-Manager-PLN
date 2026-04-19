@@ -217,6 +217,7 @@ def init_db(app):
                 ex_dividend_date DATE,
                 dividend_yield DECIMAL(10,6),
                 score INTEGER,
+                analysis_cached_at TEXT,
                 last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
@@ -228,6 +229,13 @@ def init_db(app):
             # Column already exists or table doesn't exist yet (handled by CREATE TABLE)
             pass
 
+        try:
+            db.execute('ALTER TABLE radar_cache ADD COLUMN analysis_cached_at TEXT')
+            db.commit()
+        except sqlite3.OperationalError as e:
+            if 'duplicate column name' not in str(e).lower():
+                raise
+
         # Asset metadata cache table (to avoid repeated yfinance info calls)
         db.execute('''
             CREATE TABLE IF NOT EXISTS asset_metadata (
@@ -237,6 +245,16 @@ def init_db(app):
                 industry TEXT,
                 currency VARCHAR(10) DEFAULT 'PLN',
                 updated_at TEXT NOT NULL
+            );
+        ''')
+
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS portfolio_history_cache (
+                portfolio_id INTEGER NOT NULL,
+                cache_key TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                cached_at TEXT NOT NULL,
+                PRIMARY KEY (portfolio_id, cache_key)
             );
         ''')
 
