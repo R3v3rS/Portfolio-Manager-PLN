@@ -20,8 +20,8 @@ const AdminPriceHistoryAudit: React.FC = () => {
       const parsedDays = daysInput === '' ? undefined : Number(daysInput);
       const parsedThreshold = thresholdInput === '' ? undefined : Number(thresholdInput);
 
-      const daysValue = parsedDays !== undefined && !Number.isNaN(parsedDays) ? parsedDays : undefined;
-      const thresholdValue = parsedThreshold !== undefined && !Number.isNaN(parsedThreshold) ? parsedThreshold : undefined;
+      const daysValue = parsedDays !== undefined && Number.isFinite(parsedDays) ? parsedDays : undefined;
+      const thresholdValue = parsedThreshold !== undefined && Number.isFinite(parsedThreshold) ? parsedThreshold : undefined;
 
       const response = await portfolioApi.runPriceHistoryAudit({
         days: daysValue,
