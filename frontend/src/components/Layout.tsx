@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, History, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { LayoutDashboard, Wallet, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 
@@ -18,12 +18,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }, [location.pathname]);
 
   const navItems = [
-    { name: 'Pulpit', path: '/', icon: LayoutDashboard },
-    { name: 'Inwestycje', path: '/portfolios', icon: Wallet },
-    { name: 'Radar', path: '/radar', icon: Radar },
-    { name: 'Kredyty', path: '/loans', icon: Landmark },
-    { name: 'Budżet', path: '/budget', icon: PiggyBank },
-    { name: 'Admin', path: '/admin', icon: Settings },
+    { name: 'Pulpit', path: '/', icon: LayoutDashboard, iconStyle: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200' },
+    { name: 'Inwestycje', path: '/portfolios', icon: Wallet, iconStyle: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200' },
+    { name: 'Radar', path: '/radar', icon: Radar, iconStyle: 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-200' },
+    { name: 'Kredyty', path: '/loans', icon: Landmark, iconStyle: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200' },
+    { name: 'Budżet', path: '/budget', icon: PiggyBank, iconStyle: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200' },
+    { name: 'Admin', path: '/admin', icon: Settings, iconStyle: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' },
   ];
 
   return (
@@ -55,13 +55,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       to={item.path}
                       className={cn(
                         isActive
-                          ? 'border-blue-500 text-gray-900 dark:text-gray-100'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-200',
-                        'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium'
+                          ? 'bg-[var(--color-background-secondary)] text-gray-900 dark:text-gray-100'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100',
+                        'inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors'
                       )}
                     >
-                      <Icon className="mr-1.5 h-4 w-4" />
-                      {item.name}
+                      <span className={cn('inline-flex h-7 w-7 items-center justify-center rounded-md', item.iconStyle, isActive && 'ring-1 ring-black/5 dark:ring-white/10')}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span>{item.name}</span>
                     </Link>
                   );
                 })}
@@ -92,13 +94,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       to={item.path}
                       className={cn(
                         isActive
-                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200'
+                          ? 'bg-[var(--color-background-secondary)] text-gray-900 dark:text-gray-100'
                           : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800',
                         'inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors'
                       )}
                     >
-                      <Icon className="h-4 w-4" />
-                      {item.name}
+                      <span className={cn('inline-flex h-7 w-7 items-center justify-center rounded-md', item.iconStyle, isActive && 'ring-1 ring-black/5 dark:ring-white/10')}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span>{item.name}</span>
                     </Link>
                   );
                 })}

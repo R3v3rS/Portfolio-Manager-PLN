@@ -82,21 +82,31 @@ const MainDashboard: React.FC = () => {
   const dividendProgress = totalDividendTarget > 0
     ? Math.min(100, ((dividendsData?.received_this_month ?? 0) / totalDividendTarget) * 100)
     : 0;
+  const todayLabel = new Date().toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  const renderMovers = (holdings: Holding[], colorClass: 'text-green-600' | 'text-red-600', icon: string) => {
+  const renderMovers = (holdings: Holding[], variant: 'success' | 'danger') => {
     return holdings.map((holding) => (
-      <div key={`${holding.portfolio_id}-${holding.ticker}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-2">
-        <div>{icon}</div>
+      <div
+        key={`${holding.portfolio_id}-${holding.ticker}`}
+        className="flex items-center justify-between gap-3 rounded-xl bg-gray-50/70 dark:bg-gray-800/40 px-3 py-2"
+      >
         <div className="min-w-0">
           <div className="font-mono font-bold text-gray-900 truncate">{holding.ticker}</div>
-          <div className={cn('text-sm font-semibold', colorClass)}>
-            {(holding.change_1d_percent ?? 0) > 0 ? '+' : ''}
-            {(holding.change_1d_percent ?? 0).toFixed(2)}%
+          <div className="text-sm text-gray-500 truncate">
+            {(holding.current_value ?? 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
           </div>
         </div>
-        <div className="text-sm text-gray-500 text-right">
-          {(holding.current_value ?? 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
-        </div>
+        <span
+          className={cn(
+            'shrink-0 rounded-full px-2.5 py-1 text-xs font-bold tabular-nums',
+            variant === 'success'
+              ? 'bg-[var(--color-background-success)] text-green-800 dark:text-green-100'
+              : 'bg-[var(--color-background-danger)] text-red-800 dark:text-red-100'
+          )}
+        >
+          {(holding.change_1d_percent ?? 0) > 0 ? '+' : ''}
+          {(holding.change_1d_percent ?? 0).toFixed(2)}%
+        </span>
       </div>
     ));
   };
@@ -108,17 +118,21 @@ const MainDashboard: React.FC = () => {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Pulpit Dowódcy</h1>
         <p className="mt-1 text-sm text-gray-500">Globalny przegląd Twojego majątku</p>
+        <p className="mt-1 text-sm text-gray-400">{todayLabel}</p>
       </div>
 
       {/* Top Row: Big Numbers */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Assets */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
-          <div className="flex items-center space-x-3 mb-2">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex items-center space-x-3 mb-1.5">
             <div className="p-2 bg-green-100 rounded-lg">
               <TrendingUp className="h-6 w-6 text-green-600" />
             </div>
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Aktywa</h3>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Aktywa</h3>
+            </div>
           </div>
           <div>
             <p className="text-3xl font-bold text-gray-900">{data.total_assets.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN</p>
@@ -127,12 +141,15 @@ const MainDashboard: React.FC = () => {
         </div>
 
         {/* Liabilities */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
-          <div className="flex items-center space-x-3 mb-2">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex items-center space-x-3 mb-1.5">
             <div className="p-2 bg-red-100 rounded-lg">
               <CreditCard className="h-6 w-6 text-red-600" />
             </div>
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Zobowiązania</h3>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Zobowiązania</h3>
+            </div>
           </div>
           <div>
             <p className="text-3xl font-bold text-gray-900">{data.total_liabilities.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN</p>
@@ -155,8 +172,10 @@ const MainDashboard: React.FC = () => {
 
         {/* Net Worth - The Main Card */}
         <div className={cn(
-          "bg-white rounded-2xl shadow-lg border-2 p-6 flex flex-col justify-between transform hover:-translate-y-1 transition-all duration-200 relative overflow-hidden",
-          netWorthShortTermOnly >= 0 ? "border-green-100 ring-4 ring-green-50/50" : "border-red-100 ring-4 ring-red-50/50"
+          "rounded-2xl shadow-lg border-2 p-5 flex flex-col justify-between transform hover:-translate-y-1 transition-all duration-200 relative overflow-hidden",
+          netWorthShortTermOnly >= 0
+            ? "bg-[var(--color-background-success)] border-green-100 ring-4 ring-green-50/50"
+            : "bg-[var(--color-background-danger)] border-red-100 ring-4 ring-red-50/50"
         )}>
           <div className={cn("absolute top-0 right-0 w-32 h-32 rounded-full -mr-16 -mt-16 opacity-10", netWorthShortTermOnly >= 0 ? "bg-green-500" : "bg-red-500")}></div>
           
@@ -164,7 +183,10 @@ const MainDashboard: React.FC = () => {
             <div className={cn("p-2 rounded-lg", netWorthShortTermOnly >= 0 ? "bg-green-100" : "bg-red-100")}>
               <Landmark className={cn("h-6 w-6", netWorthShortTermOnly >= 0 ? "text-green-700" : "text-red-700")} />
             </div>
-            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Majątek Netto (krótkoterminowe)</h3>
+            <div className="flex items-center gap-2">
+              <span className={cn("h-2 w-2 rounded-full", netWorthShortTermOnly >= 0 ? "bg-green-500" : "bg-red-500")} />
+              <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Majątek Netto (krótkoterminowe)</h3>
+            </div>
           </div>
           <div className="relative z-10">
             <p className={cn("text-4xl font-extrabold tracking-tight", netWorthShortTermOnly >= 0 ? "text-green-700" : "text-red-700")}>
@@ -281,11 +303,11 @@ const MainDashboard: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Gainers</h4>
-              <div className="space-y-1">{renderMovers(topGainers, 'text-green-600', '🟢')}</div>
+              <div className="space-y-2">{renderMovers(topGainers, 'success')}</div>
             </div>
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Losers</h4>
-              <div className="space-y-1">{renderMovers(topLosers, 'text-red-600', '🔴')}</div>
+              <div className="space-y-2">{renderMovers(topLosers, 'danger')}</div>
             </div>
           </div>
         ) : (

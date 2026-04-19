@@ -1,6 +1,6 @@
 import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench, ChevronDown, Archive } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, HelpCircle, ChevronDown, Archive } from 'lucide-react';
 import {
   portfolioApi,
   normalizeXtbImportError,
@@ -403,6 +403,9 @@ const PortfolioDetails: React.FC = () => {
   const [rebuildLoading, setRebuildLoading] = useState(false);
   const [priceAuditLoading, setPriceAuditLoading] = useState(false);
   const [priceAuditResult, setPriceAuditResult] = useState<PriceHistoryAuditResult | null>(null);
+  void auditLoading;
+  void rebuildLoading;
+  void priceAuditLoading;
 
   // Monthly Dividend state
   const [monthlyDividends, setMonthlyDividends] = useState<{ label: string; amount: number }[]>([]);
@@ -725,6 +728,7 @@ const PortfolioDetails: React.FC = () => {
       setRebuildLoading(false);
     }
   };
+  void runRebuild;
 
   const runPriceHistoryAudit = async () => {
     const daysInput = window.prompt('Ile dni sprawdzić w audycie cen?', '30');
@@ -768,6 +772,7 @@ const PortfolioDetails: React.FC = () => {
       setPriceAuditLoading(false);
     }
   };
+  void runPriceHistoryAudit;
 
   const fetchHistory = async (ticker: string) => {
     setHistoryLoading(true);
