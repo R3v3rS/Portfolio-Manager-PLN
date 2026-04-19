@@ -21,7 +21,7 @@ def clear_database():
         # Tabela symbol_mappings zostaje - reszta do wyczyszczenia
         tables_to_clear = [
             'watchlist', 'ppk_transactions', 'transactions', 'holdings',
-            'stock_prices', 'price_cache', 'quotes_cache', 'radar_cache', 'asset_metadata',
+            'stock_prices', 'price_cache', 'quotes_cache', 'stock_history_refresh_state', 'radar_cache', 'asset_metadata',
             'dividends', 'bonds', 'loan_rates', 'loan_overpayments',
             'ppk_portfolios', 'portfolios', 'budget_transactions',
             'envelope_loans', 'envelopes', 'envelope_categories',

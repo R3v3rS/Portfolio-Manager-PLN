@@ -197,6 +197,13 @@ def init_db(app):
             );
         ''')
 
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS stock_history_refresh_state (
+                ticker VARCHAR(20) PRIMARY KEY,
+                last_attempted_at TEXT
+            );
+        ''')
+
         # Radar cache table (snapshot to avoid frequent API calls)
         db.execute('''
             CREATE TABLE IF NOT EXISTS radar_cache (

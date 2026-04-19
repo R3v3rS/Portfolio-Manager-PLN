@@ -34,6 +34,9 @@ class StockHistoryEndpointSyncTestCase(unittest.TestCase):
 
     def test_does_not_sync_when_not_needed(self):
         with patch("routes_history.PriceService.get_tickers_requiring_history_sync", return_value=[]), patch(
+            "routes_history.PriceService.should_refresh_stock_history",
+            return_value=False,
+        ), patch(
             "routes_history.PriceService.sync_stock_history",
             return_value=None,
         ) as sync_mock:
@@ -43,6 +46,9 @@ class StockHistoryEndpointSyncTestCase(unittest.TestCase):
 
     def test_syncs_when_needed(self):
         with patch("routes_history.PriceService.get_tickers_requiring_history_sync", return_value=["AAPL"]), patch(
+            "routes_history.PriceService.should_refresh_stock_history",
+            return_value=False,
+        ), patch(
             "routes_history.PriceService.sync_stock_history",
             return_value=None,
         ) as sync_mock:
@@ -52,6 +58,9 @@ class StockHistoryEndpointSyncTestCase(unittest.TestCase):
 
     def test_refresh_forces_sync(self):
         with patch("routes_history.PriceService.get_tickers_requiring_history_sync", return_value=[]), patch(
+            "routes_history.PriceService.should_refresh_stock_history",
+            return_value=False,
+        ), patch(
             "routes_history.PriceService.sync_stock_history",
             return_value=None,
         ) as sync_mock:
@@ -62,3 +71,15 @@ class StockHistoryEndpointSyncTestCase(unittest.TestCase):
     def test_refresh_validation(self):
         response = self.client.get("/api/portfolio/history/AAPL?refresh=2")
         self.assertEqual(response.status_code, 400)
+
+    def test_syncs_when_refresh_ttl_expired(self):
+        with patch("routes_history.PriceService.get_tickers_requiring_history_sync", return_value=[]), patch(
+            "routes_history.PriceService.should_refresh_stock_history",
+            return_value=True,
+        ), patch(
+            "routes_history.PriceService.sync_stock_history",
+            return_value=None,
+        ) as sync_mock:
+            response = self.client.get("/api/portfolio/history/AAPL")
+            self.assertEqual(response.status_code, 200)
+            sync_mock.assert_called_once()

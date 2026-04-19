@@ -37,6 +37,7 @@ class PriceService:
     _metadata_cache = {}
     _metadata_cache_updated_at = {}
     _metadata_ttl = timedelta(days=30)
+    _stock_history_refresh_ttl = timedelta(hours=4)
     _default_history_start = date(2000, 1, 1)
     _supported_error_types = {
         "network_timeout",
@@ -462,6 +463,36 @@ class PriceService:
                DO UPDATE SET
                     last_attempted_at = excluded.last_attempted_at''',
             (ticker, level, now_iso)
+        )
+        db.commit()
+
+    @classmethod
+    def should_refresh_stock_history(cls, ticker):
+        db = get_db()
+        row = db.execute(
+            'SELECT last_attempted_at FROM stock_history_refresh_state WHERE ticker = ?',
+            (ticker,),
+        ).fetchone()
+        if not row or not row['last_attempted_at']:
+            return True
+
+        try:
+            last_attempted = datetime.fromisoformat(str(row['last_attempted_at']))
+        except ValueError:
+            return True
+
+        return datetime.now() - last_attempted >= cls._stock_history_refresh_ttl
+
+    @classmethod
+    def mark_stock_history_refresh_attempt(cls, ticker):
+        db = get_db()
+        now_iso = datetime.now().isoformat(timespec='seconds')
+        db.execute(
+            '''INSERT INTO stock_history_refresh_state (ticker, last_attempted_at)
+               VALUES (?, ?)
+               ON CONFLICT(ticker)
+               DO UPDATE SET last_attempted_at = excluded.last_attempted_at''',
+            (ticker, now_iso),
         )
         db.commit()
 

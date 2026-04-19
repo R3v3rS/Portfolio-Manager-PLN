@@ -55,10 +55,13 @@ def get_stock_history(ticker):
 
     if force_refresh:
         PriceService.sync_stock_history(ticker)
+        PriceService.mark_stock_history_refresh_attempt(ticker)
     else:
         needs_sync = PriceService.get_tickers_requiring_history_sync([ticker])
-        if needs_sync:
+        should_refresh = PriceService.should_refresh_stock_history(ticker)
+        if needs_sync or should_refresh:
             PriceService.sync_stock_history(ticker)
+            PriceService.mark_stock_history_refresh_attempt(ticker)
 
     prices = db.execute(
         'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
