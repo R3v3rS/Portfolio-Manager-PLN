@@ -86,8 +86,8 @@ const MainDashboard: React.FC = () => {
 
   const renderMovers = (holdings: Holding[], colorClass: 'text-green-600' | 'text-red-600', icon: string) => {
     return holdings.map((holding) => (
-      <div key={`${holding.portfolio_id}-${holding.ticker}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-2">
-        <div>{icon}</div>
+      <div key={`${holding.portfolio_id}-${holding.ticker}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2">
+        <div className="text-xs">{icon}</div>
         <div className="min-w-0">
           <div className="font-mono font-bold text-gray-900 truncate">{holding.ticker}</div>
           <div className={cn('text-sm font-semibold', colorClass)}>
@@ -106,15 +106,16 @@ const MainDashboard: React.FC = () => {
     <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Pulpit Dowódcy</h1>
+      <div className="mb-8 rounded-3xl border border-blue-100/70 bg-gradient-to-r from-white to-blue-50/70 p-6 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">Portfolio Command Center</p>
+        <h1 className="mt-1 text-3xl font-bold text-gray-900">Pulpit Dowódcy</h1>
         <p className="mt-1 text-sm text-gray-500">Globalny przegląd Twojego majątku</p>
       </div>
 
       {/* Top Row: Big Numbers */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Assets */}
-        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow bg-gradient-to-b from-white to-green-50/40">
           <div className="flex items-center space-x-3 mb-2">
             <div className="p-2 bg-green-100 rounded-lg">
               <TrendingUp className="h-6 w-6 text-green-600" />
@@ -128,7 +129,7 @@ const MainDashboard: React.FC = () => {
         </Card>
 
         {/* Liabilities */}
-        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow bg-gradient-to-b from-white to-red-50/30">
           <div className="flex items-center space-x-3 mb-2">
             <div className="p-2 bg-red-100 rounded-lg">
               <CreditCard className="h-6 w-6 text-red-600" />
@@ -156,7 +157,7 @@ const MainDashboard: React.FC = () => {
 
         {/* Net Worth - The Main Card */}
         <div className={cn(
-          "bg-white rounded-2xl shadow-lg border-2 p-6 flex flex-col justify-between transform hover:-translate-y-1 transition-all duration-200 relative overflow-hidden",
+          "bg-white rounded-2xl shadow-lg border-2 p-6 flex flex-col justify-between transform hover:-translate-y-1 transition-all duration-200 relative overflow-hidden bg-gradient-to-b",
           netWorthShortTermOnly >= 0 ? "border-green-100 ring-4 ring-green-50/50" : "border-red-100 ring-4 ring-red-50/50"
         )}>
           <div className={cn("absolute top-0 right-0 w-32 h-32 rounded-full -mr-16 -mt-16 opacity-10", netWorthShortTermOnly >= 0 ? "bg-green-500" : "bg-red-500")}></div>
@@ -298,7 +299,7 @@ const MainDashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* Portfolios */}
-        <Link to="/portfolios" className="group p-6 hover:border-blue-100 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg">
+        <Link to="/portfolios" className="group p-6 hover:border-blue-200 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-100 transition-colors">
               <Briefcase className="h-8 w-8" />
@@ -310,7 +311,7 @@ const MainDashboard: React.FC = () => {
         </Link>
 
         {/* Loans */}
-        <Link to="/loans" className="group p-6 hover:border-amber-100 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg">
+        <Link to="/loans" className="group p-6 hover:border-amber-200 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-100 transition-colors">
               <Landmark className="h-8 w-8" />
@@ -322,7 +323,7 @@ const MainDashboard: React.FC = () => {
         </Link>
 
         {/* Budget */}
-        <Link to="/budget" className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-indigo-100 transition-all duration-200">
+        <Link to="/budget" className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-indigo-200 transition-all duration-200 hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-100 transition-colors">
               <PiggyBank className="h-8 w-8" />
