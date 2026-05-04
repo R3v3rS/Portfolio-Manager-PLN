@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Wrench, SlidersHorizontal, ListTree, PiggyBank, ShieldAlert, History } from 'lucide-react';
+import { Wrench, SlidersHorizontal, ListTree, PiggyBank, ShieldAlert, History, Building2 } from 'lucide-react';
 
 const AdminHome: React.FC = () => {
   const tiles = [
@@ -39,6 +39,12 @@ const AdminHome: React.FC = () => {
       description: 'Operacje serwisowe budżetu.',
       to: '/admin/budget',
       icon: PiggyBank,
+    },
+    {
+      title: 'Instrument Profiles',
+      description: 'Klasyfikacja sektor/kraj i alokacje ETF.',
+      to: '/admin/instrument-profiles',
+      icon: Building2,
     },
   ];
 

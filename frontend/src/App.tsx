@@ -17,6 +17,7 @@ const AdminPortfolioTools = lazy(() => import('./pages/admin/AdminPortfolioTools
 const AdminConsistencyAudit = lazy(() => import('./pages/admin/AdminConsistencyAudit'));
 const AdminBudget = lazy(() => import('./pages/admin/AdminBudget'));
 const AdminPriceHistoryAudit = lazy(() => import('./pages/admin/AdminPriceHistoryAudit'));
+const InstrumentProfilesPage = lazy(() => import('./pages/admin/InstrumentProfilesPage'));
 
 function App() {
   return (
@@ -40,6 +41,7 @@ function App() {
             <Route path="/admin/consistency-audit" element={<AdminConsistencyAudit />} />
             <Route path="/admin/price-history-audit" element={<AdminPriceHistoryAudit />} />
             <Route path="/admin/budget" element={<AdminBudget />} />
+            <Route path="/admin/instrument-profiles" element={<InstrumentProfilesPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

@@ -697,6 +697,51 @@ def init_db(app):
         db.execute('CREATE INDEX IF NOT EXISTS idx_import_staging_session ON import_staging(import_session_id);')
         db.execute('CREATE INDEX IF NOT EXISTS idx_import_staging_portfolio ON import_staging(portfolio_id, status);')
 
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL CHECK (type IN ('SECTOR', 'COUNTRY')),
+                name TEXT NOT NULL UNIQUE
+            );
+        ''')
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS category_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL CHECK (type IN ('SECTOR', 'COUNTRY')),
+                alias TEXT NOT NULL,
+                category_id INTEGER NOT NULL,
+                FOREIGN KEY (category_id) REFERENCES categories(id),
+                UNIQUE(type, alias)
+            );
+        ''')
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS instrument_profiles (
+                ticker TEXT PRIMARY KEY,
+                instrument_type TEXT NOT NULL CHECK (instrument_type IN ('STOCK', 'ETF')),
+                sector_id INTEGER,
+                country_id INTEGER,
+                source TEXT NOT NULL CHECK (source IN ('manual', 'yfinance', 'ai')),
+                status TEXT NOT NULL CHECK (status IN ('verified', 'ai', 'pending')),
+                updated_at DATETIME NOT NULL,
+                FOREIGN KEY (sector_id) REFERENCES categories(id),
+                FOREIGN KEY (country_id) REFERENCES categories(id)
+            );
+        ''')
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS etf_allocations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                category_id INTEGER NOT NULL,
+                type TEXT NOT NULL CHECK (type IN ('SECTOR', 'COUNTRY')),
+                weight REAL NOT NULL,
+                updated_at DATETIME NOT NULL,
+                FOREIGN KEY (ticker) REFERENCES instrument_profiles(ticker),
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            );
+        ''')
+        db.execute("INSERT OR IGNORE INTO categories (type, name) VALUES ('SECTOR', 'Other')")
+        db.execute("INSERT OR IGNORE INTO categories (type, name) VALUES ('COUNTRY', 'Other')")
+
         # Validation function after migration
         def validate_subportfolio_integrity(db_conn):
             # Check for self-cycles

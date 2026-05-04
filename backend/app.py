@@ -21,6 +21,7 @@ from routes_radar import radar_bp
 from routes_symbol_map import symbol_map_bp
 from routes_analytics import analytics_bp
 from routes_ai import ai_bp
+from routes_instrument_profiles import instrument_profiles_bp
 from dotenv import load_dotenv
 
 # Load .env from the current directory (backend/)
@@ -112,6 +113,7 @@ def create_app():
     app.register_blueprint(analytics_bp)
     app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
     app.register_blueprint(ai_bp)
+    app.register_blueprint(instrument_profiles_bp)
 
 
     # Global API error handling.
