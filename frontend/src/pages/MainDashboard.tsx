@@ -11,6 +11,7 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import { Link } from 'react-router-dom';
 import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
 import { cn } from '../lib/utils';
+import Card from '../components/ui/Card';
 import type { Holding } from '../types';
 
 const MainDashboard: React.FC = () => {
@@ -53,7 +54,7 @@ const MainDashboard: React.FC = () => {
     fetchData();
   }, []);
 
-  if (loading) return <div className="p-12 text-center text-gray-500">Ładowanie kokpitu...</div>;
+  if (loading) return <div className="space-y-6 p-4"><div className="h-8 w-56 animate-pulse rounded bg-gray-200" /><div className="grid grid-cols-1 gap-6 md:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-gray-200" />)}</div></div>;
   if (error) return <div className="p-12 text-center text-red-600">{error}</div>;
 
   const chartData = [
@@ -85,8 +86,8 @@ const MainDashboard: React.FC = () => {
 
   const renderMovers = (holdings: Holding[], colorClass: 'text-green-600' | 'text-red-600', icon: string) => {
     return holdings.map((holding) => (
-      <div key={`${holding.portfolio_id}-${holding.ticker}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-2">
-        <div>{icon}</div>
+      <div key={`${holding.portfolio_id}-${holding.ticker}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/80">
+        <div className="text-xs">{icon}</div>
         <div className="min-w-0">
           <div className="font-mono font-bold text-gray-900 truncate">{holding.ticker}</div>
           <div className={cn('text-sm font-semibold', colorClass)}>
@@ -94,7 +95,7 @@ const MainDashboard: React.FC = () => {
             {(holding.change_1d_percent ?? 0).toFixed(2)}%
           </div>
         </div>
-        <div className="text-sm text-gray-500 text-right">
+        <div className="text-sm text-gray-500 text-right dark:text-gray-300">
           {(holding.current_value ?? 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
         </div>
       </div>
@@ -105,15 +106,16 @@ const MainDashboard: React.FC = () => {
     <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Pulpit Dowódcy</h1>
-        <p className="mt-1 text-sm text-gray-500">Globalny przegląd Twojego majątku</p>
+      <div className="mb-8 rounded-3xl border border-blue-100/70 bg-gradient-to-r from-white to-blue-50/70 p-6 shadow-sm dark:border-blue-900/50 dark:from-gray-900 dark:to-blue-950/40">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">Portfolio Command Center</p>
+        <h1 className="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">Pulpit Dowódcy</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-300">Globalny przegląd Twojego majątku</p>
       </div>
 
       {/* Top Row: Big Numbers */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Assets */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow bg-gradient-to-b from-white to-green-50/40 dark:from-gray-900 dark:to-green-950/30">
           <div className="flex items-center space-x-3 mb-2">
             <div className="p-2 bg-green-100 rounded-lg">
               <TrendingUp className="h-6 w-6 text-green-600" />
@@ -124,10 +126,10 @@ const MainDashboard: React.FC = () => {
             <p className="text-3xl font-bold text-gray-900">{data.total_assets.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN</p>
             <p className="text-xs text-gray-400 mt-1">Gotówka + Inwestycje</p>
           </div>
-        </div>
+        </Card>
 
         {/* Liabilities */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow bg-gradient-to-b from-white to-red-50/30 dark:from-gray-900 dark:to-red-950/20">
           <div className="flex items-center space-x-3 mb-2">
             <div className="p-2 bg-red-100 rounded-lg">
               <CreditCard className="h-6 w-6 text-red-600" />
@@ -151,11 +153,11 @@ const MainDashboard: React.FC = () => {
               </p>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Net Worth - The Main Card */}
         <div className={cn(
-          "bg-white rounded-2xl shadow-lg border-2 p-6 flex flex-col justify-between transform hover:-translate-y-1 transition-all duration-200 relative overflow-hidden",
+          "bg-white rounded-2xl shadow-lg border-2 p-6 flex flex-col justify-between transform hover:-translate-y-1 transition-all duration-200 relative overflow-hidden bg-gradient-to-b",
           netWorthShortTermOnly >= 0 ? "border-green-100 ring-4 ring-green-50/50" : "border-red-100 ring-4 ring-red-50/50"
         )}>
           <div className={cn("absolute top-0 right-0 w-32 h-32 rounded-full -mr-16 -mt-16 opacity-10", netWorthShortTermOnly >= 0 ? "bg-green-500" : "bg-red-500")}></div>
@@ -184,7 +186,7 @@ const MainDashboard: React.FC = () => {
       {/* Middle Row: Visualization & Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <Card variant="default" className="lg:col-span-2 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">Struktura Aktywów</h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -211,10 +213,10 @@ const MainDashboard: React.FC = () => {
               </PieChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </Card>
 
         {/* Quick Stats Panel */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-center space-y-8">
+        <Card variant="default" className="p-6 flex flex-col justify-center space-y-8">
            <div>
               <h4 className="text-sm font-medium text-gray-500 uppercase mb-2">Dostępne Środki (Budżet)</h4>
               <div className="flex items-baseline space-x-2">
@@ -272,13 +274,13 @@ const MainDashboard: React.FC = () => {
                 )}
              </div>
            )}
-        </div>
+        </Card>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      <Card variant="default" className="p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Dzisiejsze ruchy</h3>
         {hasDailyChangeData ? (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Gainers</h4>
               <div className="space-y-1">{renderMovers(topGainers, 'text-green-600', '🟢')}</div>
@@ -291,45 +293,45 @@ const MainDashboard: React.FC = () => {
         ) : (
           <p className="text-sm text-gray-500">Brak danych zmian dziennych</p>
         )}
-      </div>
+      </Card>
 
       {/* Bottom Row: Navigation Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* Portfolios */}
-        <Link to="/portfolios" className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-blue-100 transition-all duration-200">
+        <Link to="/portfolios" className="group p-6 hover:border-blue-200 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 dark:bg-gray-900 dark:border-gray-800 dark:hover:border-blue-700/60">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-100 transition-colors">
               <Briefcase className="h-8 w-8" />
             </div>
             <ArrowRight className="h-5 w-5 text-gray-300 group-hover:text-blue-500 transform group-hover:translate-x-1 transition-all" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Zarządzaj Portfelami</h3>
-          <p className="mt-2 text-sm text-gray-500">Akcje, Obligacje, IKE/IKZE</p>
+          <h3 className="text-xl font-bold text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300">Zarządzaj Portfelami</h3>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">Akcje, Obligacje, IKE/IKZE</p>
         </Link>
 
         {/* Loans */}
-        <Link to="/loans" className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-amber-100 transition-all duration-200">
+        <Link to="/loans" className="group p-6 hover:border-amber-200 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 dark:bg-gray-900 dark:border-gray-800 dark:hover:border-amber-700/60">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-100 transition-colors">
               <Landmark className="h-8 w-8" />
             </div>
             <ArrowRight className="h-5 w-5 text-gray-300 group-hover:text-amber-500 transform group-hover:translate-x-1 transition-all" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 group-hover:text-amber-600 transition-colors">Zarządzaj Kredytami</h3>
-          <p className="mt-2 text-sm text-gray-500">Hipoteki, Gotówkowe, Nadpłaty</p>
+          <h3 className="text-xl font-bold text-gray-900 transition-colors group-hover:text-amber-600 dark:text-gray-100 dark:group-hover:text-amber-300">Zarządzaj Kredytami</h3>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">Hipoteki, Gotówkowe, Nadpłaty</p>
         </Link>
 
         {/* Budget */}
-        <Link to="/budget" className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-indigo-100 transition-all duration-200">
+        <Link to="/budget" className="group rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg dark:border-gray-800 dark:bg-gray-900 dark:hover:border-indigo-700/60">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-100 transition-colors">
               <PiggyBank className="h-8 w-8" />
             </div>
             <ArrowRight className="h-5 w-5 text-gray-300 group-hover:text-indigo-500 transform group-hover:translate-x-1 transition-all" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">Zarządzaj Budżetem</h3>
-          <p className="mt-2 text-sm text-gray-500">Konta, Koperty, Wydatki</p>
+          <h3 className="text-xl font-bold text-gray-900 transition-colors group-hover:text-indigo-600 dark:text-gray-100 dark:group-hover:text-indigo-300">Zarządzaj Budżetem</h3>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">Konta, Koperty, Wydatki</p>
         </Link>
 
       </div>
