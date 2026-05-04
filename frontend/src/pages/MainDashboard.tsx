@@ -11,6 +11,7 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import { Link } from 'react-router-dom';
 import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
 import { cn } from '../lib/utils';
+import Card from '../components/ui/Card';
 import type { Holding } from '../types';
 
 const MainDashboard: React.FC = () => {
@@ -53,7 +54,7 @@ const MainDashboard: React.FC = () => {
     fetchData();
   }, []);
 
-  if (loading) return <div className="p-12 text-center text-gray-500">Ładowanie kokpitu...</div>;
+  if (loading) return <div className="space-y-6 p-4"><div className="h-8 w-56 animate-pulse rounded bg-gray-200" /><div className="grid grid-cols-1 gap-6 md:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-gray-200" />)}</div></div>;
   if (error) return <div className="p-12 text-center text-red-600">{error}</div>;
 
   const chartData = [
@@ -113,7 +114,7 @@ const MainDashboard: React.FC = () => {
       {/* Top Row: Big Numbers */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Assets */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex items-center space-x-3 mb-2">
             <div className="p-2 bg-green-100 rounded-lg">
               <TrendingUp className="h-6 w-6 text-green-600" />
@@ -124,10 +125,10 @@ const MainDashboard: React.FC = () => {
             <p className="text-3xl font-bold text-gray-900">{data.total_assets.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN</p>
             <p className="text-xs text-gray-400 mt-1">Gotówka + Inwestycje</p>
           </div>
-        </div>
+        </Card>
 
         {/* Liabilities */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex items-center space-x-3 mb-2">
             <div className="p-2 bg-red-100 rounded-lg">
               <CreditCard className="h-6 w-6 text-red-600" />
@@ -151,7 +152,7 @@ const MainDashboard: React.FC = () => {
               </p>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Net Worth - The Main Card */}
         <div className={cn(
@@ -184,7 +185,7 @@ const MainDashboard: React.FC = () => {
       {/* Middle Row: Visualization & Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <Card variant="default" className="lg:col-span-2 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">Struktura Aktywów</h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -211,10 +212,10 @@ const MainDashboard: React.FC = () => {
               </PieChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </Card>
 
         {/* Quick Stats Panel */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-center space-y-8">
+        <Card variant="default" className="p-6 flex flex-col justify-center space-y-8">
            <div>
               <h4 className="text-sm font-medium text-gray-500 uppercase mb-2">Dostępne Środki (Budżet)</h4>
               <div className="flex items-baseline space-x-2">
@@ -272,13 +273,13 @@ const MainDashboard: React.FC = () => {
                 )}
              </div>
            )}
-        </div>
+        </Card>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      <Card variant="default" className="p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Dzisiejsze ruchy</h3>
         {hasDailyChangeData ? (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Gainers</h4>
               <div className="space-y-1">{renderMovers(topGainers, 'text-green-600', '🟢')}</div>
@@ -291,13 +292,13 @@ const MainDashboard: React.FC = () => {
         ) : (
           <p className="text-sm text-gray-500">Brak danych zmian dziennych</p>
         )}
-      </div>
+      </Card>
 
       {/* Bottom Row: Navigation Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* Portfolios */}
-        <Link to="/portfolios" className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-blue-100 transition-all duration-200">
+        <Link to="/portfolios" className="group p-6 hover:border-blue-100 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-100 transition-colors">
               <Briefcase className="h-8 w-8" />
@@ -309,7 +310,7 @@ const MainDashboard: React.FC = () => {
         </Link>
 
         {/* Loans */}
-        <Link to="/loans" className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-amber-100 transition-all duration-200">
+        <Link to="/loans" className="group p-6 hover:border-amber-100 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-100 transition-colors">
               <Landmark className="h-8 w-8" />
