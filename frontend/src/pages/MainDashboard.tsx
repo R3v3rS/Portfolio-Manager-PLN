@@ -7,7 +7,7 @@ import {
 } from '../api_dashboard';
 import { portfolioApi } from '../api';
 import { extractErrorMessageFromUnknown } from '../http/response';
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { TrendingUp, CreditCard, Landmark } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Card, SectionHeader, Sidebar } from '../components/dashboard/DashboardPrimitives';
@@ -67,6 +67,24 @@ const MainDashboard: React.FC = () => {
     { name: 'Akcje / ETF', value: data.assets_breakdown.stocks, color: '#3B82F6' }, // blue-500
     { name: 'PPK', value: data.assets_breakdown.ppk, color: '#A855F7' }, // purple-500
   ].filter(item => item.value > 0);
+  const timelineData = [
+    { name: 'Sty', portfolio: 320, deposits: 300 },
+    { name: 'Lut', portfolio: 360, deposits: 320 },
+    { name: 'Mar', portfolio: 410, deposits: 350 },
+    { name: 'Kwi', portfolio: 470, deposits: 390 },
+    { name: 'Maj', portfolio: 520, deposits: 430 },
+    { name: 'Cze', portfolio: 560, deposits: 460 },
+  ];
+
+  const DarkTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="rounded-xl border border-white/10 bg-[#0b1220]/95 px-3 py-2 text-xs shadow-xl">
+        <p className="mb-1 text-slate-300">{label}</p>
+        {payload.map((item) => <p key={item.name} className="text-slate-100">{item.name}: {item.value.toFixed(2)} PLN</p>)}
+      </div>
+    );
+  };
 
   const netWorthShortTermOnly = data.total_assets - data.liabilities_breakdown.short_term;
   const netWorthAllLiabilities = data.total_assets - (data.liabilities_breakdown.short_term + data.liabilities_breakdown.long_term);
@@ -115,7 +133,7 @@ const MainDashboard: React.FC = () => {
               <p className="text-xs text-slate-400">Nowoczesny panel inwestycyjny</p>
             </div>
             <div className="flex gap-2">
-              {['Transfer', 'Nowa Operacja', 'Odśwież ceny'].map((label, i) => <button key={label} className={`rounded-xl px-4 py-2 text-sm font-medium ${i===0?'bg-emerald-500/20 text-emerald-300':'bg-indigo-500/20 text-indigo-200'} ring-1 ring-white/10`}>{label}</button>)}
+              {['Transfer', 'Nowa Operacja', 'Odśwież ceny'].map((label, i) => <button key={label} className={`h-10 rounded-xl px-4 text-sm font-medium transition-all duration-200 ease-in-out active:scale-95 ${i===0?'bg-gradient-to-r from-emerald-500/25 to-emerald-400/15 text-emerald-200 hover:shadow-[0_0_18px_rgba(34,197,94,0.25)]':'bg-gradient-to-r from-indigo-500/25 to-violet-500/20 text-indigo-100 hover:shadow-[0_0_18px_rgba(99,102,241,0.25)]'} ring-1 ring-white/10 hover:-translate-y-0.5`}>{label}</button>)}
             </div>
           </div>
 
@@ -130,7 +148,26 @@ const MainDashboard: React.FC = () => {
           <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
             <ChartCard title="Wartość portfela">
               <div className="h-[320px]">
-                <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={chartData} cx="50%" cy="50%" innerRadius={70} outerRadius={112} dataKey="value">{chartData.map((e,i)=><Cell key={i} fill={e.color} />)}</Pie><Tooltip/></PieChart></ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timelineData}>
+                    <defs>
+                      <linearGradient id="gradientGreen" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#22c55e" stopOpacity="0.35" />
+                        <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+                      </linearGradient>
+                      <linearGradient id="gradientBlue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.30" />
+                        <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="rgba(148,163,184,0.14)" vertical={false} />
+                    <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} />
+                    <YAxis stroke="#64748b" tickLine={false} axisLine={false} />
+                    <Tooltip content={<DarkTooltip />} />
+                    <Area type="monotone" dataKey="portfolio" stroke="#22c55e" fill="url(#gradientGreen)" strokeWidth={2.6} dot={{ r: 0 }} activeDot={{ r: 4, stroke: '#86efac', strokeWidth: 2 }} />
+                    <Area type="monotone" dataKey="deposits" stroke="#3b82f6" fill="url(#gradientBlue)" strokeWidth={2.2} dot={{ r: 0 }} activeDot={{ r: 4, stroke: '#93c5fd', strokeWidth: 2 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </ChartCard>
             <ChartCard title="Zysk / Strata">
