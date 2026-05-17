@@ -2,10 +2,6 @@ import { ANALYTICS_ENDPOINTS, createApiClient } from './apiConfig';
 
 const analyticsHttp = createApiClient('/analytics');
 
-interface ApiEnvelope<T> {
-  payload?: T;
-}
-
 export interface MaxDrawdownMetric {
   value: number;
   start_date?: string;
@@ -77,13 +73,13 @@ const normalizeSummaryPayload = (payload?: AnalyticsSummaryApiPayload): Analytic
 
 export const analyticsApi = {
   getSummary: async (portfolioId: number, subPortfolioId?: number): Promise<AnalyticsSummaryPayload> => {
-    const response = await analyticsHttp.get<ApiEnvelope<AnalyticsSummaryApiPayload>>(ANALYTICS_ENDPOINTS.summary, {
+    const response = await analyticsHttp.get<AnalyticsSummaryApiPayload>(ANALYTICS_ENDPOINTS.summary, {
       params: {
         portfolio_id: portfolioId,
         sub_portfolio_id: subPortfolioId,
       },
     });
 
-    return normalizeSummaryPayload(response?.payload);
+    return normalizeSummaryPayload(response);
   },
 };
