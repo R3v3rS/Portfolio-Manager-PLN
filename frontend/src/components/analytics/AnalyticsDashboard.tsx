@@ -95,16 +95,18 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
     return 'bg-green-100';
   };
 
+  const hasMatrix = rows.length > 0 && columns.length > 0;
+
   return (
     <div className="rounded-lg border border-gray-200 p-4">
       <h3 className="mb-4 text-lg font-semibold text-gray-900">Correlation Heatmap</h3>
-      <ResponsiveContainer width="100%" height={280}>
-        <PieChart>
-          <Tooltip formatter={(value: number) => value.toFixed(2)} />
-        </PieChart>
-      </ResponsiveContainer>
+      {!hasMatrix && (
+        <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-600">
+          Brak macierzy korelacji. Dodaj co najmniej dwa aktywa z dostępną historią cen, aby zobaczyć zależności.
+        </div>
+      )}
 
-      <div className="mt-4 overflow-x-auto">
+      {hasMatrix && <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr>
@@ -133,7 +135,7 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
     </div>
   );
 };
@@ -141,16 +143,22 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
 const DiversificationPie = ({ data }: { data: Array<{ sector: string; value: number }> }) => (
   <div className="rounded-lg border border-gray-200 p-4">
     <h3 className="mb-4 text-lg font-semibold text-gray-900">Diversification by Sector</h3>
-    <ResponsiveContainer width="100%" height={300}>
-      <PieChart>
-        <Pie data={data} dataKey="value" nameKey="sector" outerRadius={110} label={({ name, value }) => `${name}: ${value.toFixed(1)}%`}>
-          {data.map((entry, index) => (
-            <Cell key={entry.sector} fill={piePalette[index % piePalette.length]} />
-          ))}
-        </Pie>
-        <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
-      </PieChart>
-    </ResponsiveContainer>
+    {data.length === 0 ? (
+      <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-600">
+        Brak danych sektorowych. Uzupełnij sektory pozycji albo odśwież metadane instrumentów.
+      </div>
+    ) : (
+      <ResponsiveContainer width="100%" height={300}>
+        <PieChart>
+          <Pie data={data} dataKey="value" nameKey="sector" outerRadius={110} label={({ name, value }) => `${name}: ${Number(value).toFixed(1)}%`}>
+            {data.map((entry, index) => (
+              <Cell key={entry.sector} fill={piePalette[index % piePalette.length]} />
+            ))}
+          </Pie>
+          <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
+        </PieChart>
+      </ResponsiveContainer>
+    )}
   </div>
 );
 
@@ -204,7 +212,8 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ portfolioId, su
     const candidate = item.value ?? item.weight ?? 0;
     const numeric = Number(candidate);
     if (Number.isFinite(numeric)) {
-      acc[sectorName] = (acc[sectorName] ?? 0) + (numeric * 100);
+      const percentage = Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+      acc[sectorName] = (acc[sectorName] ?? 0) + percentage;
     }
     return acc;
   }, {});
