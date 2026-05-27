@@ -122,7 +122,7 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         result = ImportStagingService.create_session(self.portfolio_id, df)
         self.assertEqual(result['rows'][0]['conflict_type'], 'database_duplicate')
 
-    def test_create_session_reports_file_and_database_duplicate_together(self):
+    def test_create_session_allows_extra_identical_stock_fills_beyond_database_count(self):
         db = get_db()
         db.execute(
             '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
@@ -137,10 +137,88 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         ])
 
         result = ImportStagingService.create_session(self.portfolio_id, df)
+        self.assertEqual(result['rows'][0]['conflict_type'], 'database_duplicate')
+        self.assertIsNone(result['rows'][1]['conflict_type'])
+
+    def test_create_session_detects_database_duplicates_by_occurrence_count(self):
+        db = get_db()
+        db.executemany(
+            '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
+               VALUES (?, 'AAPL', '2026-01-02 10:00:00', 'BUY', 5, 100, 500)''',
+            [(self.portfolio_id,), (self.portfolio_id,)],
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+        self.assertEqual(result['rows'][0]['conflict_type'], 'database_duplicate')
+        self.assertEqual(result['rows'][1]['conflict_type'], 'database_duplicate')
+        self.assertIsNone(result['rows'][2]['conflict_type'])
+
+    def test_create_session_counts_legacy_date_only_duplicates_for_timed_rows(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
+               VALUES (?, 'AAPL', '2026-01-02', 'BUY', 5, 100, 500)''',
+            (self.portfolio_id,),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+
+        self.assertEqual(result['rows'][0]['conflict_type'], 'database_duplicate')
+        self.assertIsNone(result['rows'][1]['conflict_type'])
+
+    def test_create_session_still_reports_cash_file_and_database_duplicate_together(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
+               VALUES (?, 'CASH', '2026-01-02 10:00:00', 'DEPOSIT', 1, 500, 500)''',
+            (self.portfolio_id,),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Deposit', 'Amount': '500', 'Comment': ''},
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Deposit', 'Amount': '500', 'Comment': ''},
+        ])
+
+        result = ImportStagingService.create_session(self.portfolio_id, df)
         second_row = result['rows'][1]
         self.assertEqual(second_row['conflict_type'], 'file_internal_duplicate')
-        self.assertEqual(second_row['conflict_details']['also_database_duplicate'], True)
-        self.assertEqual(second_row['conflict_details']['conflict_types'], ['file_internal_duplicate', 'database_duplicate'])
+        self.assertEqual(second_row['conflict_details']['source_row'], 1)
+
+    def test_create_session_keeps_same_day_timestamps_distinct_for_duplicates(self):
+        db = get_db()
+        db.execute(
+            '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
+               VALUES (?, 'AAPL', '2026-01-02 10:00:00', 'BUY', 5, 100, 500)''',
+            (self.portfolio_id,),
+        )
+        db.commit()
+
+        df = self._df([
+            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02 11:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02 12:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ])
+
+        result = ImportStagingService.create_session(self.portfolio_id, df)
+
+        self.assertEqual(result['rows'][0]['conflict_type'], 'database_duplicate')
+        self.assertIsNone(result['rows'][1]['conflict_type'])
+        self.assertIsNone(result['rows'][2]['conflict_type'])
+        self.assertEqual(result['rows'][1]['date'], '2026-01-02 11:00:00')
 
     def test_assign_row_changes_status(self):
         df = self._df([

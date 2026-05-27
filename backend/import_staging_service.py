@@ -45,8 +45,9 @@ class ImportStagingService:
         if currency == 'PLN':
             return 1.0, 'pln_native'
 
+        tx_day = str(tx_date).split(' ')[0].split('T')[0]
         fx_ticker = f'{currency}PLN=X'
-        PriceService.sync_stock_history(fx_ticker, tx_date)
+        PriceService.sync_stock_history(fx_ticker, tx_day)
         db = get_db()
         fx_row = db.execute(
             '''SELECT close_price
@@ -54,7 +55,7 @@ class ImportStagingService:
                WHERE ticker = ? AND DATE(date) <= DATE(?)
                ORDER BY DATE(date) DESC
                LIMIT 1''',
-            (fx_ticker, tx_date),
+            (fx_ticker, tx_day),
         ).fetchone()
 
         if not fx_row:
@@ -66,11 +67,20 @@ class ImportStagingService:
         return fx_rate, 'historical_close'
 
     @staticmethod
-    def _iso_date(value: Any, row_number: int) -> str:
+    def _normalized_import_datetime(value: Any, row_number: int) -> str:
         parsed = pd.to_datetime(value, errors='coerce')
         if pd.isna(parsed):
             raise ValueError(f"Invalid date at row {row_number}: {value}")
+        if parsed.hour or parsed.minute or parsed.second or parsed.microsecond:
+            return parsed.isoformat(sep=' ', timespec='seconds')
         return parsed.date().isoformat()
+
+    @staticmethod
+    def _has_time_component(value: str) -> bool:
+        parsed = pd.to_datetime(value, errors='coerce')
+        if pd.isna(parsed):
+            return False
+        return bool(parsed.hour or parsed.minute or parsed.second or parsed.microsecond)
 
     @staticmethod
     def _now_iso() -> str:
@@ -96,7 +106,7 @@ class ImportStagingService:
         )
 
     @staticmethod
-    def _transaction_exists(
+    def _transaction_match_counts(
         db,
         portfolio_id: int,
         date_value: str,
@@ -108,14 +118,38 @@ class ImportStagingService:
     ) -> bool:
         # Duplicate detection is portfolio-wide (across main + sub-portfolios),
         # so users are warned even if an identical transaction was booked in a different scope.
+        # If the source row includes time, keep the match time-specific. XTB can emit
+        # several identical fills on one day, and collapsing them to DATE causes false duplicates.
         _ = sub_portfolio_id
-        existing = db.execute(
-            '''SELECT id FROM transactions
-               WHERE portfolio_id = ? AND DATE(date) = DATE(?) AND ticker = ? AND type = ?
-               AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001''',
-            (portfolio_id, date_value, ticker, tx_type, total_value, quantity),
-        ).fetchone()
-        return existing is not None
+        if ImportStagingService._has_time_component(date_value):
+            exact = db.execute(
+                '''SELECT COUNT(*) AS count FROM transactions
+                   WHERE portfolio_id = ? AND datetime(date) = datetime(?) AND ticker = ? AND type = ?
+                   AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001''',
+                (portfolio_id, date_value, ticker, tx_type, total_value, quantity),
+            ).fetchone()
+            legacy_date_only = db.execute(
+                '''SELECT COUNT(*) AS count FROM transactions
+                   WHERE portfolio_id = ? AND DATE(date) = DATE(?) AND ticker = ? AND type = ?
+                   AND instr(date, ' ') = 0 AND instr(date, 'T') = 0
+                   AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001''',
+                (portfolio_id, date_value, ticker, tx_type, total_value, quantity),
+            ).fetchone()
+            return {
+                'exact': int(exact['count'] or 0) if exact else 0,
+                'legacy_date_only': int(legacy_date_only['count'] or 0) if legacy_date_only else 0,
+            }
+        else:
+            existing = db.execute(
+                '''SELECT COUNT(*) AS count FROM transactions
+                   WHERE portfolio_id = ? AND DATE(date) = DATE(?) AND ticker = ? AND type = ?
+                   AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001''',
+                (portfolio_id, date_value, ticker, tx_type, total_value, quantity),
+            ).fetchone()
+            return {
+                'exact': int(existing['count'] or 0) if existing else 0,
+                'legacy_date_only': 0,
+            }
 
     @staticmethod
     def _validate_subportfolio(db, parent_portfolio_id: int, sub_portfolio_id: int) -> None:
@@ -155,7 +189,9 @@ class ImportStagingService:
         db = get_db()
         session_id = str(uuid4())
         created_at = ImportStagingService._now_iso()
-        internal_hashes: dict[str, int] = {}
+        internal_hashes: dict[str, dict[str, int]] = {}
+        database_exact_duplicate_remaining: dict[tuple[str, str, str, float, float], int] = {}
+        database_legacy_duplicate_remaining: dict[tuple[str, str, str, float, float], int] = {}
         rows_payload: list[dict[str, Any]] = []
         missing_symbols: list[str] = []
         simulated_holdings: dict[tuple[str, Optional[int]], float] = {}
@@ -202,7 +238,7 @@ class ImportStagingService:
                 if amount is None:
                     raise ValueError(f"Invalid numeric value in column '{amount_column}' at row {row_number}: {row[amount_column]}")
                 tx_total = abs(amount)
-                date_value = ImportStagingService._iso_date(row[time_column], row_number)
+                date_value = ImportStagingService._normalized_import_datetime(row[time_column], row_number)
 
                 comment = ''
                 if comment_column is not None and not pd.isna(row[comment_column]):
@@ -249,29 +285,56 @@ class ImportStagingService:
                 if conflict_type is None:
                     file_duplicate_source_row = None
                     if row_hash in internal_hashes:
-                        file_duplicate_source_row = internal_hashes[row_hash]
+                        file_duplicate_source_row = internal_hashes[row_hash]['first_row']
+                        internal_hashes[row_hash]['count'] += 1
                     else:
-                        internal_hashes[row_hash] = row_number
+                        internal_hashes[row_hash] = {'first_row': row_number, 'count': 1}
 
-                    is_database_duplicate = ImportStagingService._transaction_exists(
-                        db,
-                        portfolio_id,
+                    database_exact_key = (
                         date_value,
                         tx_ticker,
                         tx_type,
-                        tx_total,
-                        tx_qty,
-                        sub_portfolio_id,
+                        round(tx_total, 2),
+                        round(tx_qty, 8),
                     )
+                    database_legacy_key = (
+                        date_value.split(' ')[0].split('T')[0],
+                        tx_ticker,
+                        tx_type,
+                        round(tx_total, 2),
+                        round(tx_qty, 8),
+                    )
+                    if database_exact_key not in database_exact_duplicate_remaining:
+                        database_matches = ImportStagingService._transaction_match_counts(
+                            db,
+                            portfolio_id,
+                            date_value,
+                            tx_ticker,
+                            tx_type,
+                            tx_total,
+                            tx_qty,
+                            sub_portfolio_id,
+                        )
+                        database_exact_duplicate_remaining[database_exact_key] = database_matches['exact']
+                        if database_legacy_key not in database_legacy_duplicate_remaining:
+                            database_legacy_duplicate_remaining[database_legacy_key] = database_matches['legacy_date_only']
+                    is_database_duplicate = False
+                    if database_exact_duplicate_remaining[database_exact_key] > 0:
+                        database_exact_duplicate_remaining[database_exact_key] -= 1
+                        is_database_duplicate = True
+                    elif database_legacy_duplicate_remaining[database_legacy_key] > 0:
+                        database_legacy_duplicate_remaining[database_legacy_key] -= 1
+                        is_database_duplicate = True
+                    is_file_duplicate = file_duplicate_source_row is not None and tx_type not in {'BUY', 'SELL'}
 
-                    if file_duplicate_source_row is not None and is_database_duplicate:
+                    if is_file_duplicate and is_database_duplicate:
                         conflict_type = 'file_internal_duplicate'
                         conflict_details = {
                             'source_row': file_duplicate_source_row,
                             'also_database_duplicate': True,
                             'conflict_types': ['file_internal_duplicate', 'database_duplicate'],
                         }
-                    elif file_duplicate_source_row is not None:
+                    elif is_file_duplicate:
                         conflict_type = 'file_internal_duplicate'
                         conflict_details = {'source_row': file_duplicate_source_row}
                     elif is_database_duplicate:

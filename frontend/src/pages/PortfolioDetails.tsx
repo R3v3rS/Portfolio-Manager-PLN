@@ -39,6 +39,71 @@ const createMissingSymbolDrafts = (symbols: string[]) =>
     return acc;
   }, {});
 
+const formatHoldingQuantity = (value: number) => parseFloat(Number(value).toFixed(4)).toString();
+
+const formatHoldingMoney = (value?: number | null, currency = 'PLN') =>
+  typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)} ${currency}` : '-';
+
+const formatHoldingPercent = (value?: number | null) =>
+  typeof value === 'number' && Number.isFinite(value) ? `${Number(value.toFixed(2))}%` : '-';
+
+const holdingResultTone = (value?: number | null) =>
+  (value ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400';
+
+const HoldingTags = ({ holding }: { holding: Holding }) => {
+  const tags = [
+    holding.sector && holding.sector !== 'Unknown'
+      ? {
+          label: holding.sector,
+          className: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-100 dark:border-blue-800/50',
+        }
+      : null,
+    holding.industry && holding.industry !== 'Unknown'
+      ? {
+          label: holding.industry,
+          className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700',
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; className: string }>;
+
+  if (tags.length === 0) return null;
+
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap gap-1">
+      {tags.map((tag) => (
+        <span
+          key={tag.label}
+          title={tag.label}
+          className={cn(
+            'inline-flex max-w-[170px] items-center truncate rounded border px-2 py-0.5 text-[10px] font-semibold',
+            tag.className
+          )}
+        >
+          {tag.label}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+const HoldingFxHint = ({ holding }: { holding: Holding }) => {
+  if (!holding.auto_fx_fees) return null;
+
+  return (
+    <div className="group relative">
+      <HelpCircle className="h-3 w-3 cursor-help text-gray-400 dark:text-gray-500" />
+      <div className="absolute bottom-full right-0 z-20 mb-2 hidden w-56 rounded border border-gray-700 bg-gray-900 p-2 text-left text-xs text-white shadow-lg group-hover:block">
+        Zysk netto ("na rękę") uwzględniający szacowaną prowizję 0.5% przy sprzedaży.
+        {holding.fx_rate_used && (
+          <div className="mt-1 text-gray-300">
+            Kurs FX: {holding.fx_rate_used.toFixed(4)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
   portfolioId: number, 
   onSuccess: () => void,
@@ -874,6 +939,32 @@ const PortfolioDetails: React.FC = () => {
           ? ['ppk', 'ppk_history', 'ai']
           : ['holdings', 'analytics', 'analytics_dashboard', 'results', 'value_history', 'history', 'closed', 'closed_cycles', 'ai'];
 
+  const renderHoldingActions = (holding: Holding) => (
+    <div className="flex flex-wrap justify-end gap-2 md:flex-col md:items-end xl:flex-row">
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          initiateSell(holding);
+        }}
+        className="rounded-md bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+      >
+        Sprzedaj
+      </button>
+      {(portfolio.account_type === 'IKE' || portfolio.account_type === 'STANDARD') && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            closePositionAtLastPrice(holding);
+          }}
+          className="rounded-md bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-600 transition-colors hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:hover:bg-orange-900/40"
+          title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
+        >
+          Zamknij
+        </button>
+      )}
+    </div>
+  );
+
   const toggleTxSelection = (id: number) => {
     setSelectedTxIds(prev => 
       prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
@@ -1384,7 +1475,140 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'holdings' && (
             <div className="space-y-6">
-              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
+              <div className="hidden overflow-hidden rounded-xl border border-gray-200 shadow-sm dark:border-gray-800 md:block">
+                <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-800">
+                  <thead className="bg-gray-50/80 backdrop-blur-sm dark:bg-gray-900/80">
+                    <tr>
+                      <th className="w-[30%] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Aktywo</th>
+                      <th className="w-[13%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Pozycja</th>
+                      <th className="w-[18%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Cena</th>
+                      <th className="w-[13%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wartość</th>
+                      <th className="w-[16%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wynik</th>
+                      <th className="w-[10%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">Akcje</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800/50 dark:bg-gray-950">
+                    {holdings.map((h) => (
+                      <tr
+                        key={h.ticker}
+                        className={cn("cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50", selectedTicker === h.ticker && "bg-blue-50/50 dark:bg-blue-900/20")}
+                        onClick={() => fetchHistory(h.ticker)}
+                      >
+                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900 dark:text-gray-100">
+                          <div className="min-w-0">
+                            <div className="break-words font-bold leading-snug">{h.company_name || h.ticker}</div>
+                            <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{h.ticker}</div>
+                            <HoldingTags holding={h} />
+                          </div>
+                        </td>
+                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
+                          <div className="font-semibold text-gray-800 dark:text-gray-200">{formatHoldingQuantity(h.quantity)}</div>
+                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            waga {formatHoldingPercent(h.weight_percent)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
+                          <div className="font-semibold text-gray-800 dark:text-gray-200">
+                            {formatHoldingMoney(h.current_price, h.currency || 'PLN')}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            śr. {formatHoldingMoney(h.average_buy_price)}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            BE {formatHoldingMoney(h.break_even_sell_price_pln)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-4 align-top text-right text-sm font-semibold text-gray-900 tabular-nums dark:text-gray-100">
+                          {formatHoldingMoney(h.current_value)}
+                        </td>
+                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
+                          <div className={cn('flex items-center justify-end gap-1 font-bold', holdingResultTone(h.profit_loss))}>
+                            {formatHoldingMoney(h.profit_loss)}
+                            <HoldingFxHint holding={h} />
+                          </div>
+                          <div className={cn('mt-1 text-xs font-semibold', holdingResultTone(h.realized_profit))}>
+                            zreal. {formatHoldingMoney(h.realized_profit)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-4 align-top text-sm font-medium">
+                          {renderHoldingActions(h)}
+                        </td>
+                      </tr>
+                    ))}
+                    {holdings.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak aktywów w tym portfelu.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-3 md:hidden">
+                {holdings.map((h) => (
+                  <div
+                    key={h.ticker}
+                    className={cn(
+                      "cursor-pointer rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:hover:bg-gray-900/50",
+                      selectedTicker === h.ticker && "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-900/20"
+                    )}
+                    onClick={() => fetchHistory(h.ticker)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="break-words text-sm font-bold leading-snug text-gray-900 dark:text-gray-100">{h.company_name || h.ticker}</div>
+                        <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{h.ticker}</div>
+                        <HoldingTags holding={h} />
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm font-bold text-gray-900 tabular-nums dark:text-gray-100">{formatHoldingMoney(h.current_value)}</div>
+                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">waga {formatHoldingPercent(h.weight_percent)}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 text-sm dark:border-gray-800">
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Pozycja</div>
+                        <div className="mt-1 font-semibold text-gray-800 tabular-nums dark:text-gray-200">{formatHoldingQuantity(h.quantity)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Cena</div>
+                        <div className="mt-1 font-semibold text-gray-800 tabular-nums dark:text-gray-200">
+                          {formatHoldingMoney(h.current_price, h.currency || 'PLN')}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Śr. / BE</div>
+                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                          {formatHoldingMoney(h.average_buy_price)} / {formatHoldingMoney(h.break_even_sell_price_pln)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Wynik</div>
+                        <div className={cn('mt-1 flex items-center justify-end gap-1 font-bold tabular-nums', holdingResultTone(h.profit_loss))}>
+                          {formatHoldingMoney(h.profit_loss)}
+                          <HoldingFxHint holding={h} />
+                        </div>
+                        <div className={cn('mt-0.5 text-xs font-semibold tabular-nums', holdingResultTone(h.realized_profit))}>
+                          zreal. {formatHoldingMoney(h.realized_profit)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex justify-end">
+                      {renderHoldingActions(h)}
+                    </div>
+                  </div>
+                ))}
+
+                {holdings.length === 0 && (
+                  <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center text-sm text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
+                    Brak aktywów w tym portfelu.
+                  </div>
+                )}
+              </div>
+
+              <div className="hidden">
                 <table className="min-w-[980px] w-full divide-y divide-gray-200 dark:divide-gray-800">
                   <thead className="bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
                     <tr>

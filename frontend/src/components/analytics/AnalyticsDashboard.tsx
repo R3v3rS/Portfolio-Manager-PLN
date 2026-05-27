@@ -98,7 +98,7 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
   const hasMatrix = rows.length > 0 && columns.length > 0;
 
   return (
-    <div className="rounded-lg border border-gray-200 p-4">
+    <div className="min-w-0 rounded-lg border border-gray-200 p-4">
       <h3 className="mb-4 text-lg font-semibold text-gray-900">Correlation Heatmap</h3>
       {!hasMatrix && (
         <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-600">
@@ -106,11 +106,11 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
         </div>
       )}
 
-      {hasMatrix && <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+      {hasMatrix && <div className="min-w-0 overflow-x-auto">
+        <table className="min-w-max text-sm">
           <thead>
             <tr>
-              <th className="px-2 py-2 text-left text-xs text-gray-500">Asset</th>
+              <th className="sticky left-0 z-10 bg-white px-2 py-2 text-left text-xs text-gray-500">Asset</th>
               {columns.map((column) => (
                 <th key={column} className="px-2 py-2 text-right text-xs text-gray-500">
                   {column}
@@ -121,7 +121,7 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
           <tbody>
             {rows.map((row, idx) => (
               <tr key={`${rowLabel(row)}-${idx}`} className="border-t border-gray-100">
-                <td className="px-2 py-2 font-medium text-gray-700">{rowLabel(row)}</td>
+                <td className="sticky left-0 z-10 bg-white px-2 py-2 font-medium text-gray-700">{rowLabel(row)}</td>
                 {columns.map((column) => {
                   const raw = row[column];
                   const numeric = typeof raw === 'number' ? raw : raw === null || raw === undefined ? null : Number(raw);
@@ -141,23 +141,41 @@ const CorrelationHeatmap = ({ rows }: { rows: Array<Record<string, string | numb
 };
 
 const DiversificationPie = ({ data }: { data: Array<{ sector: string; value: number }> }) => (
-  <div className="rounded-lg border border-gray-200 p-4">
+  <div className="min-w-0 rounded-lg border border-gray-200 p-4">
     <h3 className="mb-4 text-lg font-semibold text-gray-900">Diversification by Sector</h3>
     {data.length === 0 ? (
       <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-600">
         Brak danych sektorowych. Uzupełnij sektory pozycji albo odśwież metadane instrumentów.
       </div>
     ) : (
-      <ResponsiveContainer width="100%" height={300}>
-        <PieChart>
-          <Pie data={data} dataKey="value" nameKey="sector" outerRadius={110} label={({ name, value }) => `${name}: ${Number(value).toFixed(1)}%`}>
-            {data.map((entry, index) => (
-              <Cell key={entry.sector} fill={piePalette[index % piePalette.length]} />
-            ))}
-          </Pie>
-          <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
-        </PieChart>
-      </ResponsiveContainer>
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(180px,220px)]">
+        <div className="min-w-0">
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+              <Pie data={data} dataKey="value" nameKey="sector" outerRadius={96}>
+                {data.map((entry, index) => (
+                  <Cell key={entry.sector} fill={piePalette[index % piePalette.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <ul className="min-w-0 space-y-2 self-center text-sm text-gray-700">
+          {data.map((entry, index) => (
+            <li key={entry.sector} className="flex min-w-0 items-center gap-2">
+              <span
+                className="h-3 w-3 shrink-0 rounded-sm"
+                style={{ backgroundColor: piePalette[index % piePalette.length] }}
+              />
+              <span className="min-w-0 flex-1 truncate" title={entry.sector}>
+                {entry.sector}
+              </span>
+              <span className="shrink-0 font-medium text-gray-900">{entry.value.toFixed(1)}%</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     )}
   </div>
 );
@@ -251,7 +269,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ portfolioId, su
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <CorrelationHeatmap rows={correlationData} />
         <DiversificationPie data={pieData} />
       </div>
