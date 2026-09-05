@@ -2,6 +2,8 @@
 set -euo pipefail
 
 npm --prefix frontend run check
+npm --prefix frontend run lint
+npm --prefix frontend test
 npm --prefix frontend run build
 python -m compileall backend
-python -m unittest backend.tests.test_smoke_endpoints
+python -m pytest -q

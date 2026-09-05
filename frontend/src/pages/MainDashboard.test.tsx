@@ -61,7 +61,7 @@ describe('MainDashboard', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('Ładowanie kokpitu...')).toBeInTheDocument();
+    expect(document.querySelectorAll('.animate-pulse')).not.toHaveLength(0);
   });
 
   it('renders KPI cards, chart section and formatted values after successful load', async () => {

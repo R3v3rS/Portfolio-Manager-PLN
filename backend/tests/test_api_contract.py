@@ -401,6 +401,9 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 },
             ),
             ('/api/dashboard/global-summary', 'GET'): lambda: self.client.get('/api/dashboard/global-summary'),
+            ('/api/dashboard/dividends/current-month', 'GET'): lambda: self.client.get(
+                '/api/dashboard/dividends/current-month'
+            ),
             ('/api/analytics/summary', 'GET'): lambda: self.client.get('/api/analytics/summary?portfolio_id=1'),
             ('/api/ai/portfolio-analysis', 'POST'): lambda: self.client.post(
                 '/api/ai/portfolio-analysis',

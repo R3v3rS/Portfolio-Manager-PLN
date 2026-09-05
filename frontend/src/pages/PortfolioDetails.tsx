@@ -1288,6 +1288,44 @@ const PortfolioDetails: React.FC = () => {
         </div>
       </div>
 
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="portfolio-diagnostics-heading">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 id="portfolio-diagnostics-heading" className="font-semibold text-slate-900">Diagnostyka portfela</h2>
+            <p className="text-sm text-slate-500">Sprawdź spójność danych lub uruchom kontrolowane narzędzia naprawcze.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={runAudit}
+              disabled={auditLoading}
+              className="inline-flex items-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <ShieldAlert className="mr-2 h-4 w-4" />
+              {auditLoading ? 'Sprawdzanie…' : 'Sprawdź spójność'}
+            </button>
+            <button
+              type="button"
+              onClick={runPriceHistoryAudit}
+              disabled={priceAuditLoading}
+              className="inline-flex items-center rounded-md border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Wrench className="mr-2 h-4 w-4" />
+              {priceAuditLoading ? 'Audytowanie…' : 'Audyt cen'}
+            </button>
+            <button
+              type="button"
+              onClick={runRebuild}
+              disabled={rebuildLoading}
+              className="inline-flex items-center rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {rebuildLoading ? 'Naprawianie…' : 'Odtwórz z transakcji'}
+            </button>
+          </div>
+        </div>
+      </section>
+
       {auditResult && (
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">

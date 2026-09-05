@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, History, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { LayoutDashboard, Wallet, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 
