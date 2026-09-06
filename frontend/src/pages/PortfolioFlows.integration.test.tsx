@@ -429,7 +429,7 @@ describe('SELL transaction integration flow', () => {
     renderPortfolioDetails();
 
     await screen.findAllByText('AAPL');
-    await user.click(screen.getByRole('button', { name: 'Sprzedaj' }));
+    await user.click(screen.getAllByRole('button', { name: 'Sprzedaj' })[0]);
     const sellForm = screen.getByRole('button', { name: 'Sprzedaj Akcje' }).closest('form')!;
     const sellFields = within(sellForm).getAllByRole('spinbutton');
     await user.clear(sellFields[0]);
@@ -455,7 +455,7 @@ describe('SELL transaction integration flow', () => {
 
     renderPortfolioDetails();
     await screen.findAllByText('AAPL');
-    await user.click(screen.getByRole('button', { name: 'Sprzedaj' }));
+    await user.click(screen.getAllByRole('button', { name: 'Sprzedaj' })[0]);
     await user.click(screen.getByRole('button', { name: 'Sprzedaj Akcje' }));
 
     expect(alertSpy).toHaveBeenCalledWith('Sell blocked');

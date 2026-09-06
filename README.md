@@ -159,11 +159,15 @@ Minimalny quality gate dla formalnego domknięcia Etapu 1 uruchomisz jednym pole
 Skrypt wykonuje kolejno:
 
 - `npm --prefix frontend run check`,
+- `npm --prefix frontend run lint`,
+- `npm --prefix frontend test`,
 - `npm --prefix frontend run build`,
 - `python -m compileall backend`,
-- `python -m unittest backend.test_smoke_endpoints`.
+- `python -m pytest -q` (pełny zestaw testów backendu).
 
-Smoke test backendu obejmuje krytyczne endpointy: dashboard globalny, listę i wycenę portfeli, create/buy/sell, transfery budżet ↔ inwestycje, harmonogram kredytu, radar i symbol map.
+Przed pierwszym uruchomieniem zainstaluj zależności developerskie backendu przez
+`python -m pip install -r backend/requirements-dev.txt` oraz zależności frontendu
+przez `npm --prefix frontend ci`.
 
 
 

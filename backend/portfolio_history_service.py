@@ -147,11 +147,28 @@ class PortfolioHistoryService(PortfolioCoreService):
         ).fetchone()
         if not row:
             return None
-        cached_at = datetime.fromisoformat(row['cached_at'])
+        try:
+            cached_at = datetime.fromisoformat(row['cached_at'])
+            result_json = row['result_json']
+        except (KeyError, TypeError, ValueError):
+            logger.warning(
+                "Ignoring malformed daily history cache entry for portfolio %s (%s)",
+                portfolio_id,
+                cache_key,
+            )
+            return None
         ttl = timedelta(minutes=PortfolioHistoryService.DAILY_CACHE_TTL_MINUTES)
         if datetime.utcnow() - cached_at > ttl:
             return None
-        return json.loads(row['result_json'])
+        try:
+            return json.loads(result_json)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Ignoring invalid JSON in daily history cache for portfolio %s (%s)",
+                portfolio_id,
+                cache_key,
+            )
+            return None
 
     @staticmethod
     def _set_daily_cache(portfolio_id: int, cache_key: str, data: list) -> None:

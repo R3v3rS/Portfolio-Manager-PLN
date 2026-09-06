@@ -161,6 +161,12 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         def keys(self):
             return self._data.keys()
 
+    @staticmethod
+    def _cache_miss_cursor():
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        return cursor
+
     def _legacy_daily(self, transactions, price_history, ticker_currency, days, account_type, live_value):
         end_date = portfolio_history_module.date.today()
         start_date = end_date - timedelta(days=days - 1)
@@ -253,7 +259,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         portfolio_cursor.fetchone.return_value = portfolio_row
         tx_cursor = MagicMock()
         tx_cursor.fetchall.return_value = transactions
-        db.execute.side_effect = [portfolio_cursor, tx_cursor]
+        db.execute.side_effect = [self._cache_miss_cursor(), portfolio_cursor, tx_cursor, MagicMock()]
 
         prices = {
             'AAPL': {
@@ -307,7 +313,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock()
         t_cur.fetchall.return_value = transactions
-        db.execute.side_effect = [p_cur, t_cur]
+        db.execute.side_effect = [self._cache_miss_cursor(), p_cur, t_cur, MagicMock()]
 
         mock_build_price_context.return_value = (
             {'AAA': 'PLN'},
@@ -384,7 +390,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         mock_get_db.return_value = db
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
-        db.execute.side_effect = [p_cur, t_cur]
+        db.execute.side_effect = [self._cache_miss_cursor(), p_cur, t_cur, MagicMock()]
         mock_build_price_context.return_value = ({}, {})
 
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(11, days=365, metric='value')
@@ -411,7 +417,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         mock_get_db.return_value = db
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
-        db.execute.side_effect = [p_cur, t_cur]
+        db.execute.side_effect = [self._cache_miss_cursor(), p_cur, t_cur, MagicMock()]
         price_history = {ticker: {'2026-01-02': 100 + i, '2026-04-03': 110 + i} for i, ticker in enumerate(tickers)}
         mock_build_price_context.return_value = ({ticker: 'PLN' for ticker in tickers}, price_history)
 
@@ -436,7 +442,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         mock_get_db.return_value = db
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
-        db.execute.side_effect = [p_cur, t_cur]
+        db.execute.side_effect = [self._cache_miss_cursor(), p_cur, t_cur, MagicMock()]
         price_history = {
             'ABC': {'2026-03-25': 100, '2026-04-03': 100},
             'USDPLN=X': {'2026-03-25': 4.0, '2026-03-30': 4.2, '2026-04-03': 4.1},
@@ -468,7 +474,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         mock_get_db.return_value = db
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
-        db.execute.side_effect = [p_cur, t_cur]
+        db.execute.side_effect = [self._cache_miss_cursor(), p_cur, t_cur, MagicMock()]
         mock_build_price_context.return_value = ({'AAA': 'PLN'}, {'AAA': {'2026-03-31': 60, '2026-04-03': 60}})
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(14, days=7, metric='value')
         before_sell = [x for x in data if x['date'] == '2026-03-31'][0]
@@ -493,7 +499,7 @@ class PortfolioHistoryServiceRollingParityTestCase(unittest.TestCase):
         mock_get_db.return_value = db
         p_cur = MagicMock(); p_cur.fetchone.return_value = portfolio_row
         t_cur = MagicMock(); t_cur.fetchall.return_value = transactions
-        db.execute.side_effect = [p_cur, t_cur]
+        db.execute.side_effect = [self._cache_miss_cursor(), p_cur, t_cur, MagicMock()]
         mock_build_price_context.return_value = ({'AAA': 'PLN'}, {'AAA': {'2026-03-26': 500, '2026-04-03': 500}})
 
         data = PortfolioHistoryService.get_portfolio_profit_history_daily(20, days=5, metric='value')
