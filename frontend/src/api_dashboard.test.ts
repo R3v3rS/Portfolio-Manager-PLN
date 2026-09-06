@@ -50,7 +50,7 @@ describe('dashboardApi', () => {
     getMock.mockResolvedValueOnce(null);
     await expect(dashboardApi.getCurrentMonthDividends()).resolves.toEqual({
       received_this_month: 0,
-      expected_this_month: 0,
+      expected_this_month: null,
       month_label: '',
       top_payers: [],
     });

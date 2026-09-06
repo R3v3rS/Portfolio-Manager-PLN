@@ -25,7 +25,7 @@ export interface GlobalSummary {
 
 export interface CurrentMonthDividends {
   received_this_month: number;
-  expected_this_month: number;
+  expected_this_month: number | null;
   month_label: string;
   top_payers: Array<{
     ticker: string;
@@ -118,7 +118,7 @@ const normalizeCurrentMonthDividends = (value: unknown): CurrentMonthDividends =
 
   return {
     received_this_month: toNumber(source.received_this_month),
-    expected_this_month: toNumber(source.expected_this_month),
+    expected_this_month: source.expected_this_month == null ? null : toNumber(source.expected_this_month),
     month_label: toString(source.month_label),
     top_payers: topPayers
       .filter(isRecord)

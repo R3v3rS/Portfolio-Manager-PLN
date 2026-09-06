@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import MainDashboard from './MainDashboard';
 import { dashboardApi } from '../api_dashboard';
@@ -38,6 +38,34 @@ const mockedListPortfolios = vi.mocked(portfolioApi.list);
 const mockedGetHoldings = vi.mocked(portfolioApi.getHoldings);
 
 describe('MainDashboard', () => {
+  it('keeps summary and healthy holdings visible when one portfolio fails, and retries', async () => {
+    const { EMPTY_GLOBAL_SUMMARY } = await import('../api_dashboard');
+    mockedGetGlobalSummary.mockResolvedValue(EMPTY_GLOBAL_SUMMARY);
+    mockedListPortfolios.mockResolvedValue({ portfolios: [{ id: 1, account_type: 'STANDARD' }, { id: 2, account_type: 'IKE' }] } as never);
+    mockedGetHoldings.mockImplementation(async id => {
+      if (id === 2) throw new Error('unavailable');
+      return [{ ticker: 'AAA', portfolio_id: 1, quantity: 1, current_value: 100, change_1d_percent: -2 }] as never;
+    });
+    render(<MemoryRouter><MainDashboard /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Aktywa' })).toBeInTheDocument();
+    expect(screen.getAllByText('AAA')).toHaveLength(1);
+    expect(screen.getByText('Brak wzrostów')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    mockedGetHoldings.mockResolvedValue([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Ponów pobieranie pozycji' }));
+    await screen.findByText('Brak danych zmian dziennych');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows unknown dividend forecast without a progress bar', async () => {
+    const { EMPTY_GLOBAL_SUMMARY } = await import('../api_dashboard');
+    mockedGetGlobalSummary.mockResolvedValue(EMPTY_GLOBAL_SUMMARY);
+    mockedGetCurrentMonthDividends.mockResolvedValue({ received_this_month: 120, expected_this_month: null, month_label: 'Kwiecień 2026', top_payers: [] });
+    render(<MemoryRouter><MainDashboard /></MemoryRouter>);
+    expect(await screen.findByText(/Prognoza wypłat niedostępna/)).toBeInTheDocument();
+    expect(screen.getByText('Otrzymane: 120,00 PLN')).toBeInTheDocument();
+    expect(document.querySelector('.transition-all[style]')).toBeNull();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetCurrentMonthDividends.mockResolvedValue({
@@ -108,7 +136,8 @@ describe('MainDashboard', () => {
     expect(await screen.findByText(/Otrzymane: 234,50 PLN/)).toBeInTheDocument();
     expect(await screen.findByText(/💰 DNP.WA 120,00 PLN/i)).toBeInTheDocument();
     expect(await screen.findByText('Dzisiejsze ruchy')).toBeInTheDocument();
-    expect((await screen.findAllByText('CDR.WA')).length).toBeGreaterThan(0);
+    expect(await screen.findAllByText('CDR.WA')).toHaveLength(1);
+    expect(screen.getByText('Brak spadków')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Zarządzaj Portfelami/ })).toBeInTheDocument();
   });
 
@@ -151,7 +180,9 @@ describe('MainDashboard', () => {
 
     expect(await screen.findByText('Brak nadchodzących rat')).toBeInTheDocument();
     expect(await screen.findByText('Brak dywidend w tym miesiącu')).toBeInTheDocument();
-    expect(await screen.findByText('Brak danych zmian dziennych')).toBeInTheDocument();
+    expect(await screen.findByText('Brak wzrostów')).toBeInTheDocument();
+    expect(screen.getByText('Brak spadków')).toBeInTheDocument();
+    expect(screen.queryByText('Brak danych zmian dziennych')).not.toBeInTheDocument();
   });
 
   it('hides dividends widget when dividends endpoint fails', async () => {

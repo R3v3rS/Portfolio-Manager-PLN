@@ -84,6 +84,7 @@ class DashboardDividendsEndpointTestCase(unittest.TestCase):
 
         self.assertEqual(payload['month_label'], 'Kwiecień 2026')
         self.assertAlmostEqual(payload['received_this_month'], 200.0)
-        self.assertAlmostEqual(payload['expected_this_month'], 12.0)
+        # Annual yield and ex-date cannot establish an unpaid monthly payment.
+        self.assertIsNone(payload['expected_this_month'])
         self.assertEqual(payload['top_payers'][0]['ticker'], 'DNP.WA')
         self.assertAlmostEqual(payload['top_payers'][0]['amount'], 120.0)

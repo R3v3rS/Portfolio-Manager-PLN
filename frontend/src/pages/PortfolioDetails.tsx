@@ -448,6 +448,8 @@ const PortfolioDetails: React.FC = () => {
   const [ppkPerformance, setPpkPerformance] = useState<PPKPerformanceResponse | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadSequence = useRef(0);
   const [activeTab, setActiveTab] = useState<ActiveTab>('holdings');
   
   // Modals state
@@ -507,10 +509,13 @@ const PortfolioDetails: React.FC = () => {
   const [txFilterSubPortfolio, setTxFilterSubPortfolio] = useState<string>('all');
 
   const fetchData = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    const isCurrent = () => sequence === loadSequence.current;
     if (!id) return;
     const portfolioId = parseInt(id, 10);
     if (Number.isNaN(portfolioId)) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes, aRes, configRes] = await Promise.all([
         portfolioApi.listNormalized({ tree: 0 }),
@@ -525,6 +530,7 @@ const PortfolioDetails: React.FC = () => {
         portfolioApi.config()
       ]);
       
+      if (!isCurrent()) return;
       const found = pRes.find((p: Portfolio) => p.id === portfolioId) ?? null;
       setAllPortfolios(pRes);
       setPortfolio(found || null);
@@ -542,6 +548,7 @@ const PortfolioDetails: React.FC = () => {
 
       if (found?.account_type === 'BONDS') {
         const bRes = await portfolioApi.getBonds(portfolioId);
+        if (!isCurrent()) return;
         setBonds(bRes ?? []);
       } else {
         setBonds([]);
@@ -549,6 +556,7 @@ const PortfolioDetails: React.FC = () => {
       
       if (found?.account_type === 'SAVINGS') {
         const histRes = await portfolioApi.getMonthlyHistory(portfolioId);
+        if (!isCurrent()) return;
         setPortfolioHistory(histRes ?? []);
       } else {
         setPortfolioHistory([]);
@@ -558,6 +566,7 @@ const PortfolioDetails: React.FC = () => {
           portfolioApi.getPpkTransactions(portfolioId),
           portfolioApi.getPpkPerformance(portfolioId)
         ]);
+        if (!isCurrent()) return;
         setPpkTransactions(ppkRes.transactions ?? []);
         setPpkSummary(ppkRes.summary ?? null);
         setPpkCurrentPrice(ppkRes.currentPrice ?? null);
@@ -589,6 +598,7 @@ const PortfolioDetails: React.FC = () => {
           portfolioApi.getProfitHistory(portfolioId, 30),
           portfolioApi.getValueHistory(portfolioId, 30),
         ]);
+        if (!isCurrent()) return;
         setPortfolioHistory(histRes ?? []);
         
         setPortfolioProfitHistory(profitRes ?? []);
@@ -601,9 +611,13 @@ const PortfolioDetails: React.FC = () => {
       }
 
     } catch (err) {
+      if (!isCurrent()) return;
       console.error(err);
+      setPortfolio(null);
+      setValueData(null);
+      setLoadError('Nie udało się pobrać danych portfela.');
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [id]);
 
@@ -734,8 +748,8 @@ const PortfolioDetails: React.FC = () => {
 
     setRefreshingPrices(true);
     try {
-      const [holdingsResponse, valueResponse, allocationResponse] = await Promise.all([
-        portfolioApi.getHoldings(portfolioId, { refresh: 1 }),
+      const holdingsResponse = await portfolioApi.getHoldings(portfolioId, { refresh: 1 });
+      const [valueResponse, allocationResponse] = await Promise.all([
         portfolioApi.getValue(portfolioId),
         portfolioApi.getEquityAllocation(portfolioId)
       ]);
@@ -850,6 +864,7 @@ const PortfolioDetails: React.FC = () => {
 
   useEffect(() => {
     // Fetch history separately when tab changes or initially
+    let cancelled = false;
     if (activeTab === 'value_history' && id) {
       const portfolioId = parseInt(id, 10);
       if (Number.isNaN(portfolioId)) return;
@@ -859,19 +874,23 @@ const PortfolioDetails: React.FC = () => {
         portfolioApi.getProfitHistory(portfolioId),
       ])
         .then(([history, profitHistory]) => {
+          if (cancelled) return;
           setPortfolioHistory(history ?? []);
           setPortfolioProfitHistory(profitHistory ?? []);
         })
         .catch((err) => {
+          if (cancelled) return;
           console.error('Failed to refresh value history tab', err);
           setPortfolioHistory([]);
           setPortfolioProfitHistory([]);
         });
     }
+    return () => { cancelled = true; };
   }, [activeTab, id, selectedBenchmark]);
 
   useEffect(() => {
     fetchData();
+    return () => { ++loadSequence.current; };
   }, [fetchData]);
 
 
@@ -908,6 +927,7 @@ const PortfolioDetails: React.FC = () => {
   };
 
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
+  if (loadError) return <div role="alert" className="p-4 text-center text-red-600">{loadError} <button onClick={fetchData}>Spróbuj ponownie</button></div>;
   if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
 
   const subPortfolios = allPortfolios.filter((p) => p.parent_portfolio_id === portfolio.id);
@@ -2448,4 +2468,7 @@ const PortfolioDetails: React.FC = () => {
   );
 };
 
-export default PortfolioDetails;
+export default function PortfolioDetailsPage() {
+  const { id } = useParams<{ id: string }>();
+  return <PortfolioDetails key={id} />;
+}

@@ -83,6 +83,7 @@ const PortfolioDashboard: React.FC = () => {
   const [taxLimits, setTaxLimits] = useState<TaxLimitsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [limitsError, setLimitsError] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [parentPortfolioId, setParentPortfolioId] = useState<number | null>(null);
   const [newPortfolioName, setNewPortfolioName] = useState('');
@@ -91,13 +92,15 @@ const PortfolioDashboard: React.FC = () => {
   const [createdAt, setCreatedAt] = useState(new Date().toISOString().split('T')[0]);
 
   const fetchData = async () => {
+    setError(null);
     try {
       const [listRes, limitsRes] = await Promise.all([
         portfolioApi.list(),
-        portfolioApi.limits(),
+        portfolioApi.limits().catch(() => null),
       ]);
       setPortfolios(listRes.portfolios);
-      setTaxLimits(limitsRes.limits);
+      setTaxLimits(limitsRes?.limits ?? null);
+      setLimitsError(limitsRes === null);
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error(err);
@@ -155,7 +158,7 @@ const PortfolioDashboard: React.FC = () => {
   };
 
   if (loading) return <div className="p-4 text-center">Ładowanie...</div>;
-  if (error) return <div className="p-4 text-center text-red-600">{error}</div>;
+  if (error) return <div className="p-4 text-center text-red-600">{error} <button onClick={fetchData}>Spróbuj ponownie</button></div>;
 
   const totalValue = portfolios.reduce((sum, p) => sum + (p.portfolio_value || 0), 0);
   const totalDeposits = portfolios.reduce((sum, p) => sum + (p.total_deposits || 0), 0);
@@ -318,6 +321,7 @@ const PortfolioDashboard: React.FC = () => {
         })}
       </div>
 
+      {limitsError && <div role="alert">Nie udało się pobrać limitów podatkowych. <button onClick={fetchData}>Ponów pobieranie limitów</button></div>}
       {taxLimits && (
         <div className="bg-white dark:bg-slate-900 shadow-sm border border-gray-200 dark:border-slate-800 rounded-xl p-6 transition-colors">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-5">Limity Podatkowe ({taxLimits.year})</h2>

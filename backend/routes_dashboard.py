@@ -178,25 +178,10 @@ def current_month_dividends():
     ).fetchone()
     received_this_month = float(received_row['received_this_month'] or 0.0)
 
-    expected_row = db.execute(
-        """
-        SELECT COALESCE(
-            SUM(
-                COALESCE(h.quantity, 0)
-                * COALESCE(rc.price, 0)
-                * (COALESCE(rc.dividend_yield, 0) / 100.0)
-                / 12.0
-            ),
-            0
-        ) AS expected_this_month
-        FROM holdings h
-        JOIN radar_cache rc ON rc.ticker = h.ticker
-        WHERE strftime('%Y-%m', rc.ex_dividend_date) = ?
-          AND COALESCE(h.quantity, 0) > 0
-        """,
-        (current_month,),
-    ).fetchone()
-    expected_this_month = float(expected_row['expected_this_month'] or 0.0)
+    # Radar provides an annual yield and ex-dividend date, not a payment
+    # schedule or unpaid entitlement. Unknown must not be represented as zero
+    # or mixed with booked dividends in a progress indicator.
+    expected_this_month = None
 
     top_payers_rows = db.execute(
         """
@@ -215,7 +200,7 @@ def current_month_dividends():
 
     payload = {
         "received_this_month": round(received_this_month, 2),
-        "expected_this_month": round(expected_this_month, 2),
+        "expected_this_month": expected_this_month,
         "month_label": f"{POLISH_MONTHS[today.month]} {today.year}",
         "top_payers": [
             {

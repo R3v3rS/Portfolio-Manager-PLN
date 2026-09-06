@@ -20,19 +20,22 @@ const MainDashboard: React.FC = () => {
   const [allHoldings, setAllHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [holdingsError, setHoldingsError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
+      setHoldingsError(false);
       try {
         const [summary, allPortfolios, dividends] = await Promise.all([
           dashboardApi.getGlobalSummary(),
-          portfolioApi.list(),
+          portfolioApi.list().catch(() => { setHoldingsError(true); return null; }),
           dashboardApi.getCurrentMonthDividends().catch(() => null),
         ]);
         const holdingsPerPortfolio = await Promise.all(
-          allPortfolios.portfolios
+          (allPortfolios?.portfolios ?? [])
             .filter(p => ['STANDARD', 'IKE'].includes(p.account_type))
-            .map(p => portfolioApi.getHoldings(p.id))
+            .map(p => portfolioApi.getHoldings(p.id).catch(() => { setHoldingsError(true); return []; }))
         );
         const flattenedHoldings = holdingsPerPortfolio
           .flat()
@@ -52,10 +55,10 @@ const MainDashboard: React.FC = () => {
       }
     };
     fetchData();
-  }, []);
+  }, [retry]);
 
   if (loading) return <div className="space-y-6 p-4"><div className="h-8 w-56 animate-pulse rounded bg-gray-200" /><div className="grid grid-cols-1 gap-6 md:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-gray-200" />)}</div></div>;
-  if (error) return <div className="p-12 text-center text-red-600">{error}</div>;
+  if (error) return <div className="p-12 text-center text-red-600">{error} <button onClick={() => setRetry(value => value + 1)}>Spróbuj ponownie</button></div>;
 
   const chartData = [
     { name: 'Gotówka (Budżet)', value: data.assets_breakdown.budget_cash, color: '#10B981' }, // emerald-500
@@ -68,12 +71,14 @@ const MainDashboard: React.FC = () => {
 
   const netWorthShortTermOnly = data.total_assets - data.liabilities_breakdown.short_term;
   const netWorthAllLiabilities = data.total_assets - (data.liabilities_breakdown.short_term + data.liabilities_breakdown.long_term);
-  const holdingsWithDailyChange = allHoldings.filter((h) => h.change_1d_percent !== undefined && h.change_1d_percent !== 0);
+  const holdingsWithDailyChange = allHoldings.filter((h) => Number.isFinite(h.change_1d_percent));
   const hasDailyChangeData = holdingsWithDailyChange.length > 0;
   const topGainers = [...holdingsWithDailyChange]
+    .filter(h => (h.change_1d_percent ?? 0) > 0)
     .sort((a, b) => (b.change_1d_percent ?? 0) - (a.change_1d_percent ?? 0))
     .slice(0, 3);
   const topLosers = [...holdingsWithDailyChange]
+    .filter(h => (h.change_1d_percent ?? 0) < 0)
     .sort((a, b) => (a.change_1d_percent ?? 0) - (b.change_1d_percent ?? 0))
     .slice(0, 3);
   const hasNoDividendsThisMonth = dividendsData !== null
@@ -252,14 +257,16 @@ const MainDashboard: React.FC = () => {
                     <p className="text-green-600 font-semibold">
                       Otrzymane: {dividendsData.received_this_month.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
                     </p>
-                    {dividendsData.expected_this_month > 0 && (
+                    {dividendsData.expected_this_month !== null && dividendsData.expected_this_month > 0 && (
                       <p className="text-gray-500">
                         Oczekiwane: {dividendsData.expected_this_month.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
                       </p>
                     )}
-                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                    {dividendsData.expected_this_month === null ? (
+                      <p className="text-sm text-gray-500">Prognoza wypłat niedostępna — brak harmonogramu dywidend.</p>
+                    ) : <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
                       <div className="h-full bg-green-500 transition-all" style={{ width: `${dividendProgress}%` }} />
-                    </div>
+                    </div>}
                     {dividendsData.top_payers.length > 0 && (
                       <div className="space-y-1">
                         {dividendsData.top_payers.slice(0, 3).map((payer) => (
@@ -279,15 +286,16 @@ const MainDashboard: React.FC = () => {
 
       <Card variant="default" className="p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Dzisiejsze ruchy</h3>
+        {holdingsError && <p role="alert">Nie udało się pobrać części danych o pozycjach. <button onClick={() => setRetry(value => value + 1)}>Ponów pobieranie pozycji</button></p>}
         {hasDailyChangeData ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Gainers</h4>
-              <div className="space-y-1">{renderMovers(topGainers, 'text-green-600', '🟢')}</div>
+              <div className="space-y-1">{topGainers.length ? renderMovers(topGainers, 'text-green-600', '🟢') : 'Brak wzrostów'}</div>
             </div>
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Losers</h4>
-              <div className="space-y-1">{renderMovers(topLosers, 'text-red-600', '🔴')}</div>
+              <div className="space-y-1">{topLosers.length ? renderMovers(topLosers, 'text-red-600', '🔴') : 'Brak spadków'}</div>
             </div>
           </div>
         ) : (

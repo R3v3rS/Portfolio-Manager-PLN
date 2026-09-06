@@ -51,6 +51,15 @@ const configResponse = {
 };
 
 describe('PortfolioDashboard', () => {
+  it('keeps portfolios visible when tax limits fail and allows retry', async () => {
+    mockedPortfolioApi.limits.mockRejectedValueOnce(new Error('unavailable'));
+    render(<MemoryRouter><PortfolioDashboard /></MemoryRouter>);
+    expect(await screen.findByRole('link', { name: /Portfel Główny/ })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Ponów pobieranie limitów' }));
+    expect(await screen.findByRole('heading', { name: 'Limity Podatkowe (2026)' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     mockedPortfolioApi.list.mockResolvedValue(listResponse as never);
     mockedPortfolioApi.limits.mockResolvedValue(limitsResponse as never);

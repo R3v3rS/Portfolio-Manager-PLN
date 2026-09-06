@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -336,6 +336,70 @@ afterAll(() => server.close());
 
 beforeEach(() => {
   resetState();
+});
+
+describe('Portfolio loading regressions', () => {
+  const renderNavigableDetails = () => render(
+    <MemoryRouter initialEntries={['/portfolio/1']}>
+      <Link to="/portfolio/2">Open second portfolio</Link>
+      <Routes><Route path="/portfolio/:id" element={<PortfolioDetails />} /></Routes>
+    </MemoryRouter>
+  );
+
+  it('does not restore an old portfolio after navigating during a slow request', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let started = false;
+    server.use(http.get('*/api/portfolio/holdings/:portfolioId', async ({ params }) => {
+      if (params.portfolioId === '1') { started = true; await gate; }
+      return ok({ holdings: [] });
+    }));
+    renderNavigableDetails();
+    await waitFor(() => expect(started).toBe(true));
+    await userEvent.click(screen.getByText('Open second portfolio'));
+    expect(await screen.findByRole('heading', { name: 'Sub One' })).toBeInTheDocument();
+    release();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(screen.getByRole('heading', { name: 'Sub One' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Core Portfolio' })).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable error instead of the previous portfolio when navigation fails', async () => {
+    renderNavigableDetails();
+    await screen.findByRole('heading', { name: 'Core Portfolio' });
+    server.use(http.get('*/api/portfolio/holdings/:portfolioId', () => HttpResponse.json({}, { status: 500 })));
+    await userEvent.click(screen.getByText('Open second portfolio'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Nie udało się pobrać danych portfela.');
+    expect(screen.queryByRole('heading', { name: 'Core Portfolio' })).not.toBeInTheDocument();
+    server.resetHandlers();
+    await userEvent.click(screen.getByRole('button', { name: 'Spróbuj ponownie' }));
+    expect(await screen.findByRole('heading', { name: 'Sub One' })).toBeInTheDocument();
+  });
+
+  it('reads valuation and allocation only after the forced price refresh completes', async () => {
+    renderPortfolioDetails();
+    await screen.findByRole('heading', { name: 'Core Portfolio' });
+    let refreshed = false;
+    const readStates: boolean[] = [];
+    server.use(
+      http.get('*/api/portfolio/holdings/:portfolioId', async () => {
+        await new Promise(resolve => setTimeout(resolve, 80));
+        refreshed = true;
+        return ok({ holdings: [] });
+      }),
+      http.get('*/api/portfolio/value/:portfolioId', () => {
+        readStates.push(refreshed);
+        return ok({ portfolio_value: 12345, current_cash: 12345 });
+      }),
+      http.get('*/api/portfolio/allocation/:portfolioId', () => {
+        readStates.push(refreshed);
+        return ok({ allocation: [] });
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Odśwież ceny z giełdy' }));
+    await waitFor(() => expect(readStates).toEqual([true, true]));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Odśwież ceny z giełdy' })).toBeEnabled());
+  });
 });
 
 describe('Create portfolio integration flow', () => {
