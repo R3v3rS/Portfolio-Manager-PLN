@@ -73,7 +73,7 @@ Repozytorium jest utrzymywane jako monolit z dwoma głównymi częściami:
 
 ## Wymagania
 
-- Python 3.11+
+- Python 3.11 lub 3.12 (przypięty `pandas==2.2.0` nie obsługuje Pythona 3.13+)
 - Node.js 18+
 - npm 9+
 
@@ -154,6 +154,12 @@ Minimalny quality gate dla formalnego domknięcia Etapu 1 uruchomisz jednym pole
 
 ```bash
 ./scripts/run_quality_gate.sh
+```
+
+Jeżeli właściwy interpreter nie jest domyślnym `python`, wskaż go jawnie:
+
+```bash
+PYTHON_BIN=python3.12 ./scripts/run_quality_gate.sh
 ```
 
 Skrypt wykonuje kolejno:
