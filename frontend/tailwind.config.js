@@ -16,8 +16,9 @@ export default {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
       borderRadius: {
+        'lg': '0.75rem',
         'xl': '1rem',
-        '2xl': '1.5rem',
+        '2xl': '1rem',
       }
     },
   },

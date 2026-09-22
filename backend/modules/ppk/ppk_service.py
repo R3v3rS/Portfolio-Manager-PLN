@@ -20,6 +20,25 @@ def _q(value: Decimal, places: str = '0.01') -> float:
 
 class PPKService:
     @staticmethod
+    def get_cached_price(fund_id: str = '61777738') -> Optional[Dict[str, Any]]:
+        cached = get_db().execute(
+            'SELECT data FROM ppk_weekly_history WHERE fund_id = ?',
+            (fund_id,),
+        ).fetchone()
+        if not cached:
+            return None
+
+        cached_data = json.loads(cached['data'])
+        if not cached_data:
+            return None
+
+        latest = cached_data[-1]
+        return {
+            'price': latest['price'],
+            'date': latest['week'],
+        }
+
+    @staticmethod
     def _parse_biznesradar_history(html: str) -> list[dict]:
         rows = re.findall(
             r'(\d{2}\.\d{2}\.\d{4})\s*</td>\s*<td[^>]*>\s*([0-9]+(?:[.,][0-9]+)?)',
@@ -186,12 +205,21 @@ class PPKService:
         return weekly_history
 
     @staticmethod
-    def update_cache(fund_id: str, first_contribution_date: str) -> dict:
+    def update_cache(fund_id: str, first_contribution_date: str, cached_only: bool = False) -> dict:
         db = get_db()
         cached = db.execute(
             'SELECT data, last_week FROM ppk_weekly_history WHERE fund_id = ?',
             (fund_id,)
         ).fetchone()
+
+        if cached_only:
+            cached_data = json.loads(cached['data']) if cached else []
+            latest_price = cached_data[-1]['price'] if cached_data else 0
+            return {
+                'data': cached_data,
+                'last_week': cached['last_week'] if cached else None,
+                'latest_price': latest_price,
+            }
 
         daily_history = PPKService.fetch_daily_history(fund_id)
         latest_price = daily_history[-1]['price'] if daily_history else 0
@@ -248,7 +276,7 @@ class PPKService:
             return {'data': [], 'last_week': None, 'latest_price': latest_price}
 
     @staticmethod
-    def compute_performance(portfolio_id: int, fund_id: str) -> dict:
+    def compute_performance(portfolio_id: int, fund_id: str, cached_only: bool = False) -> dict:
         db = get_db()
         first_tx = db.execute(
             'SELECT date FROM ppk_transactions WHERE portfolio_id = ? ORDER BY date ASC LIMIT 1',
@@ -268,7 +296,7 @@ class PPKService:
         first_date = first_tx['date']
         
         # Incremental update
-        cache_result = PPKService.update_cache(fund_id, first_date)
+        cache_result = PPKService.update_cache(fund_id, first_date, cached_only=cached_only)
         weekly_data = cache_result['data']
         current_price = cache_result['latest_price']
         

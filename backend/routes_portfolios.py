@@ -58,7 +58,7 @@ def list_portfolios():
     result = []
     
     def enrich_portfolio(p, depth=0):
-        value_data = PortfolioService.get_portfolio_value(p['id'])
+        value_data = PortfolioService.get_portfolio_value(p['id'], cached_prices_only=True)
         p.update(value_data)
         if depth == 0 and 'children' in p and p['children']:
             for child in p['children']:
@@ -73,7 +73,11 @@ def list_portfolios():
 
 @portfolio_bp.route('/value/<int:portfolio_id>', methods=['GET'])
 def get_value(portfolio_id):
-    value_data = PortfolioService.get_portfolio_value(portfolio_id)
+    force_refresh = request.args.get('refresh') == '1'
+    value_data = PortfolioService.get_portfolio_value(
+        portfolio_id,
+        cached_prices_only=not force_refresh,
+    )
     if not value_data:
         raise NotFoundError('Portfolio not found')
     return success_response(value_data)
@@ -87,7 +91,11 @@ def get_holdings(portfolio_id):
         if refresh_value not in {'0', '1'}:
             raise ValidationError('Field refresh must be 0 or 1', details={'field': 'refresh'})
         force_refresh = refresh_value == '1'
-    holdings = PortfolioService.get_holdings(portfolio_id, force_price_refresh=force_refresh)
+    holdings = PortfolioService.get_holdings(
+        portfolio_id,
+        force_price_refresh=force_refresh,
+        cached_prices_only=not force_refresh,
+    )
     return success_response({'holdings': holdings})
 
 

@@ -6,9 +6,9 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 const variantClasses: Record<NonNullable<CardProps['variant']>, string> = {
-  default: 'bg-white rounded-2xl border border-gray-100 shadow-sm',
-  highlight: 'bg-white rounded-2xl border-2 shadow-lg',
-  interactive: 'bg-white rounded-2xl border border-gray-100 shadow-sm transition-all duration-200 hover:shadow-lg',
+  default: 'surface-card',
+  highlight: 'surface-card ring-1 ring-blue-200 dark:ring-blue-900',
+  interactive: 'surface-card transition-shadow duration-200 hover:shadow-md',
 };
 
 export const Card: React.FC<CardProps> = ({ variant = 'default', className, ...props }) => {

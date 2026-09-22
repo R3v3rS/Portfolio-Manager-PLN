@@ -1,116 +1,90 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { LayoutDashboard, Wallet, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, Menu, X, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
+const navItems = [
+  { name: 'Pulpit', path: '/', icon: LayoutDashboard, description: 'Przegląd finansów' },
+  { name: 'Inwestycje', path: '/portfolios', icon: Wallet, description: 'Portfele i aktywa' },
+  { name: 'Radar', path: '/radar', icon: Radar, description: 'Obserwowane inwestycje' },
+  { name: 'Kredyty', path: '/loans', icon: Landmark, description: 'Zobowiązania i raty' },
+  { name: 'Budżet', path: '/budget', icon: PiggyBank, description: 'Codzienne finanse' },
+  { name: 'Admin', path: '/admin', icon: Settings, description: 'Narzędzia i ustawienia' },
+];
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const location = useLocation();
+const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { pathname } = useLocation();
   const { isDark, toggleTheme } = useTheme();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const isActive = (path: string) => path === '/' ? pathname === '/' :
+    pathname.startsWith(path) || (path === '/portfolios' && pathname.startsWith('/portfolio/'));
+  const activeItem = navItems.find(item => isActive(item.path)) ?? navItems[0];
 
+  useEffect(() => { setIsMobileNavOpen(false); }, [pathname]);
   useEffect(() => {
-    setIsMobileNavOpen(false);
-  }, [location.pathname]);
+    if (!isMobileNavOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMobileNavOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isMobileNavOpen]);
 
-  const navItems = [
-    { name: 'Pulpit', path: '/', icon: LayoutDashboard },
-    { name: 'Inwestycje', path: '/portfolios', icon: Wallet },
-    { name: 'Radar', path: '/radar', icon: Radar },
-    { name: 'Kredyty', path: '/loans', icon: Landmark },
-    { name: 'Budżet', path: '/budget', icon: PiggyBank },
-    { name: 'Admin', path: '/admin', icon: Settings },
-  ];
+  const navigation = (mobile = false) => (
+    <nav aria-label={mobile ? 'Nawigacja mobilna' : 'Nawigacja główna'} className="space-y-1.5">
+      {navItems.map(({ name, path, icon: Icon }) => (
+        <Link key={path} to={path} aria-current={isActive(path) ? 'page' : undefined}
+          className={cn('app-nav-link', isActive(path) && 'is-active')}>
+          <Icon className="h-[18px] w-[18px] shrink-0" />
+          <span className="flex-1">{name}</span>
+          {isActive(path) && <ChevronRight className="h-4 w-4 opacity-60" />}
+        </Link>
+      ))}
+    </nav>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 flex flex-col transition-colors duration-200">
-      <nav className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 transition-colors duration-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <button
-                type="button"
-                onClick={() => setIsMobileNavOpen((prev) => !prev)}
-                className="flex flex-shrink-0 items-center rounded-md px-2 py-1 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 sm:pointer-events-none sm:px-0 sm:py-0 sm:hover:bg-transparent"
-                aria-expanded={isMobileNavOpen}
-                aria-label="Przełącz nawigację mobilną"
-              >
-                <PieChart className="h-8 w-8 text-blue-600" />
-                <span className="ml-2 text-xl font-bold text-gray-900 dark:text-gray-100">Portfolio Manager</span>
-                <span className="ml-2 sm:hidden">
-                  {isMobileNavOpen ? <ChevronUp className="h-4 w-4 text-gray-500 dark:text-gray-300" /> : <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-300" />}
-                </span>
-              </button>
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                {navItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.path}
-                      className={cn(
-                        isActive
-                          ? 'border-blue-500 text-gray-900 dark:text-gray-100'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-200',
-                        'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium'
-                      )}
-                    >
-                      <Icon className="mr-1.5 h-4 w-4" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="flex items-center">
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                aria-label="Przełącz motyw"
-              >
-                {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                <span>{isDark ? 'Jasny' : 'Ciemny'}</span>
-              </button>
+    <div className="app-shell">
+      <a href="#main-content" className="skip-link">Przejdź do treści</a>
+      <aside className="app-sidebar hidden xl:flex">
+        <Link to="/" className="flex items-center gap-3 px-2 py-2" aria-label="Portfolio Manager — pulpit">
+          <span className="brand-mark"><PieChart className="h-6 w-6" /></span>
+          <span><span className="block text-base font-bold tracking-tight">Portfolio Manager</span>
+            <span className="text-xs text-gray-500">Twoje finanse w jednym miejscu</span></span>
+        </Link>
+        <div className="mb-3 mt-12 px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500">Przestrzeń finansowa</div>
+        {navigation()}
+        <div className="mt-auto border-t border-gray-200 px-3 pt-5 text-xs leading-relaxed text-gray-500">
+          <span className="mb-1 block font-semibold text-gray-700">Wszystko pod kontrolą</span>
+          Majątek, inwestycje i codzienny budżet.
+        </div>
+      </aside>
+      <div className="min-w-0 flex-1 xl:pl-64">
+        <header className="app-topbar">
+          <div className="flex min-w-0 items-center gap-3">
+            <button ref={menuButton} type="button" onClick={() => setIsMobileNavOpen(open => !open)}
+              className="app-icon-button xl:hidden" aria-label="Przełącz nawigację mobilną"
+              aria-expanded={isMobileNavOpen} aria-controls="mobile-navigation">
+              {isMobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900">{activeItem.name}</p>
+              <p className="truncate text-xs text-gray-500">{activeItem.description}</p>
             </div>
           </div>
-
-          {isMobileNavOpen && (
-            <div className="border-t border-gray-200 py-3 dark:border-gray-800 sm:hidden">
-              <div className="grid grid-cols-1 gap-2">
-                {navItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.path}
-                      className={cn(
-                        isActive
-                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200'
-                          : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800',
-                        'inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors'
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </nav>
-
-      <main className="flex-1 max-w-7xl w-full mx-auto py-6 sm:px-6 lg:px-8">
-        {children}
-      </main>
+          <button type="button" onClick={toggleTheme} className="app-theme-button" aria-label="Przełącz motyw">
+            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            <span className="hidden sm:inline">{isDark ? 'Jasny' : 'Ciemny'}</span>
+          </button>
+        </header>
+        {isMobileNavOpen && <div id="mobile-navigation" className="app-mobile-nav xl:hidden">{navigation(true)}</div>}
+        <main id="main-content" tabIndex={-1} className="app-content">{children}</main>
+      </div>
     </div>
   );
 };

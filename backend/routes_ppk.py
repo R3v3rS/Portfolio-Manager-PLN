@@ -16,15 +16,20 @@ def get_ppk_transactions(portfolio_id):
     current_price_raw = request.args.get('current_price')
     current_price_data = None
     current_price = None
+    refresh = request.args.get('refresh') == '1'
 
     if current_price_raw is not None:
         current_price = float(current_price_raw)
-    else:
+    elif refresh:
         try:
             current_price_data = PPKService.fetch_current_price()
             current_price = current_price_data['price']
         except Exception:
             current_price_data = None
+    else:
+        current_price_data = PPKService.get_cached_price()
+        if current_price_data:
+            current_price = current_price_data['price']
 
     transactions = PPKService.get_transactions(portfolio_id)
     summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
@@ -48,5 +53,6 @@ def add_ppk_transaction():
 def get_ppk_performance(portfolio_id):
     # Default fund ID for NN PPK 2055
     fund_id = request.args.get('fund_id', '61777738')
-    performance = PPKService.compute_performance(portfolio_id, fund_id)
+    refresh = request.args.get('refresh') == '1'
+    performance = PPKService.compute_performance(portfolio_id, fund_id, cached_only=not refresh)
     return success_response(performance)

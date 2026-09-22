@@ -157,8 +157,12 @@ const LoansDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Kredyty i Zobowiązania</h1>
+      <div className="page-heading flex flex-wrap gap-4 justify-between items-center">
+        <div>
+          <p className="page-eyebrow">Zobowiązania</p>
+          <h1 className="text-2xl font-bold text-gray-900">Kredyty i Zobowiązania</h1>
+          <p className="mt-2 text-sm text-gray-500">Saldo zadłużenia, raty i harmonogramy spłat.</p>
+        </div>
         <button
           onClick={() => setShowModal(true)}
           className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"

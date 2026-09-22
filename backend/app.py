@@ -95,12 +95,14 @@ def create_app():
     # Initialize database
     init_db(app)
 
-    # Warmup price cache
-    with app.app_context():
-        try:
-            PriceService.warmup_cache()
-        except Exception as e:
-            logging.warning("Startup warmup failed (DB might not be ready): %s", e)
+    # Network warmup is opt-in. Starting the API must not depend on Yahoo being
+    # available; normal views use the most recent persisted prices immediately.
+    if os.getenv('PRICE_CACHE_WARMUP', '').strip().lower() in {'1', 'true', 'yes', 'on'}:
+        with app.app_context():
+            try:
+                PriceService.warmup_cache()
+            except Exception as e:
+                logging.warning("Startup warmup failed (DB might not be ready): %s", e)
 
     # Register blueprints
     app.register_blueprint(portfolio_bp, url_prefix='/api/portfolio')

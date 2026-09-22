@@ -14,7 +14,8 @@ from services.analytics import correlation_service, diversification_service, per
 
 analytics_bp = Blueprint("analytics_bp", __name__)
 
-_ALLOWED_PERIODS = {"3m", "6m", "1y", "2y"}
+_ALLOWED_PERIODS = {"3mo", "6mo", "1y", "2y"}
+_PERIOD_ALIASES = {"3m": "3mo", "6m": "6mo"}
 _CACHE_TTL = timedelta(hours=4)
 
 
@@ -37,6 +38,30 @@ def _ensure_analytics_cache_table() -> None:
                 cached_at TEXT NOT NULL,
                 PRIMARY KEY (portfolio_id, sub_portfolio_id, period)
             )
+            """
+        )
+        db.execute(
+            """
+            DELETE FROM analytics_cache
+            WHERE rowid IN (
+                SELECT rowid
+                FROM (
+                    SELECT
+                        rowid,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY portfolio_id, COALESCE(sub_portfolio_id, -1), period
+                            ORDER BY cached_at DESC
+                        ) AS duplicate_rank
+                    FROM analytics_cache
+                )
+                WHERE duplicate_rank > 1
+            )
+            """
+        )
+        db.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_analytics_cache_scope
+            ON analytics_cache (portfolio_id, COALESCE(sub_portfolio_id, -1), period)
             """
         )
         db.commit()
@@ -69,6 +94,7 @@ def _parse_int_param(name: str, required: bool) -> int | None:
 
 def _validate_period() -> str:
     period = (request.args.get("period") or "1y").strip().lower()
+    period = _PERIOD_ALIASES.get(period, period)
     if period not in _ALLOWED_PERIODS:
         raise ValidationError(
             "Unsupported period",
@@ -92,6 +118,8 @@ def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: st
             WHERE portfolio_id = ?
               AND sub_portfolio_id IS ?
               AND period = ?
+            ORDER BY cached_at DESC
+            LIMIT 1
             """,
             (portfolio_id, sub_portfolio_id, period),
         ).fetchone()
@@ -112,14 +140,21 @@ def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: st
 
 def _save_cache(portfolio_id: int, sub_portfolio_id: int | None, period: str, result: dict[str, Any]) -> None:
     with _get_connection() as db:
+        # SQLite treats NULL values as distinct in a composite primary key, so
+        # an UPSERT alone would keep adding rows for a parent portfolio.
+        db.execute(
+            """
+            DELETE FROM analytics_cache
+            WHERE portfolio_id = ?
+              AND sub_portfolio_id IS ?
+              AND period = ?
+            """,
+            (portfolio_id, sub_portfolio_id, period),
+        )
         db.execute(
             """
             INSERT INTO analytics_cache (portfolio_id, sub_portfolio_id, period, result_json, cached_at)
             VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(portfolio_id, sub_portfolio_id, period)
-            DO UPDATE SET
-                result_json = excluded.result_json,
-                cached_at = excluded.cached_at
             """,
             (
                 portfolio_id,

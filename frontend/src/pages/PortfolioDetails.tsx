@@ -22,6 +22,7 @@ import ImportStagingModal from '../components/modals/ImportStagingModal';
 import { createStagingSession, deleteSession, type ImportMode } from '../api_import_staging';
 import type { BookResult, StagingSession } from '../types/importStaging';
 import PortfolioAIChat from '../components/ai/PortfolioAIChat';
+import PortfolioResearch, { PortfolioSummary } from '../components/portfolio/PortfolioResearch';
 
 
 const PortfolioAnalytics = lazy(() => import('../components/PortfolioAnalytics'));
@@ -39,70 +40,15 @@ const createMissingSymbolDrafts = (symbols: string[]) =>
     return acc;
   }, {});
 
-const formatHoldingQuantity = (value: number) => parseFloat(Number(value).toFixed(4)).toString();
-
 const formatHoldingMoney = (value?: number | null, currency = 'PLN') =>
-  typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)} ${currency}` : '-';
+  typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
+    : '-';
 
 const formatHoldingPercent = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) ? `${Number(value.toFixed(2))}%` : '-';
-
-const holdingResultTone = (value?: number | null) =>
-  (value ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400';
-
-const HoldingTags = ({ holding }: { holding: Holding }) => {
-  const tags = [
-    holding.sector && holding.sector !== 'Unknown'
-      ? {
-          label: holding.sector,
-          className: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-100 dark:border-blue-800/50',
-        }
-      : null,
-    holding.industry && holding.industry !== 'Unknown'
-      ? {
-          label: holding.industry,
-          className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700',
-        }
-      : null,
-  ].filter(Boolean) as Array<{ label: string; className: string }>;
-
-  if (tags.length === 0) return null;
-
-  return (
-    <div className="mt-2 flex min-w-0 flex-wrap gap-1">
-      {tags.map((tag) => (
-        <span
-          key={tag.label}
-          title={tag.label}
-          className={cn(
-            'inline-flex max-w-[170px] items-center truncate rounded border px-2 py-0.5 text-[10px] font-semibold',
-            tag.className
-          )}
-        >
-          {tag.label}
-        </span>
-      ))}
-    </div>
-  );
-};
-
-const HoldingFxHint = ({ holding }: { holding: Holding }) => {
-  if (!holding.auto_fx_fees) return null;
-
-  return (
-    <div className="group relative">
-      <HelpCircle className="h-3 w-3 cursor-help text-gray-400 dark:text-gray-500" />
-      <div className="absolute bottom-full right-0 z-20 mb-2 hidden w-56 rounded border border-gray-700 bg-gray-900 p-2 text-left text-xs text-white shadow-lg group-hover:block">
-        Zysk netto ("na rękę") uwzględniający szacowaną prowizję 0.5% przy sprzedaży.
-        {holding.fx_rate_used && (
-          <div className="mt-1 text-gray-300">
-            Kurs FX: {holding.fx_rate_used.toFixed(4)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+  typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+    : '-';
 
 export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
   portfolioId: number, 
@@ -458,6 +404,7 @@ const PortfolioDetails: React.FC = () => {
 
   // History state
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const priceHistoryRef = useRef<HTMLDivElement>(null);
   const [historyData, setHistoryData] = useState<{ date: string; close_price: number }[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -837,6 +784,8 @@ const PortfolioDetails: React.FC = () => {
   const fetchHistory = async (ticker: string) => {
     setHistoryLoading(true);
     setSelectedTicker(ticker);
+    setHistoryData([]);
+    setLastUpdated(null);
     try {
       const response = await portfolioApi.getPriceHistory(ticker);
       setHistoryData(response.history ?? []);
@@ -847,6 +796,10 @@ const PortfolioDetails: React.FC = () => {
       setHistoryLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (selectedTicker) priceHistoryRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, [selectedTicker]);
 
   useEffect(() => {
     // Fetch history separately when tab changes or initially
@@ -892,19 +845,19 @@ const PortfolioDetails: React.FC = () => {
   };
 
   const tabLabels: Record<string, string> = {
-    holdings: 'Aktywa',
-    analytics: 'Analiza',
-    analytics_dashboard: 'Analytics',
-    results: 'Wyniki',
-    value_history: 'Wartość Historyczna',
-    history: 'Historia Transakcji',
+    holdings: 'Przegląd i pozycje',
+    analytics: 'Analiza portfela',
+    analytics_dashboard: 'Ryzyko',
+    results: 'Wyniki w czasie',
+    value_history: 'Historia wartości',
+    history: 'Transakcje',
     bonds: 'Obligacje',
     savings: 'Oszczędności',
-    closed: 'Zamknięte Pozycje',
-    closed_cycles: 'Zamknięte Pozycje (cykle)',
+    closed: 'Zamknięte pozycje',
+    closed_cycles: 'Cykle pozycji',
     ppk: 'PPK',
     ppk_history: 'Historia wpłat',
-    ai: 'AI',
+    ai: 'Asystent',
   };
 
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
@@ -928,6 +881,7 @@ const PortfolioDetails: React.FC = () => {
   const uniqueTxTickers = Array.from(new Set(portfolioTransactions.map(t => t.ticker).filter(t => t && t !== 'CASH'))).sort();
 
   const isParent = subPortfolios.length > 0;
+  const isEquity = portfolio.account_type === 'STANDARD' || portfolio.account_type === 'IKE';
   const isChild = !!portfolio.parent_portfolio_id;
 
   const visibleTabs: ActiveTab[] =
@@ -937,33 +891,7 @@ const PortfolioDetails: React.FC = () => {
         ? ['bonds', 'history', 'ai']
         : portfolio.account_type === 'PPK'
           ? ['ppk', 'ppk_history', 'ai']
-          : ['holdings', 'analytics', 'analytics_dashboard', 'results', 'value_history', 'history', 'closed', 'closed_cycles', 'ai'];
-
-  const renderHoldingActions = (holding: Holding) => (
-    <div className="flex flex-wrap justify-end gap-2 md:flex-col md:items-end xl:flex-row">
-      <button
-        onClick={(event) => {
-          event.stopPropagation();
-          initiateSell(holding);
-        }}
-        className="rounded-md bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-      >
-        Sprzedaj
-      </button>
-      {(portfolio.account_type === 'IKE' || portfolio.account_type === 'STANDARD') && (
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            closePositionAtLastPrice(holding);
-          }}
-          className="rounded-md bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-600 transition-colors hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:hover:bg-orange-900/40"
-          title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
-        >
-          Zamknij
-        </button>
-      )}
-    </div>
-  );
+          : ['holdings', 'analytics', 'results', 'value_history', 'history', 'closed', 'closed_cycles', 'ai'];
 
   const toggleTxSelection = (id: number) => {
     setSelectedTxIds(prev => 
@@ -980,28 +908,9 @@ const PortfolioDetails: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="portfolio-research-page space-y-6">
       {portfolio && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Link
-            to={`/admin/portfolio/${portfolio.id}`}
-            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            Admin: narzędzia portfela
-          </Link>
-          <Link
-            to="/admin/consistency-audit"
-            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            Admin: audyt spójności
-          </Link>
-          <Link
-            to="/admin/price-history-audit"
-            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            Admin: audyt cen
-          </Link>
-
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
           {isChild && !portfolio.is_archived && (
             <button
               type="button"
@@ -1011,7 +920,7 @@ const PortfolioDetails: React.FC = () => {
                   fetchData();
                 }
               }}
-              className="inline-flex items-center gap-2 rounded border border-gray-300 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <Archive className="h-4 w-4" />
               Archiwizuj
@@ -1022,12 +931,24 @@ const PortfolioDetails: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsCreatingSubPortfolio(true)}
-              className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
             >
               <Plus className="h-4 w-4" />
               Dodaj sub-portfel
             </button>
           )}
+
+          <details className="group relative">
+            <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
+              <Wrench className="h-4 w-4" />
+              Narzędzia
+            </summary>
+            <div className="absolute right-0 z-30 mt-2 grid w-64 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              <Link to={`/admin/portfolio/${portfolio.id}`} className="rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Narzędzia portfela</Link>
+              <Link to="/admin/consistency-audit" className="rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Audyt spójności</Link>
+              <Link to="/admin/price-history-audit" className="rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Audyt historii cen</Link>
+            </div>
+          </details>
         </div>
       )}
 
@@ -1081,13 +1002,13 @@ const PortfolioDetails: React.FC = () => {
       <div className="flex flex-wrap items-center gap-3">
         <Link
           to="/portfolios"
-          className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800"
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>Wróć do inwestycji</span>
         </Link>
         <div className="flex items-center space-x-2">
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
             {portfolio.name}
             {portfolio.is_archived && <span className="ml-2 text-sm text-gray-400">(Zarchiwizowany)</span>}
           </h1>
@@ -1102,7 +1023,7 @@ const PortfolioDetails: React.FC = () => {
             {portfolio.account_type}
           </span>
           {isChild && (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-400 dark:text-slate-500">
               Część portfela: <Link to={`/portfolio/${portfolio.parent_portfolio_id}`} className="hover:underline"># {portfolio.parent_portfolio_id}</Link>
             </span>
           )}
@@ -1110,67 +1031,81 @@ const PortfolioDetails: React.FC = () => {
       </div>
 
       {/* Breakdown (if parent) */}
-      {isParent && valueData.breakdown && valueData.breakdown.length > 0 && (
-        <div className="bg-white shadow rounded-lg p-5 border border-blue-100">
-          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
+      {!isEquity && isParent && valueData.breakdown && valueData.breakdown.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
             <ChevronDown className="h-5 w-5 text-blue-500" />
-            Podział Portfela (Sub-portfele)
+            Podział portfela
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {valueData.breakdown.map((item) => (
               <Link 
                 key={item.id} 
                 to={`/portfolio/${item.id}`}
-                className="p-4 border border-gray-100 rounded-md hover:bg-gray-50 transition-colors"
+                className="rounded-lg border border-gray-200 p-4 transition-colors hover:border-blue-200 hover:bg-blue-50/50 dark:border-slate-700 dark:hover:border-blue-800 dark:hover:bg-blue-950/20"
               >
                 <div className="flex justify-between items-start">
-                  <span className="text-sm font-semibold text-gray-700 truncate mr-2">{item.name}</span>
-                  <span className="text-xs font-bold text-blue-600">{item.share_pct}%</span>
+                  <span className="mr-2 truncate text-sm font-semibold text-gray-700 dark:text-slate-200">{item.name === 'IKE (Own)' ? 'Część główna IKE' : item.name}</span>
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{item.share_pct.toLocaleString('pl-PL', { maximumFractionDigits: 2 })}%</span>
                 </div>
-                <div className="mt-2 text-lg font-bold text-gray-900">{item.value.toFixed(2)} PLN</div>
+                <div className="mt-2 text-lg font-bold text-gray-900 dark:text-slate-100">{formatHoldingMoney(item.value)}</div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(Math.max(item.share_pct, 0), 100)}%` }} />
+                </div>
               </Link>
             ))}
           </div>
         </div>
       )}
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-6">
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-blue-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Wartość Całkowita</dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{valueData.portfolio_value.toFixed(2)} PLN</dd>
+      {isEquity && <>
+        <PortfolioSummary value={valueData} closedProfit={totalClosedProfit} />
+        <div className="pr-actions">
+          <small>{latestPriceUpdate ? 'Notowania: ' + formatPriceUpdateTimestamp(latestPriceUpdate.toISOString()) : 'Brak daty aktualizacji notowań'}</small>
+          <div>
+            <button className="pr-button" onClick={refreshStockPrices} disabled={refreshingPrices}><RefreshCw size={15} />{refreshingPrices ? 'Odświeżanie…' : 'Odśwież ceny z giełdy'}</button>
+            <button className="pr-button" onClick={() => setIsTransferModalOpen(true)}>Transfer</button>
+            <button className="pr-button pr-primary" onClick={() => setIsTransactionModalOpen(true)}><Plus size={16} />Nowa Operacja</button>
+          </div>
         </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-gray-400">
-          <dt className="text-sm font-medium text-gray-500 truncate">
+      </>}
+      {/* Summary for bonds, savings and PPK */}
+      {!isEquity && <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="overflow-hidden rounded-xl border border-slate-200 border-t-4 border-t-blue-500 bg-white p-5 shadow-sm dark:border-slate-800 dark:border-t-blue-500 dark:bg-slate-900">
+          <dt className="truncate text-sm font-medium text-gray-500 dark:text-slate-400">Wartość portfela</dt>
+          <dd className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">{formatHoldingMoney(valueData.portfolio_value)}</dd>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-slate-200 border-t-4 border-t-slate-400 bg-white p-5 shadow-sm dark:border-slate-800 dark:border-t-slate-500 dark:bg-slate-900">
+          <dt className="truncate text-sm font-medium text-gray-500 dark:text-slate-400">
             {portfolio.account_type === 'SAVINGS' ? 'Obecne Saldo' : 'Gotówka'}
           </dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{valueData.cash_value.toFixed(2)} PLN</dd>
+          <dd className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">{formatHoldingMoney(valueData.cash_value)}</dd>
           {portfolio.account_type === 'SAVINGS' && valueData.live_interest && valueData.live_interest > 0 ? (
             <dd className="text-xs text-emerald-600 font-medium">w tym {valueData.live_interest.toFixed(2)} PLN odsetek</dd>
           ) : null}
         </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-green-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Zysk/Strata</dt>
+        <div className="overflow-hidden rounded-xl border border-slate-200 border-t-4 border-t-emerald-500 bg-white p-5 shadow-sm sm:col-span-2 dark:border-slate-800 dark:border-t-emerald-500 dark:bg-slate-900">
+          <dt className="truncate text-sm font-medium text-gray-500 dark:text-slate-400">Łączny wynik</dt>
           <dd className={cn("mt-1 text-2xl font-semibold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
-            {valueData.total_result.toFixed(2)} PLN
+            {valueData.total_result >= 0 ? '+' : ''}{formatHoldingMoney(valueData.total_result)}
           </dd>
           {(portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS') && (
             <div className="mt-3 space-y-1 text-xs text-gray-500">
               <div className="flex items-center justify-between">
                 <span>Zamknięte pozycje</span>
-                <span className={cn("font-medium", totalClosedProfit >= 0 ? "text-green-600" : "text-red-600")}>{totalClosedProfit.toFixed(2)} PLN</span>
+                  <span className={cn("font-medium", totalClosedProfit >= 0 ? "text-green-600" : "text-red-600")}>{formatHoldingMoney(totalClosedProfit)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Otwarte pozycje</span>
-                <span className={cn("font-medium", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>{(valueData.open_positions_result || 0).toFixed(2)} PLN</span>
+                  <span className={cn("font-medium", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>{formatHoldingMoney(valueData.open_positions_result || 0)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Dywidendy</span>
-                <span className="font-medium text-blue-600">{valueData.total_dividends.toFixed(2)} PLN</span>
+                  <span className="font-medium text-blue-600 dark:text-blue-400">{formatHoldingMoney(valueData.total_dividends)}</span>
               </div>
               {(valueData.total_interest || 0) !== 0 && (
                 <div className="flex items-center justify-between">
-                  <span>Odsetki / free funds interest</span>
-                  <span className="font-medium text-emerald-600">{(valueData.total_interest || 0).toFixed(2)} PLN</span>
+                  <span>Odsetki od wolnych środków</span>
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">{formatHoldingMoney(valueData.total_interest || 0)}</span>
                 </div>
               )}
             </div>
@@ -1180,7 +1115,7 @@ const PortfolioDetails: React.FC = () => {
             <div className="flex flex-col">
               <span className="text-xs text-gray-400 uppercase tracking-wide">Prosty</span>
               <span className={cn("font-bold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
-                {valueData.total_result_percent.toFixed(2)}%
+                {formatHoldingPercent(valueData.total_result_percent)}
               </span>
             </div>
             
@@ -1194,16 +1129,16 @@ const PortfolioDetails: React.FC = () => {
                   </div>
                 </div>
                 <span className={cn("font-bold", (valueData.xirr_percent || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-                  {(valueData.xirr_percent || 0).toFixed(2)}%
+                  {formatHoldingPercent(valueData.xirr_percent || 0)}
                 </span>
               </div>
             )}
           </div>
         </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-emerald-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Otwarte pozycje</dt>
+        <div className="overflow-hidden rounded-xl border border-slate-200 border-t-4 border-t-emerald-500 bg-white p-5 shadow-sm dark:border-slate-800 dark:border-t-emerald-500 dark:bg-slate-900">
+          <dt className="truncate text-sm font-medium text-gray-500 dark:text-slate-400">Otwarte pozycje</dt>
           <dd className={cn("mt-1 text-2xl font-semibold", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-            {(valueData.open_positions_result || 0).toFixed(2)} PLN
+            {formatHoldingMoney(valueData.open_positions_result || 0)}
           </dd>
           <dd className="mt-2 text-xs text-gray-400 mb-3">Aktualny zysk/strata niezrealizowanych pozycji.</dd>
           
@@ -1231,14 +1166,14 @@ const PortfolioDetails: React.FC = () => {
           )}
         </div>
         {portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' ? (
-          <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
-            <dt className="text-sm font-medium text-gray-500 truncate">Dywidendy</dt>
-            <dd className="mt-1 text-2xl font-semibold text-blue-600">
-              {valueData.total_dividends.toFixed(2)} PLN
+          <div className="overflow-hidden rounded-xl border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-5 shadow-sm dark:border-slate-800 dark:border-t-indigo-500 dark:bg-slate-900">
+            <dt className="truncate text-sm font-medium text-gray-500 dark:text-slate-400">Dywidendy</dt>
+            <dd className="mt-1 text-2xl font-semibold text-blue-600 dark:text-blue-400">
+              {formatHoldingMoney(valueData.total_dividends)}
             </dd>
           </div>
         ) : (
-          <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
+          <div className="overflow-hidden rounded-xl border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-5 shadow-sm dark:border-slate-800 dark:border-t-indigo-500 dark:bg-slate-900">
             <dt className="text-sm font-medium text-gray-500 truncate">
               {portfolio.account_type === 'SAVINGS' ? 'Oprocentowanie' : 'Kapitał'}
             </dt>
@@ -1247,19 +1182,19 @@ const PortfolioDetails: React.FC = () => {
             </dd>
           </div>
         )}
-        <div className="bg-white overflow-hidden shadow rounded-lg p-4 border-t-4 border-amber-500 flex flex-col justify-center gap-2">
+        <div className="flex flex-col justify-center gap-2 overflow-hidden rounded-xl border border-slate-200 border-t-4 border-t-amber-500 bg-white p-4 shadow-sm sm:col-span-2 sm:grid sm:grid-cols-3 dark:border-slate-800 dark:border-t-amber-500 dark:bg-slate-900">
             {portfolio.account_type !== 'PPK' && (
                 <>
                     <button
                         onClick={() => setIsTransferModalOpen(true)}
-                        className="w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        className="inline-flex w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                     >
                         <RefreshCw className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
                         Transfer
                     </button>
                     <button
                         onClick={() => setIsTransactionModalOpen(true)}
-                        className="w-full inline-flex items-center justify-center px-3 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        className="inline-flex w-full items-center justify-center rounded-lg border border-transparent bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-blue-500 dark:hover:bg-blue-400"
                     >
                         <Plus className="-ml-1 mr-2 h-4 w-4" />
                         Nowa Operacja
@@ -1270,7 +1205,7 @@ const PortfolioDetails: React.FC = () => {
                             <button
                                 onClick={refreshStockPrices}
                                 disabled={refreshingPrices}
-                                className="w-full inline-flex items-center justify-center px-3 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                                className="inline-flex w-full items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/70"
                             >
                                 <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
                                 {refreshingPrices ? 'Odświeżanie...' : 'Odśwież ceny z giełdy'}
@@ -1286,45 +1221,7 @@ const PortfolioDetails: React.FC = () => {
                 </>
             )}
         </div>
-      </div>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="portfolio-diagnostics-heading">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 id="portfolio-diagnostics-heading" className="font-semibold text-slate-900">Diagnostyka portfela</h2>
-            <p className="text-sm text-slate-500">Sprawdź spójność danych lub uruchom kontrolowane narzędzia naprawcze.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={runAudit}
-              disabled={auditLoading}
-              className="inline-flex items-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <ShieldAlert className="mr-2 h-4 w-4" />
-              {auditLoading ? 'Sprawdzanie…' : 'Sprawdź spójność'}
-            </button>
-            <button
-              type="button"
-              onClick={runPriceHistoryAudit}
-              disabled={priceAuditLoading}
-              className="inline-flex items-center rounded-md border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Wrench className="mr-2 h-4 w-4" />
-              {priceAuditLoading ? 'Audytowanie…' : 'Audyt cen'}
-            </button>
-            <button
-              type="button"
-              onClick={runRebuild}
-              disabled={rebuildLoading}
-              className="inline-flex items-center rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {rebuildLoading ? 'Naprawianie…' : 'Odtwórz z transakcji'}
-            </button>
-          </div>
-        </div>
-      </section>
+      </div>}
 
       {auditResult && (
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -1444,36 +1341,45 @@ const PortfolioDetails: React.FC = () => {
       )}
 
       {/* Navigation & Actions */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="flex flex-col justify-between space-y-4 border-b border-gray-200 px-6 py-4 md:flex-row md:items-center md:space-y-0">
-          {/* Left: View Tabs */}
-          <div className="w-full overflow-x-auto pb-1 md:w-auto md:pb-0">
-            <nav className="inline-flex min-w-max items-center gap-2">
+      <div className="pr-navigation overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-gray-200 px-4 py-4 dark:border-slate-800 md:px-6">
+          <select
+            value={activeTab}
+            onChange={(event) => setActiveTab(event.target.value as ActiveTab)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 md:hidden"
+            aria-label="Wybierz sekcję portfela"
+          >
+            {visibleTabs.map((tab) => <option key={tab} value={tab}>{tabLabels[tab] || tab}</option>)}
+          </select>
+          <nav className="hidden flex-wrap items-center gap-2 md:flex">
             {visibleTabs.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
+                aria-current={activeTab === tab ? "page" : undefined}
                 className={cn(
                   activeTab === tab
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                   'px-3 py-2 font-medium text-sm rounded-md transition-colors whitespace-nowrap'
                 )}
               >
                 {tabLabels[tab] || tab}
               </button>
             ))}
-            </nav>
-          </div>
+          </nav>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 md:p-6">
           {activeTab === 'analytics' && (
-            <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} equityAllocation={equityAllocation} />
-          )}
-
-          {activeTab === 'analytics_dashboard' && (
-            <AnalyticsDashboard portfolioId={portfolio.id} />
+            <div className="space-y-10">
+              <AnalyticsDashboard portfolioId={portfolio.id} />
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-blue-600 dark:text-blue-400">Struktura portfela</p>
+                <h3 className="mb-5 text-xl font-semibold text-slate-900 dark:text-slate-100">Alokacja aktywów</h3>
+                <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} equityAllocation={equityAllocation} />
+              </div>
+            </div>
           )}
 
           {activeTab === 'results' && (
@@ -1513,266 +1419,17 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'holdings' && (
             <div className="space-y-6">
-              <div className="hidden overflow-hidden rounded-xl border border-gray-200 shadow-sm dark:border-gray-800 md:block">
-                <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-800">
-                  <thead className="bg-gray-50/80 backdrop-blur-sm dark:bg-gray-900/80">
-                    <tr>
-                      <th className="w-[30%] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Aktywo</th>
-                      <th className="w-[13%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Pozycja</th>
-                      <th className="w-[18%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Cena</th>
-                      <th className="w-[13%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wartość</th>
-                      <th className="w-[16%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wynik</th>
-                      <th className="w-[10%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">Akcje</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800/50 dark:bg-gray-950">
-                    {holdings.map((h) => (
-                      <tr
-                        key={h.ticker}
-                        className={cn("cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50", selectedTicker === h.ticker && "bg-blue-50/50 dark:bg-blue-900/20")}
-                        onClick={() => fetchHistory(h.ticker)}
-                      >
-                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900 dark:text-gray-100">
-                          <div className="min-w-0">
-                            <div className="break-words font-bold leading-snug">{h.company_name || h.ticker}</div>
-                            <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{h.ticker}</div>
-                            <HoldingTags holding={h} />
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
-                          <div className="font-semibold text-gray-800 dark:text-gray-200">{formatHoldingQuantity(h.quantity)}</div>
-                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            waga {formatHoldingPercent(h.weight_percent)}
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
-                          <div className="font-semibold text-gray-800 dark:text-gray-200">
-                            {formatHoldingMoney(h.current_price, h.currency || 'PLN')}
-                          </div>
-                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            śr. {formatHoldingMoney(h.average_buy_price)}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            BE {formatHoldingMoney(h.break_even_sell_price_pln)}
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm font-semibold text-gray-900 tabular-nums dark:text-gray-100">
-                          {formatHoldingMoney(h.current_value)}
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
-                          <div className={cn('flex items-center justify-end gap-1 font-bold', holdingResultTone(h.profit_loss))}>
-                            {formatHoldingMoney(h.profit_loss)}
-                            <HoldingFxHint holding={h} />
-                          </div>
-                          <div className={cn('mt-1 text-xs font-semibold', holdingResultTone(h.realized_profit))}>
-                            zreal. {formatHoldingMoney(h.realized_profit)}
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-sm font-medium">
-                          {renderHoldingActions(h)}
-                        </td>
-                      </tr>
-                    ))}
-                    {holdings.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak aktywów w tym portfelu.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="space-y-3 md:hidden">
-                {holdings.map((h) => (
-                  <div
-                    key={h.ticker}
-                    className={cn(
-                      "cursor-pointer rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:hover:bg-gray-900/50",
-                      selectedTicker === h.ticker && "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-900/20"
-                    )}
-                    onClick={() => fetchHistory(h.ticker)}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="break-words text-sm font-bold leading-snug text-gray-900 dark:text-gray-100">{h.company_name || h.ticker}</div>
-                        <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{h.ticker}</div>
-                        <HoldingTags holding={h} />
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-sm font-bold text-gray-900 tabular-nums dark:text-gray-100">{formatHoldingMoney(h.current_value)}</div>
-                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">waga {formatHoldingPercent(h.weight_percent)}</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 text-sm dark:border-gray-800">
-                      <div>
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Pozycja</div>
-                        <div className="mt-1 font-semibold text-gray-800 tabular-nums dark:text-gray-200">{formatHoldingQuantity(h.quantity)}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Cena</div>
-                        <div className="mt-1 font-semibold text-gray-800 tabular-nums dark:text-gray-200">
-                          {formatHoldingMoney(h.current_price, h.currency || 'PLN')}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Śr. / BE</div>
-                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">
-                          {formatHoldingMoney(h.average_buy_price)} / {formatHoldingMoney(h.break_even_sell_price_pln)}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Wynik</div>
-                        <div className={cn('mt-1 flex items-center justify-end gap-1 font-bold tabular-nums', holdingResultTone(h.profit_loss))}>
-                          {formatHoldingMoney(h.profit_loss)}
-                          <HoldingFxHint holding={h} />
-                        </div>
-                        <div className={cn('mt-0.5 text-xs font-semibold tabular-nums', holdingResultTone(h.realized_profit))}>
-                          zreal. {formatHoldingMoney(h.realized_profit)}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                      {renderHoldingActions(h)}
-                    </div>
-                  </div>
-                ))}
-
-                {holdings.length === 0 && (
-                  <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center text-sm text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
-                    Brak aktywów w tym portfelu.
-                  </div>
-                )}
-              </div>
-
-              <div className="hidden">
-                <table className="min-w-[980px] w-full divide-y divide-gray-200 dark:divide-gray-800">
-                  <thead className="bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
-                    <tr>
-                      <th className="min-w-[220px] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Symbol</th>
-                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Ilość</th>
-                      <th className="min-w-[110px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Śr. Cena</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Obecna Cena</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wartość</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Zysk/Strata</th>
-                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">PnL zrealizowany</th>
-                      <th className="min-w-[140px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Cena BE</th>
-                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Waga</th>
-                      <th className="min-w-[130px] px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 bg-gray-100/50 dark:bg-gray-800/50 border-l border-gray-200 dark:border-gray-800">Akcje</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-gray-950 divide-y divide-gray-100 dark:divide-gray-800/50">
-                    {holdings.map((h) => (
-                      <tr 
-                        key={h.ticker} 
-                        className={cn("cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50", selectedTicker === h.ticker && "bg-blue-50/50 dark:bg-blue-900/20")}
-                        onClick={() => fetchHistory(h.ticker)}
-                      >
-                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900 dark:text-gray-100">
-                          <div className="min-w-[220px]">
-                            <div className="font-bold leading-snug break-words whitespace-normal">{h.company_name || h.ticker}</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 break-all sm:break-normal">{h.ticker}</div>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {h.sector && h.sector !== 'Unknown' && (
-                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 whitespace-normal break-words border border-blue-100 dark:border-blue-800/50">
-                                  {h.sector}
-                                </span>
-                              )}
-                              {h.industry && h.industry !== 'Unknown' && (
-                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 whitespace-normal break-words border border-gray-200 dark:border-gray-700">
-                                  {h.industry}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right font-medium text-gray-700 dark:text-gray-300 tabular-nums">
-                          {parseFloat(Number(h.quantity).toFixed(4))}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">{h.average_buy_price.toFixed(2)} PLN</td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">
-                          {h.current_price ? `${h.current_price.toFixed(2)} ${h.currency || 'PLN'}` : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right font-medium text-gray-900 dark:text-gray-100 tabular-nums">
-                          {h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}
-                        </td>
-                        <td className={cn(
-                          "px-4 py-4 text-sm text-right font-bold tabular-nums",
-                          (h.profit_loss || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                          <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-                              {h.profit_loss ? `${h.profit_loss.toFixed(2)} PLN` : '-'}
-                              {h.auto_fx_fees && (
-                                  <div className="group relative">
-                                      <HelpCircle className="w-3 h-3 text-gray-400 dark:text-gray-500 cursor-help" />
-                                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-56 p-2 bg-gray-900 text-white text-xs rounded shadow-lg z-20 text-left border border-gray-700">
-                                          Zysk netto ("na rękę") uwzględniający szacowaną prowizję 0.5% przy sprzedaży.
-                                          {h.fx_rate_used && (
-                                              <div className="mt-1 text-gray-300">
-                                                  Kurs FX: {h.fx_rate_used.toFixed(4)}
-                                              </div>
-                                          )}
-                                      </div>
-                                  </div>
-                              )}
-                          </div>
-                        </td>
-                        <td className={cn(
-                          "px-3 py-4 text-sm text-right font-bold whitespace-nowrap tabular-nums",
-                          (h.realized_profit || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                          {typeof h.realized_profit === 'number' ? `${h.realized_profit.toFixed(2)} PLN` : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 whitespace-nowrap tabular-nums">
-                          {typeof h.break_even_sell_price_pln === 'number'
-                            ? `${h.break_even_sell_price_pln.toFixed(2)} PLN`
-                            : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 font-medium tabular-nums">
-                          {h.weight_percent ? `${h.weight_percent}%` : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-center font-medium bg-gray-50/30 dark:bg-gray-900/30 border-l border-gray-100/50 dark:border-gray-800/50">
-                          <div className="flex flex-wrap justify-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                initiateSell(h);
-                              }}
-                              className="rounded-md bg-red-50 dark:bg-red-900/20 px-2.5 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40"
-                            >
-                              Sprzedaj
-                            </button>
-                            {(portfolio.account_type === 'IKE' || portfolio.account_type === 'STANDARD') && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  closePositionAtLastPrice(h);
-                                }}
-                                className="rounded-md bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 transition-colors hover:bg-orange-100 dark:hover:bg-orange-900/40"
-                                title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
-                              >
-                                Zamknij
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {holdings.length === 0 && (
-                      <tr>
-                        <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak aktywów w tym portfelu.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
+              <PortfolioResearch key={portfolio.id}
+                holdings={holdings} value={valueData}
+                history={portfolioHistory} profitHistory={portfolioProfitHistory}
+                dailyHistory={portfolioValue30dHistory} dailyProfit={portfolioProfit30dHistory}
+                onHistory={fetchHistory} onSell={initiateSell} onClose={closePositionAtLastPrice}
+                onRisk={() => setActiveTab('analytics')} />
               {/* History Chart Section */}
               {selectedTicker && (
-                <div className="mt-8 border-t pt-8">
+                <div ref={priceHistoryRef} className="pr-panel mt-8 border-t p-5">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">Historia Wyników: {selectedTicker}</h3>
+                    <h3 className="text-lg font-medium text-gray-900">Historia ceny: {selectedTicker}</h3>
                     {lastUpdated && (
                       <span className="text-xs text-gray-500">Ostatnia aktualizacja: {lastUpdated}</span>
                     )}
@@ -2413,6 +2070,45 @@ const PortfolioDetails: React.FC = () => {
           )}
         </div>
       </div>
+
+      <details className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div>
+            <h2 id="portfolio-diagnostics-heading" className="font-semibold text-slate-900 dark:text-slate-100">Diagnostyka portfela</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Narzędzia kontroli i naprawy danych.</p>
+          </div>
+          <ChevronDown className="h-5 w-5 text-slate-400 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={runAudit}
+              disabled={auditLoading}
+              className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <ShieldAlert className="mr-2 h-4 w-4" />
+              {auditLoading ? 'Sprawdzanie…' : 'Sprawdź spójność'}
+            </button>
+            <button
+              type="button"
+              onClick={runPriceHistoryAudit}
+              disabled={priceAuditLoading}
+              className="inline-flex items-center rounded-lg border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+            >
+              <Wrench className="mr-2 h-4 w-4" />
+              {priceAuditLoading ? 'Audytowanie…' : 'Audyt cen'}
+            </button>
+            <button
+              type="button"
+              onClick={runRebuild}
+              disabled={rebuildLoading}
+              className="inline-flex items-center rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {rebuildLoading ? 'Naprawianie…' : 'Odtwórz z transakcji'}
+            </button>
+        </div>
+      </details>
 
       {/* Modals */}
       <TransferModal

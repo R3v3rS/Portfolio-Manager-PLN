@@ -43,8 +43,9 @@ const AdminHome: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-5 px-4 sm:px-0">
-      <div>
+    <div className="page-stack">
+      <div className="page-heading">
+        <p className="page-eyebrow">Zarządzanie aplikacją</p>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Admin</h1>
         <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Narzędzia utrzymaniowe i konfiguracje.</p>
       </div>

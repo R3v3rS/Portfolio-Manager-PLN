@@ -284,7 +284,13 @@ class PortfolioValuationService(PortfolioCoreService):
         return max(0.0, gross_proceeds / qty)
 
     @staticmethod
-    def get_holdings(portfolio_id, force_price_refresh=False, sub_portfolio_id=None, aggregate=True):
+    def get_holdings(
+        portfolio_id,
+        force_price_refresh=False,
+        sub_portfolio_id=None,
+        aggregate=True,
+        cached_prices_only=False,
+    ):
         db = get_db()
         
         # Check if the provided portfolio_id is actually a child
@@ -333,9 +339,17 @@ class PortfolioValuationService(PortfolioCoreService):
             return results
 
         tickers = [h['ticker'] for h in holdings]
-        current_prices = PriceService.get_prices(tickers, force_refresh=force_price_refresh)
-        price_updates = PriceService.get_price_updates(tickers)
-        quotes = PriceService.get_quotes_lite(tickers, force_refresh=force_price_refresh)
+        current_prices = PriceService.get_prices(
+            tickers,
+            force_refresh=force_price_refresh,
+            cached_only=cached_prices_only,
+        )
+        price_updates = PriceService.get_price_updates(tickers, cached_only=cached_prices_only)
+        quotes = PriceService.get_quotes_lite(
+            tickers,
+            force_refresh=force_price_refresh,
+            cached_only=cached_prices_only,
+        )
         fx_rates = PortfolioTradeService._get_fx_rates_to_pln({h['currency'] or 'PLN' for h in holdings})
         updates_needed = False
         holdings_value = 0.0
@@ -407,7 +421,7 @@ class PortfolioValuationService(PortfolioCoreService):
         return PortfolioValuationService.calculate_metrics(results, total_portfolio_value, cash)
 
     @staticmethod
-    def get_portfolio_value(portfolio_id):
+    def get_portfolio_value(portfolio_id, cached_prices_only=False):
         portfolio = PortfolioValuationService.get_portfolio(portfolio_id)
         if not portfolio:
             return None
@@ -417,7 +431,10 @@ class PortfolioValuationService(PortfolioCoreService):
         children = db.execute('SELECT id, name FROM portfolios WHERE parent_portfolio_id = ? AND is_archived = 0', (portfolio_id,)).fetchall()
         
         # Calculate its OWN value (where sub_portfolio_id is NULL)
-        own_value_data = PortfolioValuationService._calculate_single_portfolio_value(portfolio)
+        own_value_data = PortfolioValuationService._calculate_single_portfolio_value(
+            portfolio,
+            cached_prices_only=cached_prices_only,
+        )
         
         if not children:
             # It's a single portfolio (or a child)
@@ -443,7 +460,10 @@ class PortfolioValuationService(PortfolioCoreService):
 
         for child in children:
             child_portfolio = PortfolioValuationService.get_portfolio(child['id'])
-            child_value_data = PortfolioValuationService._calculate_single_portfolio_value(child_portfolio)
+            child_value_data = PortfolioValuationService._calculate_single_portfolio_value(
+                child_portfolio,
+                cached_prices_only=cached_prices_only,
+            )
             
             total_value += child_value_data['portfolio_value']
             total_cash += child_value_data['cash_value']
@@ -481,8 +501,13 @@ class PortfolioValuationService(PortfolioCoreService):
             if p['account_type'] == 'PPK':
                 current_price = None
                 try:
-                    current_price = PPKService.fetch_current_price()['price']
-                except Exception: pass
+                    if cached_prices_only:
+                        cached_price = PPKService.get_cached_price()
+                        current_price = cached_price['price'] if cached_price else None
+                    else:
+                        current_price = PPKService.fetch_current_price()['price']
+                except Exception:
+                    pass
                 ppk_summary = PPKService.get_portfolio_summary(p_id, current_price)
                 net_contributions += float(ppk_summary['totalPurchaseValue'])
             else:
@@ -728,7 +753,7 @@ class PortfolioValuationService(PortfolioCoreService):
         }
 
     @staticmethod
-    def _calculate_single_portfolio_value(portfolio):
+    def _calculate_single_portfolio_value(portfolio, cached_prices_only=False):
         # Move the existing logic from get_portfolio_value to this helper
         portfolio_id = portfolio['id']
         account_type = portfolio['account_type']
@@ -753,8 +778,13 @@ class PortfolioValuationService(PortfolioCoreService):
             holdings_value = sum(b['total_value'] for b in bonds)
             total_value = current_cash + holdings_value
         elif account_type == 'PPK':
+            current_price = None
             try:
-                current_price = PPKService.fetch_current_price()['price']
+                if cached_prices_only:
+                    cached_price = PPKService.get_cached_price()
+                    current_price = cached_price['price'] if cached_price else None
+                else:
+                    current_price = PPKService.fetch_current_price()['price']
             except Exception:
                 current_price = None
             ppk_summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
@@ -765,7 +795,11 @@ class PortfolioValuationService(PortfolioCoreService):
             extra_data = ppk_summary
         else:
             # For standard/IKE, we only get OWN holdings (sub_portfolio_id IS NULL)
-            holdings = PortfolioValuationService.get_holdings(portfolio_id, aggregate=False)
+            holdings = PortfolioValuationService.get_holdings(
+                portfolio_id,
+                aggregate=False,
+                cached_prices_only=cached_prices_only,
+            )
             holdings_value = sum(float(h.get('current_value', 0.0) or 0.0) for h in holdings)
             open_positions_result = sum(float(h.get('profit_loss', 0.0) or 0.0) for h in holdings)
             total_value = current_cash + holdings_value
@@ -778,7 +812,10 @@ class PortfolioValuationService(PortfolioCoreService):
                 fx_tickers = [f"{c.upper()}PLN=X" for c in currencies if c.upper() != 'PLN']
                 
                 all_needed_tickers = tickers + fx_tickers
-                quotes = PriceService.get_quotes_lite(all_needed_tickers)
+                quotes = PriceService.get_quotes_lite(
+                    all_needed_tickers,
+                    cached_only=cached_prices_only,
+                )
                 
                 holdings_value_now = 0.0
                 holdings_value_1d = 0.0

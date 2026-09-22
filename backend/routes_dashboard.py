@@ -49,7 +49,7 @@ def global_summary():
     breakdown_ppk = 0.0
     
     for p in portfolios:
-        p_val = PortfolioService.get_portfolio_value(p['id'])
+        p_val = PortfolioService.get_portfolio_value(p['id'], cached_prices_only=True)
         if p_val:
             total_investments += p_val['portfolio_value']
             

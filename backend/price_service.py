@@ -513,7 +513,7 @@ class PriceService:
         return ((current - old) / old) * 100
 
     @classmethod
-    def get_prices(cls, tickers, force_refresh=False):
+    def get_prices(cls, tickers, force_refresh=False, cached_only=False):
         if not tickers:
             return {}
 
@@ -533,6 +533,11 @@ class PriceService:
             return cls._price_cache
 
         cls._load_price_cache_from_db(normalized_tickers)
+
+        # Dashboard-style reads must not wait for an external provider. Stale
+        # persisted prices are preferable to blocking the entire page.
+        if cached_only:
+            return {ticker: cls._price_cache.get(ticker) for ticker in normalized_tickers}
 
         missing_tickers = []
         for ticker in normalized_tickers:
@@ -727,11 +732,11 @@ class PriceService:
         return {ticker: cls._price_cache.get(ticker) for ticker in normalized_tickers}
 
     @classmethod
-    def get_price_updates(cls, tickers):
+    def get_price_updates(cls, tickers, cached_only=False):
         if not tickers:
             return {}
 
-        cls.get_prices(tickers)
+        cls.get_prices(tickers, cached_only=cached_only)
         return {ticker: cls._price_cache_updated_at.get(ticker) for ticker in tickers}
 
     @classmethod
@@ -1279,7 +1284,7 @@ class PriceService:
         return quotes
 
     @classmethod
-    def get_quotes_lite(cls, tickers, force_refresh=False):
+    def get_quotes_lite(cls, tickers, force_refresh=False, cached_only=False):
         quotes = {}
         if not tickers:
             return quotes
@@ -1293,6 +1298,23 @@ class PriceService:
 
         cached = cls._quotes_cache.get(level, {})
         cached_updated = cls._quotes_cache_updated_at.get(level, {})
+
+        if cached_only:
+            for ticker in normalized_tickers:
+                cached_quote = cached.get(ticker)
+                if cached_quote is not None:
+                    quotes[ticker] = dict(cached_quote)
+                else:
+                    quotes[ticker] = {
+                        'price': 0.0,
+                        'change_1d': None,
+                        'change_7d': None,
+                        'change_1m': None,
+                        'change_1y': None,
+                        'prev_close': None,
+                        'price_7d_ago': None,
+                    }
+            return quotes
 
         missing_tickers = []
         for ticker in normalized_tickers:

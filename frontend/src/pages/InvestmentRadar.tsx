@@ -106,8 +106,9 @@ const InvestmentRadar: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="page-heading flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
+          <p className="page-eyebrow">Obserwowane aktywa</p>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center">
             <Radar className="mr-2 h-8 w-8 text-blue-600" />
             Radar Inwestycyjny
@@ -116,7 +117,7 @@ const InvestmentRadar: React.FC = () => {
             Monitoruj swoje aktywa oraz obserwowane spółki w jednym miejscu.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setAutoRefreshEnabled((prev) => !prev)}

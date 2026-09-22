@@ -34,7 +34,7 @@ describe('analyticsApi', () => {
     const result = await analyticsApi.getSummary(7, 3);
 
     expect(getMock).toHaveBeenCalledWith('/summary', {
-      params: { portfolio_id: 7, sub_portfolio_id: 3 },
+      params: { portfolio_id: 7, sub_portfolio_id: 3, period: '1y' },
     });
     expect(result.performance?.sharpe_ratio).toBe(1.23);
     expect(result.risk?.var_1d_percent).toBe(-0.012);
