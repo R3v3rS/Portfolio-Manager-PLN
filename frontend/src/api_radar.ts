@@ -1,5 +1,5 @@
 import { createApiClient } from './apiConfig';
-import { RadarItem, StockAnalysisData } from './types';
+import { RadarItem, RadarNotes, StockAnalysisData } from './types';
 
 const radarHttp = createApiClient('/radar');
 
@@ -14,6 +14,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const toNumber = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
+    if (!value.trim()) return null;
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
   }
@@ -39,6 +40,19 @@ const normalizeRadarItem = (value: unknown): RadarItem => {
 
   return {
     ticker: toString(source.ticker),
+    company_name: toString(source.company_name, toString(source.ticker)),
+    currency: toNullableString(source.currency),
+    sector: toNullableString(source.sector),
+    instrument_type: source.instrument_type === 'ETF' ? 'ETF' : 'OTHER',
+    sparkline: Array.isArray(source.sparkline) ? source.sparkline.filter(isRecord).map(row => ({ date: toString(row.date), close_price: toNumber(row.close_price) ?? 0 })).filter(row => row.close_price > 0) : [],
+    events_updated_at: toNullableString(source.events_updated_at),
+    notes: isRecord(source.notes) ? {
+      thesis: toString(source.notes.thesis),
+      invalidation: toString(source.notes.invalidation),
+      review_date: toNullableString(source.notes.review_date),
+      target_price: toNumber(source.notes.target_price),
+      target_direction: source.notes.target_direction === 'above' ? 'above' : 'below',
+    } : null,
     price: toNumber(source.price),
     change_1d: toNumber(source.change_1d),
     change_7d: toNumber(source.change_7d),
@@ -126,6 +140,15 @@ const normalizeActionResult = (value: unknown, fallbackMessage: string): RadarAc
 };
 
 export const radarApi = {
+  saveNotes: async (ticker: string, notes: RadarNotes): Promise<void> => {
+    await radarHttp.post(`/notes/${encodeURIComponent(ticker)}`, notes);
+  },
+  history: async (ticker: string): Promise<Array<{ date: string; close_price: number }>> => {
+    const response = await radarHttp.get<unknown>(`/history/${encodeURIComponent(ticker)}`);
+    if (!Array.isArray(response)) return [];
+    return response.filter(isRecord).map(row => ({ date: toString(row.date), close_price: toNumber(row.close_price) ?? 0 }))
+      .filter(row => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && row.close_price > 0);
+  },
   getAll: async (refresh = false): Promise<RadarItem[]> => {
     const response = await radarHttp.get<unknown>('/', { params: { refresh: refresh ? 1 : undefined } });
     return Array.isArray(response) ? response.map(normalizeRadarItem).filter((item) => Boolean(item.ticker)) : [];

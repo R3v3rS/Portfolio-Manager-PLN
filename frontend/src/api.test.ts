@@ -13,6 +13,20 @@ describe('portfolioApi + helpers', () => {
     vi.clearAllMocks();
   });
 
+  it('refreshes PPK with an explicit force flag and preserves quote provenance and warnings', async () => {
+    const {portfolioApi} = await import('./api');
+    postMock.mockResolvedValueOnce({changed:true,warning:null,currentPrice:{price:27.09,date:'2026-10-01',source:'Nationale-Nederlanden'}});
+    const result=await portfolioApi.refreshPpkPrice(5,true);
+    expect(postMock).toHaveBeenCalledWith('/ppk/prices/refresh/5',{force:true});
+    expect(result.currentPrice?.source).toBe('Nationale-Nederlanden');
+    expect(result.changed).toBe(true);
+    getMock.mockResolvedValueOnce({current_price:null,return_pln:null,return_pct:null,chart:[]});
+    const history=await portfolioApi.getPpkPerformance(5);
+    expect(history.current_price).toBeNull();
+    expect(history.return_pln).toBeNull();
+    expect(history.return_pct).toBeNull();
+  });
+
   it('normalizes list response with safe defaults', async () => {
     const { portfolioApi } = await import('./api');
     getMock.mockResolvedValueOnce({
@@ -26,6 +40,16 @@ describe('portfolioApi + helpers', () => {
       account_type: 'STANDARD',
       current_cash: 9.5,
     });
+  });
+
+  it('keeps missing financial totals unavailable and preserves valuation warnings', async () => {
+    const {portfolioApi} = await import('./api');
+    getMock.mockResolvedValueOnce({portfolio_value:null,total_result:null,holdings_value:null,open_positions_result:null,
+      total_result_percent:null,xirr_percent:null,cash_value:50,available_value:50,valuation_status:'incomplete',valuation_warnings:['USD: brak kursu.']});
+    const result = await portfolioApi.getValue(1);
+    expect(result.portfolio_value).toBeNull(); expect(result.total_result).toBeNull();
+    expect(result.xirr_percent).toBeUndefined(); expect(result.available_value).toBe(50);
+    expect(result.valuation_warnings).toEqual(['USD: brak kursu.']);
   });
 
   it('maps getPriceHistory with null->[] and nullable last_updated', async () => {

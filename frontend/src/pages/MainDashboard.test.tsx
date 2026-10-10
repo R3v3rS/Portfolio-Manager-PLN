@@ -1,9 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import MainDashboard from './MainDashboard';
 import { dashboardApi } from '../api_dashboard';
 import { portfolioApi } from '../api';
 import { vi } from 'vitest';
+
+vi.mock('../components/dashboard/DashboardActions', () => ({ default: () => <h2>Sprawy do załatwienia</h2> }));
 
 vi.mock('../api_dashboard', async () => {
   const actual = await vi.importActual<typeof import('../api_dashboard')>('../api_dashboard');
@@ -61,7 +63,9 @@ describe('MainDashboard', () => {
       </MemoryRouter>
     );
 
-    expect(document.querySelectorAll('.animate-pulse')).not.toHaveLength(0);
+    expect(screen.getByText('Centrum finansów')).toBeInTheDocument();
+    expect(mockedGetGlobalSummary).toHaveBeenCalled();
+    await waitFor(() => expect(document.querySelectorAll('.animate-pulse')).not.toHaveLength(0));
   });
 
   it('renders KPI cards, chart section and formatted values after successful load', async () => {
@@ -97,12 +101,12 @@ describe('MainDashboard', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Pulpit Dowódcy' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Aktywa' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Zobowiązania' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Centrum finansów' })).toBeInTheDocument();
+    await screen.findByRole('region', { name: 'Najważniejsze kwoty' });
+    expect(screen.getByRole('region', { name: 'Najważniejsze kwoty' }).compareDocumentPosition(screen.getByRole('heading', { name: 'Sprawy do załatwienia' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Struktura Aktywów' })).toBeInTheDocument();
     expect((await screen.findAllByText(/1.*567,89 PLN/)).length).toBeGreaterThan(0);
-    expect(await screen.findByText(/76.*543,21/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/76.*543,21/)).length).toBeGreaterThan(0);
     expect(await screen.findByText('Termin: 15.03.2026')).toBeInTheDocument();
     expect(await screen.findByText('Dywidendy — Kwiecień 2026')).toBeInTheDocument();
     expect(await screen.findByText(/Otrzymane: 234,50 PLN/)).toBeInTheDocument();
@@ -183,7 +187,8 @@ describe('MainDashboard', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Pulpit Dowódcy' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Centrum finansów' })).toBeInTheDocument();
+    await screen.findByRole('region', { name: 'Najważniejsze kwoty' });
     expect(screen.queryByText(/Dywidendy —/)).not.toBeInTheDocument();
   });
 

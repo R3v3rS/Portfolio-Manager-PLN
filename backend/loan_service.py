@@ -9,7 +9,10 @@ class LoanService:
         loan = db.execute('SELECT * FROM loans WHERE id = ?', (loan_id,)).fetchone()
         if not loan:
             return None
-        return dict(loan)
+        result = dict(loan)
+        result['start_date'] = str(result['start_date'])[:10]
+        result['exclude_from_net_worth'] = bool(result.get('exclude_from_net_worth', 0))
+        return result
 
     @staticmethod
     def get_loan_rates(loan_id):
@@ -18,7 +21,7 @@ class LoanService:
             'SELECT * FROM loan_rates WHERE loan_id = ? ORDER BY valid_from_date ASC',
             (loan_id,)
         ).fetchall()
-        return [dict(r) for r in rates]
+        return [{**dict(r), 'valid_from_date': str(r['valid_from_date'])[:10]} for r in rates]
 
     @staticmethod
     def get_loan_overpayments(loan_id):
@@ -27,7 +30,7 @@ class LoanService:
             'SELECT * FROM loan_overpayments WHERE loan_id = ? ORDER BY date ASC',
             (loan_id,)
         ).fetchall()
-        return [dict(o) for o in overpayments]
+        return [{**dict(o), 'date': str(o['date'])[:10]} for o in overpayments]
 
     @staticmethod
     def calculate_schedule(loan, rates, overpayments, is_baseline=False, monthly_overpayment=0.0, monthly_overpayment_strategy='REDUCE_TERM'):
@@ -106,7 +109,11 @@ class LoanService:
             
             # Apply One-Off Overpayments (Mid-Month Injection)
             for op in current_month_ops:
-                op_amount = float(op['amount'])
+                # A payment cannot reduce principal below zero. Older records and
+                # simulations may contain an amount larger than the debt.
+                op_amount = min(max(0.0, float(op['amount'])), max(0.0, remaining_balance))
+                if op_amount <= 0:
+                    continue
                 op_date_str = str(op['date'])
                 op_type = op.get('type')
                 
@@ -130,6 +137,9 @@ class LoanService:
                     'overpayment_type': op_type,
                     'is_mid_month': True # Flag to distinguish
                 })
+
+            if remaining_balance <= 0.01:
+                break
 
             # b. Monthly Recurring Overpayment (Simulated Future Only)
             if not is_baseline and payment_date > today and monthly_overpayment > 0:
@@ -180,6 +190,7 @@ class LoanService:
             # 4. Apply Regular Payment (and Simulated Monthly Overpayment)
             # Note: One-off overpayments were already subtracted from remaining_balance above
             
+            principal_part = max(0.0, principal_part)
             total_regular_principal = principal_part + month_overpayment_simulated
             
             # Cap at remaining balance
@@ -274,6 +285,10 @@ class LoanService:
                 'schedule': baseline_schedule,
                 'total_interest': baseline_total_interest
             },
+            'actual': {
+                'schedule': actual_schedule,
+                'total_interest': actual_total_interest
+            },
             'actual_metrics': {
                 'interest_saved': round(baseline_total_interest - actual_total_interest, 2),
                 'months_saved': baseline_months - actual_months,
@@ -289,4 +304,36 @@ class LoanService:
                 'total_interest': simulated_total_interest
             },
             'overpayments_list': db_overpayments
+        }
+
+    @staticmethod
+    def get_status(loan_id, *, as_of=None):
+        """Projected status; recorded payments are reported separately."""
+        loan = LoanService.get_loan_details(loan_id)
+        if not loan:
+            return None
+        schedule, _, _ = LoanService.calculate_schedule(
+            loan, LoanService.get_loan_rates(loan_id), LoanService.get_loan_overpayments(loan_id)
+        )
+        today = as_of or date.today().isoformat()
+        past = [row for row in schedule if row['date'] <= today]
+        current = past[-1] if past else schedule[0]
+        db = get_db()
+        paid_months = {row['installment_month'] for row in db.execute(
+            'SELECT installment_month FROM loan_installment_payments WHERE loan_id = ?', (loan_id,)
+        )}
+        next_payment = next((row for row in schedule
+                             if row['date'] >= today and row['installment'] > 0
+                             and row['month'] not in paid_months), None)
+        balance_check = db.execute('''
+            SELECT balance_cents, checked_on FROM loan_balance_checks
+            WHERE loan_id = ? ORDER BY checked_on DESC, id DESC LIMIT 1
+        ''', (loan_id,)).fetchone()
+        return {
+            'estimated_balance': current['remaining_balance'],
+            'next_installment': next_payment['installment'] if next_payment else 0.0,
+            'next_due_date': next_payment['date'] if next_payment else None,
+            'recorded_payments': len(paid_months),
+            'confirmed_balance': balance_check['balance_cents'] / 100 if balance_check else None,
+            'confirmed_on': balance_check['checked_on'] if balance_check else None,
         }

@@ -22,11 +22,11 @@ const STATUS_ICON: Record<'ok' | 'warning' | 'error', React.ReactNode> = {
 };
 
 const CHECK_LABELS: Record<string, string> = {
-  value_match: 'Spójność wartości parent = own + children',
-  orphan_transactions: 'Orphan transactions',
-  interest_leaked: 'INTEREST przypisany do childa',
-  archived_child_transactions: 'Transakcje po archiwizacji childa',
-  cash_negative_days: 'Ujemne saldo gotówki',
+  value_match: 'Suma głównego portfela i strategii',
+  orphan_transactions: 'Transakcje bez prawidłowej strategii',
+  interest_leaked: 'Odsetki przypisane do strategii',
+  archived_child_transactions: 'Transakcje po archiwizacji strategii',
+  cash_negative_days: 'Historyczne ujemne saldo strategii',
 };
 
 const AuditConsistencyPanel: React.FC = () => {
@@ -112,9 +112,16 @@ const AuditConsistencyPanel: React.FC = () => {
 
       <div className="text-sm text-gray-700">
         <span className="mr-4">OK: <strong>{audit.summary.ok}</strong></span>
-        <span className="mr-4">Warning: <strong>{audit.summary.warning}</strong></span>
-        <span>Error: <strong>{audit.summary.error}</strong></span>
+        <span className="mr-4">Ostrzeżenia: <strong>{audit.summary.warning}</strong></span>
+        <span>Błędy przypisania lub spójności: <strong>{audit.summary.error}</strong></span>
       </div>
+      <p className="rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm text-slate-300">Audyt rozróżnia błędne przypisanie operacji i ujemne salda w historii. Ostrzeżenie o dawnym saldzie nie oznacza, że obecne pieniądze są policzone nieprawidłowo. Korekty powinny odzwierciedlać rzeczywiste operacje.</p>
+      {(() => {
+        const cashChecks = audit.portfolios.map(p => p.checks.cash_negative_days).filter(c => c.current_ledger_cash!=null && c.current_stored_cash!=null);
+        if (!cashChecks.length) return null;
+        const matched = cashChecks.filter(c => Math.abs(c.current_stored_cash!-c.current_ledger_cash!)<=.01).length;
+        return <p className={matched===cashChecks.length ? 'text-sm text-emerald-400' : 'text-sm text-amber-300'}>Obecne salda zgodne z historią: <strong>{matched} z {cashChecks.length}</strong>. Ostrzeżenia historyczne są oceniane osobno.</p>;
+      })()}
 
       {error && <div className="text-sm text-red-600">{error}</div>}
 
@@ -132,7 +139,7 @@ const AuditConsistencyPanel: React.FC = () => {
               const failingChecks = Object.entries(portfolio.checks).filter(([, result]) => !result.ok);
               return (
                 <tr key={portfolio.portfolio_id}>
-                  <td className="px-3 py-2 align-top">{STATUS_ICON[portfolio.status]}</td>
+                  <td className="px-3 py-2 align-top"><span className="inline-flex items-center gap-2">{STATUS_ICON[portfolio.status]}{{ok:'Zgodny',warning:'Ostrzeżenie',error:'Do wyjaśnienia'}[portfolio.status]}</span></td>
                   <td className="px-3 py-2 align-top">{portfolio.portfolio_name}</td>
                   <td className="px-3 py-2">
                     {failingChecks.length === 0 ? (
@@ -150,6 +157,14 @@ const AuditConsistencyPanel: React.FC = () => {
                               {CHECK_LABELS[key] || key}
                             </summary>
                             <div className="mt-1 text-xs text-amber-900">
+                              {result.explanation && <p className="my-2 leading-5">{result.explanation}</p>}
+                              {result.amount_pln !== undefined && <p>Łączna kwota: {result.amount_pln.toLocaleString('pl-PL', {style:'currency',currency:'PLN'})}</p>}
+                              {key === 'cash_negative_days' && (() => {
+                                const cash = portfolio.checks.cash_negative_days;
+                                if (cash.current_ledger_cash == null || cash.current_stored_cash == null) return null;
+                                const difference = cash.current_stored_cash-cash.current_ledger_cash;
+                                return <p className="my-2 font-medium">Obecne saldo: {cash.current_stored_cash.toFixed(2)} zł · Z historii: {cash.current_ledger_cash.toFixed(2)} zł · {Math.abs(difference)<=0.01 ? 'Salda są zgodne.' : `Różnica: ${difference.toFixed(2)} zł — wymaga wyjaśnienia.`}</p>;
+                              })()}
                               {result.diff_pln !== undefined && (
                                 <div>Różnica: {result.diff_pln.toFixed(2)} PLN</div>
                               )}
@@ -160,7 +175,7 @@ const AuditConsistencyPanel: React.FC = () => {
                               {key === 'cash_negative_days' && incidents.length > 0 && (
                                 <div className="mt-2 space-y-2">
                                   <div className="font-semibold">⚠️ {incidents.length} dni z ujemnym saldem</div>
-                                  <div className="overflow-x-auto">
+                                  <details><summary className="cursor-pointer">Pokaż dni i operacje wywołujące ostrzeżenie</summary><div className="overflow-x-auto">
                                     <table className="min-w-full text-xs border border-amber-200">
                                       <thead>
                                         <tr className="bg-amber-100">
@@ -189,9 +204,9 @@ const AuditConsistencyPanel: React.FC = () => {
                                         ))}
                                       </tbody>
                                     </table>
-                                  </div>
+                                  </div></details>
                                   <div className="text-[11px] text-amber-900">
-                                    Użyj Transferu wewnętrznego aby uzupełnić brakującą gotówkę z datą wsteczną
+                                    Sprawdź datę i przypisanie wskazanej operacji. Transfer wsteczny dodawaj wyłącznie, jeśli rzeczywiście miał miejsce.
                                   </div>
                                 </div>
                               )}

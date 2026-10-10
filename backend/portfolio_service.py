@@ -63,7 +63,13 @@ class PortfolioService(
             
         query += ' ORDER BY t.date DESC'
         transactions = db.execute(query, params).fetchall()
-        return [{key: t[key] for key in t.keys()} for t in transactions]
+        result=[{key: t[key] for key in t.keys()} for t in transactions]
+        if portfolio['parent_portfolio_id']:
+            from asset_transfer_service import strategy_basis
+            _,profits=strategy_basis(db,portfolio['parent_portfolio_id'],portfolio['id'])
+            for row in result:
+                if row['type']=='SELL':row['realized_profit']=profits.get(row['id'],row['realized_profit'])
+        return result
 
     @staticmethod
     def get_all_transactions(ticker=None, portfolio_id=None, sub_portfolio_id=None, transaction_type=None):

@@ -1,5 +1,5 @@
 import { createApiClient } from './apiConfig';
-import type { BookResult, StagingRow, StagingSession } from './types/importStaging';
+import type { BookResult, ImportSessionListItem, StagingRow, StagingSession } from './types/importStaging';
 
 const portfolioHttp = createApiClient('/portfolio');
 
@@ -30,7 +30,13 @@ export const getSession = async (sessionId: string): Promise<StagingSession> => 
   return portfolioHttp.get<StagingSession>(`/import/staging/${sessionId}`);
 };
 
-export const assignRow = async (sessionId: string, rowId: number, targetSubPortfolioId: number): Promise<StagingRow> => {
+export const listSessions = (portfolioId: number) =>
+  portfolioHttp.get<ImportSessionListItem[]>(`/${portfolioId}/import/sessions`);
+
+export const refreshSymbols = (sessionId: string) =>
+  portfolioHttp.post<StagingSession>(`/import/staging/${sessionId}/refresh-symbols`, {});
+
+export const assignRow = async (sessionId: string, rowId: number, targetSubPortfolioId: number | null): Promise<StagingRow> => {
   return portfolioHttp.put<StagingRow>(`/import/staging/${sessionId}/rows/${rowId}/assign`, {
     target_sub_portfolio_id: targetSubPortfolioId,
   });
@@ -38,7 +44,7 @@ export const assignRow = async (sessionId: string, rowId: number, targetSubPortf
 
 export const assignAll = async (
   sessionId: string,
-  targetSubPortfolioId: number
+  targetSubPortfolioId: number | null
 ): Promise<AssignAllResponse> => {
   return portfolioHttp.put<AssignAllResponse>(`/import/staging/${sessionId}/assign-all`, {
     target_sub_portfolio_id: targetSubPortfolioId,

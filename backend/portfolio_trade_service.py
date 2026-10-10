@@ -9,6 +9,30 @@ from api.exceptions import ApiError, ValidationError
 
 class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
+    def _operation_date(value):
+        if value is None:
+            return date.today().isoformat()
+        try:
+            parsed=date.fromisoformat(str(value))
+            if parsed.isoformat()!=str(value) or parsed>date.today():raise ValueError()
+            return parsed.isoformat()
+        except (ValueError,TypeError):
+            raise ValidationError('Podaj poprawną datę wykonanej operacji, nie późniejszą niż dziś.') from None
+
+    @staticmethod
+    def prepare_buy(ticker, purchase_date):
+        """Market cache work must finish before any financial write lock."""
+        db=get_db()
+        if db.in_transaction:
+            raise ValidationError('Dane rynku przygotuj przed rozpoczęciem zapisu zakupu.')
+        mapping=db.execute('SELECT currency FROM symbol_mappings WHERE ticker=?',(ticker,)).fetchone()
+        currency=mapping['currency'] if mapping else None
+        if not currency:
+            currency=(PriceService.fetch_metadata(ticker) or {}).get('currency') or 'PLN'
+        PriceService.sync_stock_history(ticker,purchase_date)
+        return currency.upper()
+
+    @staticmethod
     def _assert_holding_consistency(db, holding_id):
         if not holding_id:
             return
@@ -54,7 +78,9 @@ class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
     def deposit_cash(portfolio_id, amount, date_str=None, sub_portfolio_id=None):
         db = get_db()
+        date_str=PortfolioTradeService._operation_date(date_str)
         try:
+            db.execute('BEGIN IMMEDIATE')
             PortfolioTradeService._capitalize_savings(db, portfolio_id)
             if not date_str:
                 date_str = date.today().isoformat()
@@ -81,53 +107,25 @@ class PortfolioTradeService(PortfolioCoreService):
 
     @staticmethod
     def withdraw_cash(portfolio_id, amount, date_str=None, sub_portfolio_id=None):
-        db = get_db()
-
-        if sub_portfolio_id:
-            child = db.execute(
-                'SELECT id, parent_portfolio_id, is_archived FROM portfolios WHERE id = ?',
-                (sub_portfolio_id,),
-            ).fetchone()
-            if not child:
-                raise ApiError('INVALID_SUB_PORTFOLIO', 'Sub-portfolio not found', status=422)
-            if child['parent_portfolio_id'] != portfolio_id:
-                raise ApiError(
-                    'INVALID_SUB_PORTFOLIO_PARENT',
-                    'Sub-portfolio belongs to a different parent portfolio',
-                    status=422,
-                )
-            if child['is_archived']:
-                raise ApiError('ARCHIVED_SUB_PORTFOLIO', 'Cannot withdraw from an archived sub-portfolio', status=422)
-
-        target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
-        portfolio = db.execute('SELECT current_cash, account_type, last_interest_date, savings_rate FROM portfolios WHERE id = ?', (target_id,)).fetchone()
-        
-        live_interest = 0
-        if portfolio and portfolio['account_type'] == 'SAVINGS':
-            last_date_str = portfolio['last_interest_date']
-            if last_date_str:
-                last_date = datetime.strptime(last_date_str, '%Y-%m-%d').date()
-                days = (date.today() - last_date).days
-                if days > 0:
-                    live_interest = float(portfolio['current_cash']) * (float(portfolio['savings_rate']) / 100) * (days / 365.0)
-        
-        if not portfolio or (portfolio['current_cash'] + live_interest) < amount:
-            raise ValueError(f"Insufficient funds in {('sub-portfolio' if sub_portfolio_id else 'parent portfolio')}")
-            
+        db=get_db()
+        date_str=PortfolioTradeService._operation_date(date_str)
         try:
-            PortfolioTradeService._capitalize_savings(db, target_id)
-            if not date_str:
-                date_str = date.today().isoformat()
-            
-            db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (amount, target_id))
-            db.execute('''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount, date_str, sub_portfolio_id))
-            db.commit()
-            return True
-        except Exception as e:
-            db.rollback()
-            raise e
+            db.execute('BEGIN IMMEDIATE')
+            if sub_portfolio_id:
+                child=db.execute('SELECT parent_portfolio_id,is_archived FROM portfolios WHERE id=?',(sub_portfolio_id,)).fetchone()
+                if not child:raise ApiError('INVALID_SUB_PORTFOLIO','Sub-portfolio not found',status=422)
+                if child['parent_portfolio_id']!=portfolio_id:raise ApiError('INVALID_SUB_PORTFOLIO_PARENT','Sub-portfolio belongs to a different parent portfolio',status=422)
+                if child['is_archived']:raise ApiError('ARCHIVED_SUB_PORTFOLIO','Cannot withdraw from an archived sub-portfolio',status=422)
+            target_id=sub_portfolio_id or portfolio_id
+            PortfolioTradeService._capitalize_savings(db,target_id)
+            updated=db.execute('UPDATE portfolios SET current_cash=current_cash-? WHERE id=? AND current_cash>=?',(amount,target_id,amount))
+            if updated.rowcount!=1:
+                raise ValueError('Insufficient funds in '+('sub-portfolio' if sub_portfolio_id else 'parent portfolio'))
+            db.execute("INSERT INTO transactions(portfolio_id,ticker,type,quantity,price,total_value,date,sub_portfolio_id) VALUES(?,'CASH','WITHDRAW',1,?,?,?,?)",
+                (portfolio_id,amount,amount,date_str,sub_portfolio_id))
+            db.commit();return True
+        except Exception:
+            db.rollback();raise
 
     @staticmethod
     def update_savings_rate(portfolio_id, new_rate):
@@ -142,10 +140,15 @@ class PortfolioTradeService(PortfolioCoreService):
             raise e
 
     @staticmethod
-    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False, sub_portfolio_id=None):
+    def buy_stock(portfolio_id, ticker, quantity, price, purchase_date=None, commission=0.0, auto_fx_fees=False, sub_portfolio_id=None, *, commit=True, prepared_currency=None):
         db = get_db()
+        purchase_date=PortfolioTradeService._operation_date(purchase_date)
+        target=db.execute('SELECT account_type FROM portfolios WHERE id=?',(sub_portfolio_id or portfolio_id,)).fetchone()
+        if str(ticker).startswith('BOND:') or (target and target['account_type']=='BONDS'):
+            raise ValidationError('Zakup obligacji zapisz w module obligacji.')
+        instrument_currency=prepared_currency or PortfolioTradeService.prepare_buy(ticker,purchase_date)
         try:
-            db.execute('BEGIN IMMEDIATE')
+            if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
 
             # If sub_portfolio_id is provided, validate it belongs to the parent
             if sub_portfolio_id:
@@ -160,22 +163,6 @@ class PortfolioTradeService(PortfolioCoreService):
                 (portfolio_id, ticker, sub_portfolio_id),
             ).fetchone()
             
-            # Determine instrument currency (pobranie z symbol_mappings lub metadata)
-            instrument_currency = None
-            # 1. Check symbol_mappings table (najbardziej wiarygodne źródło dla użytkownika)
-            mapping = db.execute('SELECT currency FROM symbol_mappings WHERE ticker = ?', (ticker,)).fetchone()
-            if mapping and mapping['currency']:
-                instrument_currency = mapping['currency'].upper()
-            
-            # 2. Check metadata if mapping not found
-            if not instrument_currency:
-                meta = PriceService.fetch_metadata(ticker)
-                instrument_currency = (meta.get('currency') if meta else 'PLN').upper()
-            
-            # 3. Fallback to PLN
-            if not instrument_currency:
-                instrument_currency = 'PLN'
-
             # Set account/display currency (compatible with existing logic)
             currency = (existing_holding['currency'] if existing_holding and existing_holding['currency'] else instrument_currency)
             currency = currency.upper()
@@ -194,7 +181,6 @@ class PortfolioTradeService(PortfolioCoreService):
             if not portfolio or portfolio['current_cash'] < total_cost:
                 raise ValueError(f"Insufficient cash in {('sub-portfolio' if sub_portfolio_id else 'parent portfolio')}")
 
-            PriceService.sync_stock_history(ticker, purchase_date)
             db.execute('UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?', (total_cost, target_id))
             db.execute('''INSERT INTO transactions 
                    (portfolio_id, ticker, type, quantity, price, total_value, date, commission, sub_portfolio_id) 
@@ -235,7 +221,7 @@ class PortfolioTradeService(PortfolioCoreService):
                 (portfolio_id, ticker, sub_portfolio_id),
             ).fetchone()
             PortfolioTradeService._assert_holding_consistency(db, holding['id'] if holding else None)
-            db.commit()
+            if commit: db.commit()
             return True
         except sqlite3.IntegrityError as e:
             db.rollback()
@@ -247,38 +233,25 @@ class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
     def sell_stock(portfolio_id, ticker, quantity, price, sell_date=None, sub_portfolio_id=None):
         db = get_db()
+        sell_date=PortfolioTradeService._operation_date(sell_date)
+        if str(ticker).startswith('BOND:'):
+            raise ValidationError('Wykup obligacji zapisz w module obligacji.')
 
-        if sub_portfolio_id:
-            child = db.execute(
-                'SELECT id, parent_portfolio_id, is_archived FROM portfolios WHERE id = ?',
-                (sub_portfolio_id,),
-            ).fetchone()
-            if not child:
-                raise ApiError('INVALID_SUB_PORTFOLIO', 'Sub-portfolio not found', status=422)
-            if child['parent_portfolio_id'] != portfolio_id:
-                raise ApiError(
-                    'INVALID_SUB_PORTFOLIO_PARENT',
-                    'Sub-portfolio belongs to a different parent portfolio',
-                    status=422,
-                )
-            if child['is_archived']:
-                raise ApiError('ARCHIVED_SUB_PORTFOLIO', 'Cannot record sell for an archived sub-portfolio', status=422)
-
-        # Find holding in the specific portfolio/sub-portfolio
-        holding = db.execute('SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'), 
-                            (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)).fetchone()
-        
-        if not holding or holding['quantity'] < quantity:
-            raise ValueError("Insufficient shares in " + ("sub-portfolio" if sub_portfolio_id else "parent portfolio"))
-        
-        unit_price_pln = float(price)
-        total_value = quantity * unit_price_pln
-        cost_basis = quantity * holding['average_buy_price']
-        realized_profit = total_value - cost_basis
-        if not sell_date:
-            sell_date = date.today().isoformat()
         try:
             db.execute('BEGIN IMMEDIATE')
+            if sub_portfolio_id:
+                child=db.execute('SELECT parent_portfolio_id,is_archived FROM portfolios WHERE id=?',(sub_portfolio_id,)).fetchone()
+                if not child:raise ApiError('INVALID_SUB_PORTFOLIO','Sub-portfolio not found',status=422)
+                if child['parent_portfolio_id']!=portfolio_id:raise ApiError('INVALID_SUB_PORTFOLIO_PARENT','Sub-portfolio belongs to a different parent portfolio',status=422)
+                if child['is_archived']:raise ApiError('ARCHIVED_SUB_PORTFOLIO','Cannot record sell for an archived sub-portfolio',status=422)
+            holding=db.execute('SELECT * FROM holdings WHERE portfolio_id=? AND ticker=? AND sub_portfolio_id IS ?',
+                (portfolio_id,ticker,sub_portfolio_id)).fetchone()
+            if not holding or holding['quantity']<quantity:
+                raise ValueError('Insufficient shares in '+('sub-portfolio' if sub_portfolio_id else 'parent portfolio'))
+            unit_price_pln=float(price)
+            total_value=quantity*unit_price_pln
+            cost_basis=quantity*holding['average_buy_price']
+            realized_profit=total_value-cost_basis
             target_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
             db.execute('UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?', (total_value, target_id))
             db.execute('''INSERT INTO transactions 
@@ -303,6 +276,7 @@ class PortfolioTradeService(PortfolioCoreService):
     @staticmethod
     def record_dividend(portfolio_id, ticker, amount, date, sub_portfolio_id=None):
         db = get_db()
+        date=PortfolioTradeService._operation_date(date)
         try:
             # If sub_portfolio_id is provided, validate it belongs to the parent
             if sub_portfolio_id:
@@ -459,17 +433,17 @@ class PortfolioTradeService(PortfolioCoreService):
             raise e
 
     @staticmethod
-    def _get_fx_rates_to_pln(currencies: set[str]) -> dict[str, float]:
+    def _get_fx_rates_to_pln(currencies: set[str], cached_only=False) -> dict[str, float | None]:
         normalized = {str(c or '').strip().upper() for c in currencies if c}
         normalized.discard('PLN')
         if not normalized:
             return {'PLN': 1.0}
         fx_ticker_map = {currency: f"{currency}PLN=X" for currency in normalized}
-        fx_prices = PriceService.get_prices(list(fx_ticker_map.values()))
+        fx_prices = PriceService.get_prices(list(fx_ticker_map.values()), cached_only=cached_only)
         rates = {'PLN': 1.0}
         for currency, fx_ticker in fx_ticker_map.items():
             rate = fx_prices.get(fx_ticker)
-            rates[currency] = float(rate) if rate else 1.0
+            rates[currency] = float(rate) if rate and float(rate) > 0 else None
         return rates
 
     @staticmethod

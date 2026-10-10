@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { portfolioApi, type PortfolioAuditResult } from '../../api';
 import type { Portfolio } from '../../types';
 import { extractErrorMessageFromUnknown } from '../../http/response';
@@ -29,6 +29,7 @@ const flattenTree = (items: Portfolio[]): Portfolio[] => {
 
 const AdminPortfolioTools: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [params] = useSearchParams();
   const portfolioId = Number(id);
 
   const [tree, setTree] = useState<Portfolio[]>([]);
@@ -159,7 +160,7 @@ const AdminPortfolioTools: React.FC = () => {
 
       {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200">{error}</div>}
 
-      {loading ? (
+      {loading && tree.length === 0 ? (
         <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
           Ładowanie...
         </div>
@@ -172,7 +173,7 @@ const AdminPortfolioTools: React.FC = () => {
           <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Import</div>
             <div className="mt-3">
-              <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchPortfolios} subPortfolios={subPortfolios} />
+              <ImportXtbCsvButton portfolioId={portfolio.id} onSuccess={fetchPortfolios} subPortfolios={subPortfolios} initialSessionId={params.get('import_session')} />
             </div>
           </section>
 

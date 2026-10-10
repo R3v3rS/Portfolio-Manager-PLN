@@ -109,6 +109,17 @@ class RoutesImportsAssignAllTestCase(unittest.TestCase):
         self.assertEqual(error_payload['code'], 'not_found')
         self.assertEqual(error_payload['message'], 'Session not found')
 
+    def test_sessions_list_recovers_legacy_pending_rows(self):
+        self._insert_staging_row('legacy-session', status='assigned')
+        response = self.client.get(f'/api/portfolio/{self.parent_id}/import/sessions')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['payload'][0]['session_id'], 'legacy-session')
+        self.assertEqual(response.get_json()['payload'][0]['summary']['pending'], 1)
+
+    def test_missing_row_rejection_returns_404(self):
+        response = self.client.delete('/api/portfolio/import/staging/missing/rows/100')
+        self.assertEqual(response.status_code, 404)
+
     def test_book_route_returns_200_for_successful_booking(self):
         session_id = 'sess-book-success'
         with self.app.app_context():
@@ -194,6 +205,23 @@ class RoutesImportsValidationErrorsTestCase(unittest.TestCase):
         self.assertEqual(error['code'], 'IMPORT_VALIDATION_ERROR')
         self.assertIn('Missing required columns', error['message'])
 
+    def test_xlsx_upload_reads_only_cash_operations_and_preserves_operation_id(self):
+        from test_xtb_xlsx_import import export_file
+        with self.app.app_context():
+            db = get_db()
+            db.execute("UPDATE portfolios SET account_type='IKE' WHERE id=?", (self.parent_id,))
+            db.execute("INSERT INTO symbol_mappings(symbol_input,ticker,currency) VALUES('DINO','DNP.WA','PLN')")
+            db.commit()
+        response = self.client.post('/api/portfolio/import/staging', data={
+            'portfolio_id':str(self.parent_id), 'file':(export_file(bad_dimensions=True).stream, 'original.xlsx'),
+        }, content_type='multipart/form-data')
+        self.assertEqual(response.status_code, 200, response.get_json())
+        row = response.get_json()['payload']['rows'][0]
+        self.assertEqual(row['ticker'], 'DNP.WA')
+        self.assertEqual(row['source_operation_id'], '0001')
+        with self.app.app_context():
+            self.assertEqual(get_db().execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+
     def test_direct_import_returns_400_for_invalid_sub_portfolio_id(self):
         response = self._post_staging_import(
             csv_text='Time,Type,Amount\n2026-01-01,Deposit,100\n',
@@ -217,6 +245,12 @@ class RoutesImportsValidationErrorsTestCase(unittest.TestCase):
         error = response.get_json()['error']
         self.assertEqual(error['code'], 'IMPORT_VALIDATION_ERROR')
         self.assertEqual(error['message'], 'Cannot import to an archived sub-portfolio')
+
+    def test_direct_booking_error_reports_row_details(self):
+        with patch('routes_imports.PortfolioService.import_xtb_csv', side_effect=ImportBookingError('Booking failed', ['Missing FX'])):
+            response = self._post_staging_import(csv_text='Time,Type,Amount\n2026-01-01,Deposit,100\n', mode='direct')
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.get_json()['error']['details']['row_errors'], ['Missing FX'])
 
 
 class RoutesImportsTargetSubPortfolioValidationTestCase(unittest.TestCase):
@@ -248,6 +282,9 @@ class RoutesImportsTargetSubPortfolioValidationTestCase(unittest.TestCase):
 
     def test_target_sub_portfolio_id_rejects_float(self):
         self._assert_invalid_payload_returns_422({'target_sub_portfolio_id': 1.5})
+
+    def test_target_sub_portfolio_id_rejects_boolean(self):
+        self._assert_invalid_payload_returns_422({'target_sub_portfolio_id': True})
 
     def test_target_sub_portfolio_id_rejects_non_positive_integer(self):
         self._assert_invalid_payload_returns_422({'target_sub_portfolio_id': -1})

@@ -56,7 +56,7 @@ describe('TransactionModal', () => {
         price: 120,
         commission: 3,
         auto_fx_fees: true,
-      })
+      }),expect.any(String)
     );
     expect(onSuccess).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
@@ -86,6 +86,27 @@ describe('TransactionModal', () => {
     expect(mockedPortfolioApi.addDividend).toHaveBeenCalledWith(
       expect.objectContaining({ portfolio_id: 7, ticker: 'MSFT', amount: 55 })
     );
+  });
+  it('keeps the purchase identifier when retrying and changes it for a different purchase',async()=>{
+    const user=userEvent.setup();
+    const alertSpy=vi.spyOn(window,'alert').mockImplementation(()=>undefined);
+    const consoleSpy=vi.spyOn(console,'error').mockImplementation(()=>undefined);
+    mockedPortfolioApi.buy.mockReset();
+    mockedPortfolioApi.buy.mockRejectedValueOnce(new Error('Brak odpowiedzi')).mockResolvedValue({} as never);
+    render(<TransactionModal isOpen onClose={vi.fn()} onSuccess={vi.fn()} portfolioId={12} portfolioType="STANDARD" holdings={[]}/>);
+    await user.type(screen.getByRole('combobox'),'ABC');
+    await user.type(screen.getAllByRole('spinbutton')[0],'1');
+    await user.type(screen.getAllByRole('spinbutton')[1],'100');
+    await user.click(screen.getByRole('button',{name:'Zatwierdź'}));
+    await user.click(screen.getByRole('button',{name:'Zatwierdź'}));
+    const requests=mockedPortfolioApi.buy.mock.calls;
+    expect(requests[0][1]).toBeTruthy();expect(requests[1][1]).toBe(requests[0][1]);
+    await user.clear(screen.getAllByRole('spinbutton')[1]);
+    await user.type(screen.getAllByRole('spinbutton')[1],'110');
+    await user.click(screen.getByRole('button',{name:'Zatwierdź'}));
+    expect(requests[2][1]).not.toBe(requests[0][1]);
+    expect(document.querySelector('input[type="date"]')).toHaveAttribute('max',new Date().toLocaleDateString('sv-SE'));
+    alertSpy.mockRestore();consoleSpy.mockRestore();
   });
 
   it('handles API error with user feedback and reenables submit button', async () => {

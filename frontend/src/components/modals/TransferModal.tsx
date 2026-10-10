@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { portfolioApi } from '../../api';
 import { budgetApi, BudgetAccount } from '../../api_budget';
@@ -19,6 +19,10 @@ interface TransferModalProps {
 }
 
 type TransferMode = 'DEPOSIT' | 'WITHDRAW' | 'INTERNAL_TRANSFER';
+const localToday = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 
 const TransferModal: React.FC<TransferModalProps> = ({
   isOpen,
@@ -34,7 +38,7 @@ const TransferModal: React.FC<TransferModalProps> = ({
   const [mode, setMode] = useState<TransferMode>('DEPOSIT');
   const [amount, setAmount] = useState('');
   const [subPortfolioId, setSubPortfolioId] = useState<string>('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(localToday);
   const [selectedBudgetAccountId, setSelectedBudgetAccountId] = useState('');
   const [fromScopeId, setFromScopeId] = useState<string>('');
   const [toScopeId, setToScopeId] = useState<string>('');
@@ -42,7 +46,8 @@ const TransferModal: React.FC<TransferModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = localToday();
+  const lastRequest = useRef({ payload: '', id: '' });
 
   const parentWithChildren = useMemo<Portfolio[]>(() => [{
     id: portfolioId,
@@ -97,6 +102,7 @@ const TransferModal: React.FC<TransferModalProps> = ({
       setToScopeId('');
       setNote('');
       setStatusMessage(null);
+      lastRequest.current = { payload: '', id: '' };
     }
   }, [initialDate, initialMode, isOpen, today]);
 
@@ -144,6 +150,12 @@ const TransferModal: React.FC<TransferModalProps> = ({
       }
 
       const subId = subPortfolioId ? parseInt(subPortfolioId, 10) : null;
+      const numericAmount = Number(amount);
+      if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('Podaj dodatnią kwotę.');
+      const payloadKey = JSON.stringify([mode, portfolioId, subId, selectedBudgetAccountId, numericAmount, date]);
+      if (lastRequest.current.payload !== payloadKey) {
+        lastRequest.current = { payload: payloadKey, id: crypto.randomUUID() };
+      }
       if (mode === 'WITHDRAW') {
         if (selectedBudgetAccountId) {
           await budgetApi.withdrawFromPortfolio(
@@ -151,7 +163,7 @@ const TransferModal: React.FC<TransferModalProps> = ({
             parseInt(selectedBudgetAccountId, 10),
             parseFloat(amount),
             'Wypłata z portfela inwestycyjnego',
-            date
+            date, subId, lastRequest.current.id
           );
         } else {
           await portfolioApi.withdraw({
@@ -161,6 +173,11 @@ const TransferModal: React.FC<TransferModalProps> = ({
             sub_portfolio_id: subId,
           });
         }
+      } else if (selectedBudgetAccountId) {
+        await budgetApi.transferToPortfolio(
+          Number(selectedBudgetAccountId), portfolioId, numericAmount, null,
+          'Transfer do portfela inwestycyjnego', date, subId, lastRequest.current.id,
+        );
       } else {
         await portfolioApi.deposit({
           portfolio_id: portfolioId,
@@ -173,7 +190,7 @@ const TransferModal: React.FC<TransferModalProps> = ({
       onClose();
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : 'Transaction failed');
+      setStatusMessage(err instanceof Error ? err.message : 'Nie udało się zapisać operacji.');
     } finally {
       setLoading(false);
     }
@@ -287,20 +304,21 @@ const TransferModal: React.FC<TransferModalProps> = ({
             </>
           )}
 
-          {mode === 'WITHDRAW' && (
+          {mode !== 'INTERNAL_TRANSFER' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700">Na konto budżetowe (Opcjonalnie)</label>
+              <label htmlFor="transfer-budget-account" className="block text-sm font-medium text-gray-700">{mode === 'DEPOSIT' ? 'Z konta budżetowego' : 'Na konto budżetowe'}</label>
               <select
+                id="transfer-budget-account"
                 value={selectedBudgetAccountId}
                 onChange={(e) => setSelectedBudgetAccountId(e.target.value)}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
               >
-                <option value="">-- Wypłata Zewnętrzna (Brak transferu) --</option>
+                <option value="">{mode === 'DEPOSIT' ? 'Środki spoza aplikacji' : 'Wypłata poza aplikację'}</option>
                 {budgetAccounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>{acc.name} ({acc.balance.toFixed(2)} {acc.currency})</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500 mt-1">Wybierz konto, aby przelać środki do budżetu. Pozostaw puste dla wypłaty poza system.</p>
+              <p className="text-xs text-gray-500 mt-1">Transfer między budżetem a inwestycjami zmienia oba salda. Nie jest przychodem ani wydatkiem konsumpcyjnym.</p>
             </div>
           )}
 

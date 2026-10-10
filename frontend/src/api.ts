@@ -3,13 +3,14 @@ import type { ApiErrorEnvelope, XtbImportErrorDetailsDto, XtbImportSuccessDto } 
 import { createApiClient } from './apiConfig';
 import type { Bond, CashNegativeDayIncident, ClosedPosition, ClosedPositionCycle, EquityAllocation, Holding, Portfolio, PortfolioValue, Transaction } from './types';
 import type { PPKSummary, PPKTransaction } from './services/ppkCalculator';
+import type { BondPlan } from './api_bonds';
 
 const portfolioHttp = createApiClient('/portfolio');
 
 export interface TaxLimitData {
   deposited: number;
-  limit: number;
-  percentage: number;
+  limit: number | null;
+  percentage: number | null;
 }
 
 export interface TaxLimitsResponse {
@@ -21,7 +22,7 @@ export interface TaxLimitsResponse {
 export interface CreatePortfolioPayload {
   name: string;
   initial_cash: number;
-  account_type: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
+  account_type: 'STANDARD' | 'IKE' | 'IKZE' | 'BONDS' | 'SAVINGS' | 'PPK';
   created_at: string;
   parent_portfolio_id?: number | null;
 }
@@ -69,6 +70,7 @@ export interface TransactionsListResponse {
 }
 
 export interface MonthlyDividendPoint {
+  key?: string;
   label: string;
   amount: number;
 }
@@ -90,6 +92,8 @@ export interface PriceHistoryPoint {
 }
 
 export interface PriceHistoryResponse {
+  currency?: string | null;
+  missing_fx_dates?: string[];
   history: PriceHistoryPoint[];
   last_updated: string | null;
 }
@@ -135,10 +139,14 @@ export interface ConsistencyCheckResult {
   count?: number;
   ids?: number[];
   diff_pln?: number;
+  explanation?: string;
+  amount_pln?: number;
 }
 
 export interface CashNegativeDaysCheckResult extends ConsistencyCheckResult {
   incidents?: CashNegativeDayIncident[];
+  current_ledger_cash?: number;
+  current_stored_cash?: number;
 }
 
 export interface PortfolioConsistencyAuditItem {
@@ -167,9 +175,9 @@ export interface PortfolioConsistencyAuditResponse {
 export interface PPKPerformanceResponse {
   start_week: string | null;
   start_price: number;
-  current_price: number;
-  return_pln: number;
-  return_pct: number;
+  current_price: number | null;
+  return_pln: number | null;
+  return_pct: number | null;
   chart: { 
     week: string; 
     price: number; 
@@ -182,7 +190,7 @@ export interface PPKPerformanceResponse {
 export interface PPKTransactionsResponse {
   transactions: PPKTransaction[];
   summary: PPKSummary | null;
-  currentPrice: { price: number; date: string } | null;
+  currentPrice: { price: number; date: string; source?: string } | null;
 }
 
 export interface XtbImportConflict {
@@ -211,6 +219,7 @@ export interface XtbImportResult {
   status?: 'success' | 'warning';
   missingSymbols: string[];
   potentialConflicts?: XtbImportConflict[];
+  session?: import('./types/importStaging').StagingSession;
 }
 
 export interface PortfolioLimitsResponse {
@@ -259,8 +268,18 @@ const normalizePortfolio = (value: unknown): Portfolio => {
   return {
     id: toNumber(source.id),
     name: toString(source.name),
+    valuation_status: source.valuation_status === 'incomplete' || source.valuation_status === 'stale' ? source.valuation_status : 'ok',
+    valuation_warnings: toStringArray(source.valuation_warnings),
+    asset_value: source.asset_value == null ? undefined : toNumber(source.asset_value),
+    withdrawable_value: source.withdrawable_value == null ? undefined : toNumber(source.withdrawable_value),
+    investment_result: source.investment_result == null ? undefined : toNumber(source.investment_result),
+    net_contributions: source.net_contributions == null ? undefined : toNumber(source.net_contributions),
+    available_value: source.available_value == null ? undefined : toNumber(source.available_value),
+    estimated_portfolio_value: toOptionalNumber(source.estimated_portfolio_value)??undefined,
+    reference_positions_count: toNumber(source.reference_positions_count),
+
     account_type:
-      accountType === 'IKE' || accountType === 'BONDS' || accountType === 'SAVINGS' || accountType === 'PPK'
+      accountType === 'IKE' || accountType === 'IKZE' || accountType === 'BONDS' || accountType === 'SAVINGS' || accountType === 'PPK'
         ? accountType
         : 'STANDARD',
     current_cash: toNumber(source.current_cash),
@@ -294,9 +313,14 @@ const normalizeHolding = (value: unknown): Holding => {
   const source = isRecord(value) ? value : {};
 
   return {
+    valuation_status: source.valuation_status === 'incomplete' || source.valuation_status === 'stale' ? source.valuation_status : 'ok',
+    valuation_warnings: toStringArray(source.valuation_warnings),
     id: toNumber(source.id),
     portfolio_id: toNumber(source.portfolio_id),
     sub_portfolio_id: source.sub_portfolio_id == null ? undefined : toNumber(source.sub_portfolio_id),
+    price_basis: source.price_basis==='purchase'||source.price_basis==='manual'?source.price_basis:'market',
+    manual_price_version: toNumber(source.manual_price_version),
+    estimated_current_value: toOptionalNumber(source.estimated_current_value)??undefined,
     ticker: toString(source.ticker),
     quantity: toNumber(source.quantity),
     average_buy_price: toNumber(source.average_buy_price),
@@ -333,7 +357,7 @@ const normalizeTransaction = (value: unknown): Transaction => {
     ticker: toString(source.ticker, 'CASH'),
     date: toString(source.date),
     type:
-      type === 'BUY' || type === 'SELL' || type === 'DEPOSIT' || type === 'WITHDRAW' || type === 'DIVIDEND' || type === 'INTEREST'
+      type === 'BUY' || type === 'SELL' || type === 'DEPOSIT' || type === 'WITHDRAW' || type === 'DIVIDEND' || type === 'INTEREST' || type === 'ASSET_IN' || type === 'ASSET_OUT'
         ? type
         : 'BUY',
     quantity: toNumber(source.quantity),
@@ -359,15 +383,24 @@ const normalizePortfolioValue = (value: unknown): PortfolioValue & { live_intere
     : undefined;
 
   return {
-    portfolio_value: toNumber(source.portfolio_value),
+    valuation_status: source.valuation_status === 'incomplete' || source.valuation_status === 'stale' ? source.valuation_status : 'ok',
+    valuation_warnings: toStringArray(source.valuation_warnings),
+    asset_value: source.asset_value == null ? undefined : toNumber(source.asset_value),
+    withdrawable_value: source.withdrawable_value == null ? undefined : toNumber(source.withdrawable_value),
+    investment_result: source.investment_result == null ? undefined : toNumber(source.investment_result),
+    net_contributions: source.net_contributions == null ? undefined : toNumber(source.net_contributions),
+    available_value: source.available_value == null ? undefined : toNumber(source.available_value),
+    estimated_portfolio_value: toOptionalNumber(source.estimated_portfolio_value)??undefined,
+    reference_positions_count: toNumber(source.reference_positions_count),
+    portfolio_value: toOptionalNumber(source.portfolio_value),
     cash_value: toNumber(source.cash_value),
-    holdings_value: toNumber(source.holdings_value),
+    holdings_value: toOptionalNumber(source.holdings_value),
     breakdown,
     total_dividends: toNumber(source.total_dividends),
     total_interest: source.total_interest == null ? undefined : toNumber(source.total_interest),
-    open_positions_result: toNumber(source.open_positions_result),
-    total_result: toNumber(source.total_result),
-    total_result_percent: toNumber(source.total_result_percent),
+    open_positions_result: toOptionalNumber(source.open_positions_result),
+    total_result: toOptionalNumber(source.total_result),
+    total_result_percent: toOptionalNumber(source.total_result_percent),
     xirr_percent: source.xirr_percent == null ? undefined : toNumber(source.xirr_percent),
     live_interest: source.live_interest == null ? undefined : toNumber(source.live_interest),
     change_1d: source.change_1d == null ? undefined : toNumber(source.change_1d),
@@ -394,7 +427,7 @@ const normalizeBond = (value: unknown): Bond => {
 
 const normalizeMonthlyDividendPoint = (value: unknown): MonthlyDividendPoint => {
   const source = isRecord(value) ? value : {};
-  return { label: toString(source.label), amount: toNumber(source.amount) };
+  return { label: toString(source.label), amount: toNumber(source.amount), ...(typeof source.key === 'string' ? { key: source.key } : {}) };
 };
 
 const normalizePortfolioHistoryPoint = (value: unknown): PortfolioHistoryPoint => {
@@ -402,7 +435,8 @@ const normalizePortfolioHistoryPoint = (value: unknown): PortfolioHistoryPoint =
   return {
     date: toString(source.date),
     label: toString(source.label),
-    value: toNumber(source.value),
+    value: source.value == null ? Number.NaN : toNumber(source.value),
+    benchmark_inflation: source.benchmark_inflation == null ? undefined : toNumber(source.benchmark_inflation),
     net_contributions: source.net_contributions == null ? undefined : toNumber(source.net_contributions),
     benchmark_value: source.benchmark_value == null ? undefined : toNumber(source.benchmark_value),
     cash_value: source.cash_value == null ? undefined : toNumber(source.cash_value),
@@ -523,7 +557,9 @@ const normalizeConsistencyCheck = (value: unknown): ConsistencyCheckResult => {
     ok: Boolean(source.ok),
     count: source.count === undefined ? undefined : toNumber(source.count),
     ids: Array.isArray(source.ids) ? source.ids.map((id) => toNumber(id)) : undefined,
-    diff_pln: source.diff_pln === undefined ? undefined : toNumber(source.diff_pln),
+    diff_pln: source.diff_pln == null ? undefined : toNumber(source.diff_pln),
+    explanation: toOptionalString(source.explanation) ?? undefined,
+    amount_pln: source.amount_pln === undefined ? undefined : toNumber(source.amount_pln),
   };
 };
 
@@ -532,6 +568,8 @@ const normalizeCashNegativeDaysCheck = (value: unknown): CashNegativeDaysCheckRe
   const incidentsRaw = Array.isArray(source.incidents) ? source.incidents : [];
   return {
     ...normalizeConsistencyCheck(source),
+    current_ledger_cash: source.current_ledger_cash === undefined ? undefined : toNumber(source.current_ledger_cash),
+    current_stored_cash: source.current_stored_cash === undefined ? undefined : toNumber(source.current_stored_cash),
     incidents: incidentsRaw
       .map((incident) => {
         const row = isRecord(incident) ? incident : {};
@@ -605,18 +643,21 @@ const normalizeEquityAllocation = (value: unknown): EquityAllocation => {
 const normalizePpkSummary = (value: unknown): PPKSummary | null => {
   if (!isRecord(value)) return null;
   return {
+    withdrawalTax: toOptionalNumber(value.withdrawalTax),
+    employerToZUS: toOptionalNumber(value.employerToZUS),
+    withdrawalResult: toOptionalNumber(value.withdrawalResult),
     totalUnits: toNumber(value.totalUnits),
     averagePrice: toNumber(value.averagePrice),
     totalContribution: toNumber(value.totalContribution),
-    currentValue: toNumber(value.currentValue),
-    profit: toNumber(value.profit),
-    tax: toNumber(value.tax),
-    netProfit: toNumber(value.netProfit),
+    currentValue: toOptionalNumber(value.currentValue),
+    profit: toOptionalNumber(value.profit),
+    tax: toOptionalNumber(value.tax),
+    netProfit: toOptionalNumber(value.netProfit),
     totalPurchaseValue: toNumber(value.totalPurchaseValue),
-    totalCurrentValue: toNumber(value.totalCurrentValue),
-    totalNetValue: toNumber(value.totalNetValue),
-    totalTax: toNumber(value.totalTax),
-    totalProfit: toNumber(value.totalProfit),
+    totalCurrentValue: toOptionalNumber(value.totalCurrentValue),
+    totalNetValue: toOptionalNumber(value.totalNetValue),
+    totalTax: toOptionalNumber(value.totalTax),
+    totalProfit: toOptionalNumber(value.totalProfit),
   };
 };
 
@@ -629,6 +670,7 @@ export const normalizeXtbImportResult = (value: unknown): XtbImportResult => {
     status: source.status === 'warning' ? 'warning' : 'success',
     missingSymbols: toStringArray(source.missing_symbols),
     potentialConflicts: Array.isArray(source.potential_conflicts) ? source.potential_conflicts : undefined,
+    session: isRecord(source.session) ? source.session as unknown as import('./types/importStaging').StagingSession : undefined,
   };
 };
 
@@ -654,6 +696,7 @@ export const normalizeXtbImportError = (error: unknown): XtbImportResult => {
 };
 
 export const portfolioApi = {
+  setManualPrice: (ticker:string,input:{price:number;date:string;version:number;clear?:boolean}) => portfolioHttp.put(`/manual-price/${encodeURIComponent(ticker)}`,input),
   list: async (params?: QueryParams): Promise<PortfolioListResponse> => {
     const response = await portfolioHttp.get<unknown>('/list', { params });
     return normalizePortfolioListResponse(response);
@@ -733,12 +776,14 @@ export const portfolioApi = {
     const history = isRecord(response) ? response.history : undefined;
     return Array.isArray(history) ? history.map(normalizePortfolioHistoryPoint) : [];
   },
-  getPriceHistory: async (ticker: string): Promise<PriceHistoryResponse> => {
-    const response = await portfolioHttp.get<unknown>(`/history/${ticker}`);
+  getPriceHistory: async (ticker: string, quote?: 'PLN'): Promise<PriceHistoryResponse> => {
+    const response = await portfolioHttp.get<unknown>(`/history/${ticker}`, { params: quote ? { quote } : undefined });
     const source = isRecord(response) ? response : {};
     return {
       history: Array.isArray(source.history) ? source.history.map(normalizePriceHistoryPoint) : [],
       last_updated: toOptionalString(source.last_updated),
+      ...(typeof source.currency === 'string' ? { currency: source.currency } : {}),
+      ...(Array.isArray(source.missing_fx_dates) ? { missing_fx_dates: source.missing_fx_dates.map(String) } : {}),
     };
   },
   getBonds: async (portfolioId: number): Promise<Bond[]> => {
@@ -822,7 +867,7 @@ export const portfolioApi = {
     commission?: number;
     auto_fx_fees?: boolean;
     sub_portfolio_id?: number | null;
-  }) => portfolioHttp.post('/buy', payload),
+  }, requestId?: string) => portfolioHttp.post('/buy', payload, requestId ? {headers:{'Idempotency-Key':requestId}} : undefined),
   sell: (payload: {
     portfolio_id: number;
     ticker: string;
@@ -844,16 +889,12 @@ export const portfolioApi = {
     sub_portfolio_id?: number | null;
   }) => portfolioHttp.post('/withdraw', payload),
   transferCash: (payload: CashTransferPayload) => portfolioHttp.post<CashTransferResponse>('/transfer/cash', payload),
+  assetTransferPositions: (id:number) => portfolioHttp.get<{positions:(Holding & {source_id:number|null;source_name:string})[];scopes:{id:number|null;name:string}[]}>(`/transfer/assets/${id}`),
+  transferAsset: (payload:{portfolio_id:number;source_id:number|null;target_id:number|null;ticker:string;quantity:number;price_pln:number;expected_quantity:number}) => portfolioHttp.post('/transfer/asset',payload),
   deleteCashTransfer: (transferId: string) => portfolioHttp.delete<{ transfer_id: string; job_id: string }>(`/transfer/cash/${transferId}`),
   addDividend: (payload: { portfolio_id: number; ticker: string; amount: number; date: string; sub_portfolio_id?: number | null }) =>
     portfolioHttp.post('/dividend', payload),
-  addBond: (payload: {
-    portfolio_id: number;
-    name: string;
-    principal: number;
-    interest_rate: number;
-    purchase_date: string;
-  }) => portfolioHttp.post('/bonds', payload),
+  addBond: (payload: BondPlan & { portfolio_id:number; request_id:string }) => portfolioHttp.post('/bonds', payload),
   updateSavingsRate: (payload: { portfolio_id: number; rate: number }) =>
     portfolioHttp.post('/savings/rate', payload),
   addSavingsInterest: (payload: { portfolio_id: number; amount: number; date: string }) =>
@@ -871,9 +912,9 @@ export const portfolioApi = {
     return {
       start_week: toOptionalString(source.start_week),
       start_price: toNumber(source.start_price),
-      current_price: toNumber(source.current_price),
-      return_pln: toNumber(source.return_pln),
-      return_pct: toNumber(source.return_pct),
+      current_price: toOptionalNumber(source.current_price) ?? null,
+      return_pln: toOptionalNumber(source.return_pln) ?? null,
+      return_pct: toOptionalNumber(source.return_pct) ?? null,
       chart: Array.isArray(source.chart)
         ? source.chart.map((point) => {
             const p = isRecord(point) ? point : {};
@@ -895,6 +936,7 @@ export const portfolioApi = {
       ? {
           price: toNumber(source.currentPrice.price),
           date: toString(source.currentPrice.date),
+          source: toOptionalString(source.currentPrice.source) ?? undefined,
         }
       : null;
 
@@ -902,6 +944,18 @@ export const portfolioApi = {
       transactions: Array.isArray(source.transactions) ? source.transactions.map(normalizePpkTransaction) : [],
       summary: normalizePpkSummary(source.summary),
       currentPrice,
+    };
+  },
+  refreshPpkPrice: async (portfolioId: number, force = false) => {
+    const response = await portfolioHttp.post<unknown>(`/ppk/prices/refresh/${portfolioId}`, { force });
+    const source = isRecord(response) ? response : {};
+    return {
+      changed: source.changed === true,
+      warning: toOptionalString(source.warning),
+      currentPrice: isRecord(source.currentPrice) ? {
+        price: toNumber(source.currentPrice.price), date: toString(source.currentPrice.date),
+        source: toOptionalString(source.currentPrice.source) ?? undefined,
+      } : null,
     };
   },
 };

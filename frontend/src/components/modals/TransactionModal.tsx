@@ -1,27 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { portfolioApi } from '../../api';
 import { Holding, Portfolio } from '../../types';
 import { cn } from '../../lib/utils';
+import BondEditor from '../portfolio/bonds/BondEditor';
+import type { BudgetAccount } from '../../api_budget';
 
 interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   portfolioId: number;
-  portfolioType: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
+  cash?: number;
+  budgetAccounts?: BudgetAccount[];
+  portfolioType: 'STANDARD' | 'IKE' | 'IKZE' | 'BONDS' | 'SAVINGS' | 'PPK';
   holdings: Holding[];
   dividendTickers?: string[];
   subPortfolios?: Portfolio[];
 }
 
-type TransactionType = 'BUY' | 'DIVIDEND' | 'BONDS' | 'SAVINGS_RATE' | 'SAVINGS_INTEREST';
+type TransactionType = 'BUY' | 'DIVIDEND' | 'SAVINGS_RATE' | 'SAVINGS_INTEREST';
 
 const TransactionModal: React.FC<TransactionModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
   portfolioId,
+  cash = 0,
+  budgetAccounts = [],
   portfolioType,
   holdings,
   dividendTickers = [],
@@ -33,18 +39,18 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [bondName, setBondName] = useState('');
+  const [date, setDate] = useState(new Date().toLocaleDateString('sv-SE'));
+
   const [interestRate, setInterestRate] = useState('');
   const [commission, setCommission] = useState('');
   const [autoFxFees, setAutoFxFees] = useState(false);
   const [loading, setLoading] = useState(false);
+  const buyRequest=useRef({payload:'',id:''});
 
   // Set default type based on portfolio type
   useEffect(() => {
     if (isOpen) {
-      if (portfolioType === 'BONDS') setType('BONDS');
-      else if (portfolioType === 'SAVINGS') setType('SAVINGS_INTEREST');
+      if (portfolioType === 'SAVINGS') setType('SAVINGS_INTEREST');
       else setType('BUY');
       
       // Reset fields
@@ -52,11 +58,12 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
       setQuantity('');
       setPrice('');
       setAmount('');
-      setBondName('');
+
       setInterestRate('');
       setCommission('');
       setAutoFxFees(false);
-      setDate(new Date().toISOString().split('T')[0]);
+      buyRequest.current={payload:'',id:''};
+      setDate(new Date().toLocaleDateString('sv-SE'));
     }
   }, [isOpen, portfolioType]);
 
@@ -77,7 +84,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
     
     try {
       if (type === 'BUY') {
-        await portfolioApi.buy({
+        const payload={
           portfolio_id: portfolioId,
           ticker,
           quantity: parseFloat(quantity),
@@ -86,7 +93,10 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
           commission: parseFloat(commission) || 0,
           auto_fx_fees: autoFxFees,
           sub_portfolio_id: subId
-        });
+        };
+        const fingerprint=JSON.stringify(payload);
+        if(buyRequest.current.payload!==fingerprint)buyRequest.current={payload:fingerprint,id:crypto.randomUUID()};
+        await portfolioApi.buy(payload,buyRequest.current.id);
       } else if (type === 'DIVIDEND') {
         await portfolioApi.addDividend({
           portfolio_id: portfolioId,
@@ -94,14 +104,6 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
           amount: parseFloat(amount),
           date,
           sub_portfolio_id: subId
-        });
-      } else if (type === 'BONDS') {
-        await portfolioApi.addBond({
-          portfolio_id: portfolioId,
-          name: bondName,
-          principal: parseFloat(amount),
-          interest_rate: parseFloat(interestRate),
-          purchase_date: date
         });
       } else if (type === 'SAVINGS_RATE') {
         await portfolioApi.updateSavingsRate({
@@ -127,6 +129,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   };
 
   if (!isOpen) return null;
+  if (portfolioType === 'BONDS') return <BondEditor pid={portfolioId} cash={cash} accounts={budgetAccounts} onClose={onClose} onSaved={() => { onSuccess(); onClose(); }}/>;
 
   const tickerOptions = Array.from(
     new Set([
@@ -136,7 +139,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
   ).sort((a, b) => a.localeCompare(b));
 
   const renderTypeSelector = () => {
-    if (portfolioType === 'BONDS') return null; // Only one action for Bonds (Add Bond)
+
     
     if (portfolioType === 'SAVINGS') {
         return (
@@ -249,7 +252,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
           <h2 className="text-lg font-medium text-gray-900">
             {type === 'BUY' && 'Kup Akcje'}
             {type === 'DIVIDEND' && 'Rejestracja Dywidendy'}
-            {type === 'BONDS' && 'Dodaj Obligację'}
+
             {type === 'SAVINGS_INTEREST' && 'Dodaj Odsetki'}
             {type === 'SAVINGS_RATE' && 'Aktualizuj Oprocentowanie'}
           </h2>
@@ -379,47 +382,6 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
             </>
           )}
 
-          {/* BONDS Fields */}
-          {type === 'BONDS' && (
-             <>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Nazwa Obligacji</label>
-                    <input
-                        type="text"
-                        value={bondName}
-                        onChange={(e) => setBondName(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                        placeholder="np. EDO0234"
-                        required
-                    />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Kapitał (PLN)</label>
-                        <input
-                        type="number"
-                        step="0.01"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                        required
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Oprocentowanie (%)</label>
-                        <input
-                        type="number"
-                        step="0.01"
-                        value={interestRate}
-                        onChange={(e) => setInterestRate(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                        required
-                        />
-                    </div>
-                </div>
-             </>
-          )}
-
           {/* SAVINGS Fields */}
           {type === 'SAVINGS_INTEREST' && (
              <div>
@@ -454,10 +416,11 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
           {type !== 'SAVINGS_RATE' && (
             <div>
                 <label className="block text-sm font-medium text-gray-700">
-                    {type === 'BONDS' ? 'Data Zakupu' : 'Data'}
+                    Data
                 </label>
                 <input
                 type="date"
+                max={new Date().toLocaleDateString('sv-SE')}
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
@@ -472,7 +435,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({
             className={cn(
               "w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2",
               (type === 'BUY' || type === 'DIVIDEND') ? "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500" : 
-              type === 'BONDS' ? "bg-amber-600 hover:bg-amber-700 focus:ring-amber-500" :
+
               "bg-emerald-600 hover:bg-emerald-700 focus:ring-emerald-500",
               loading && "opacity-50 cursor-not-allowed"
             )}

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,6 +12,7 @@ from flask import Blueprint, current_app, request
 
 from api.exceptions import NotFoundError, ValidationError
 from api.response import error_response, success_response
+from portfolio_scope import resolve_portfolio_scope
 from services.analytics import correlation_service, diversification_service, performance_metrics
 
 analytics_bp = Blueprint("analytics_bp", __name__)
@@ -17,13 +20,19 @@ analytics_bp = Blueprint("analytics_bp", __name__)
 _ALLOWED_PERIODS = {"3mo", "6mo", "1y", "2y"}
 _PERIOD_ALIASES = {"3m": "3mo", "6m": "6mo"}
 _CACHE_TTL = timedelta(hours=4)
+_CACHE_VERSION = 4
 
 
-def _get_connection() -> sqlite3.Connection:
+@contextmanager
+def _get_connection():
     db_path = current_app.config["DATABASE"]
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def _ensure_analytics_cache_table() -> None:
@@ -109,7 +118,22 @@ def _portfolio_exists(portfolio_id: int) -> bool:
     return row is not None
 
 
-def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: str) -> dict[str, Any] | None:
+def _snapshot_key(portfolio_id, sub_portfolio_id):
+    with _get_connection() as db:
+        rows = db.execute('''
+            SELECT ticker, quantity, currency, sector FROM holdings
+            WHERE portfolio_id = ? AND (? IS NULL OR sub_portfolio_id = ?) AND quantity > 0
+            ORDER BY ticker, id
+        ''', (portfolio_id, sub_portfolio_id, sub_portfolio_id)).fetchall()
+        tickers = {row['ticker'] for row in rows}
+        tickers.update(f"{row['currency'].upper()}PLN=X" for row in rows
+                       if row['currency'] and row['currency'].upper() != 'PLN')
+        prices = db.execute(f"SELECT ticker, price, updated_at FROM price_cache WHERE ticker IN ({','.join('?' for _ in tickers)}) ORDER BY ticker",
+                            tuple(tickers)).fetchall() if tickers else []
+    return hashlib.sha256(json.dumps([list(map(tuple, rows)), list(map(tuple, prices))]).encode()).hexdigest()
+
+
+def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: str, snapshot_key: str) -> dict[str, Any] | None:
     with _get_connection() as db:
         row = db.execute(
             """
@@ -135,7 +159,8 @@ def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: st
     if now_utc - cached_at > _CACHE_TTL:
         return None
 
-    return json.loads(row["result_json"])
+    result = json.loads(row["result_json"])
+    return result if result.get('schema_version') == _CACHE_VERSION and result.get('snapshot_key') == snapshot_key else None
 
 
 def _save_cache(portfolio_id: int, sub_portfolio_id: int | None, period: str, result: dict[str, Any]) -> None:
@@ -210,7 +235,11 @@ def analytics_summary():
         if not _portfolio_exists(portfolio_id):
             raise NotFoundError("Portfolio not found", details={"portfolio_id": portfolio_id})
 
-        cached_result = _load_from_cache(portfolio_id, sub_portfolio_id, period)
+        with _get_connection() as db:
+            portfolio_id, sub_portfolio_id = resolve_portfolio_scope(db, portfolio_id, sub_portfolio_id)
+
+        snapshot_key = _snapshot_key(portfolio_id, sub_portfolio_id)
+        cached_result = _load_from_cache(portfolio_id, sub_portfolio_id, period, snapshot_key)
         if cached_result is not None:
             payload = _build_analytics_contract(cached_result)
             return success_response({
@@ -245,6 +274,7 @@ def analytics_summary():
                 app,
                 portfolio_id,
                 sub_portfolio_id,
+                period,
             )
             future_diversification = executor.submit(
                 _run_with_app_context,
@@ -255,6 +285,8 @@ def analytics_summary():
             )
 
             result = {
+                "schema_version": _CACHE_VERSION,
+                "snapshot_key": snapshot_key,
                 "performance_summary": future_performance.result(),
                 "portfolio_var": future_var.result(),
                 "correlation_risk": future_correlation.result(),

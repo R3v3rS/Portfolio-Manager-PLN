@@ -12,19 +12,23 @@ class PPKTransactionDTO(TypedDict):
 
 class PPKSummaryDTO(TypedDict):
     purchaseValueEmployee: float
-    currentValueEmployee: float
-    profitEmployee: float
-    taxEmployee: float
-    netValueEmployee: float
+    currentValueEmployee: float | None
+    profitEmployee: float | None
+    taxEmployee: float | None
+    netValueEmployee: float | None
 
     purchaseValueEmployer: float
-    currentValueEmployer: float
-    profitEmployer: float
-    taxEmployer: float
-    netValueEmployer: float
+    currentValueEmployer: float | None
+    profitEmployer: float | None
+    taxEmployer: float | None
+    netValueEmployer: float | None
 
     totalPurchaseValue: float
-    totalCurrentValue: float
-    totalNetValue: float
-    totalTax: float
-    totalProfit: float
+    totalCurrentValue: float | None
+    totalNetValue: float | None
+    totalTax: float | None
+    totalProfit: float | None
+
+    withdrawalTax: float | None
+    employerToZUS: float | None
+    withdrawalResult: float | None

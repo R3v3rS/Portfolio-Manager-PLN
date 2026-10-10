@@ -8,16 +8,19 @@ export interface PPKTransaction {
 }
 
 export interface PPKSummary {
+  withdrawalTax?: number | null;
+  employerToZUS?: number | null;
+  withdrawalResult?: number | null;
   totalUnits: number;
   averagePrice: number;
   totalContribution: number;
-  currentValue: number;
-  profit: number;
-  tax: number;
-  netProfit: number;
+  currentValue: number | null;
+  profit: number | null;
+  tax: number | null;
+  netProfit: number | null;
   totalPurchaseValue: number;
-  totalCurrentValue: number;
-  totalNetValue: number;
-  totalTax: number;
-  totalProfit: number;
+  totalCurrentValue: number | null;
+  totalNetValue: number | null;
+  totalTax: number | null;
+  totalProfit: number | null;
 }

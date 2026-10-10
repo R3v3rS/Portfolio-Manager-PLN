@@ -1,32 +1,27 @@
-import pandas as pd
+import json
 from flask import request
 
 from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.response import success_response
 from import_staging_service import ImportBookingError, ImportRowSkipError, ImportStagingService
 from portfolio_service import PortfolioService
+from xtb_file_reader import read_xtb_file
 from routes_portfolio_base import portfolio_bp
 
 
 @portfolio_bp.route('/<int:portfolio_id>/import/xtb', methods=['POST'])
 def import_xtb_csv(portfolio_id):
-    # Sprawdzenie czy mamy plik (pierwszy krok) lub potwierdzenie duplikatów (drugi krok)
     confirmed_hashes = request.json.get('confirmed_hashes') if request.is_json else None
-    
-    # Jeśli to potwierdzenie, musimy mieć dane w sesji lub przesłane ponownie? 
-    # W aktualnej architekturze frontend wysyła plik ponownie razem z confirmed_hashes 
-    # LUB musimy zapisać plik tymczasowo.
-    # Najprościej: frontend wysyła plik ponownie wraz z confirmed_hashes w form-data.
-    
     confirmed_hashes_raw = request.form.get('confirmed_hashes')
     sub_portfolio_id = request.form.get('sub_portfolio_id', type=int)
     
     if confirmed_hashes_raw:
         try:
-            import json
             confirmed_hashes = json.loads(confirmed_hashes_raw)
-        except:
-            confirmed_hashes = []
+        except (ValueError, TypeError):
+            raise ValidationError('Niepoprawna lista potwierdzeń duplikatów.') from None
+    if confirmed_hashes is not None and (not isinstance(confirmed_hashes, list) or not all(isinstance(h, str) for h in confirmed_hashes)):
+        raise ValidationError('Potwierdzenia duplikatów muszą być listą identyfikatorów.')
 
     if 'file' not in request.files:
         raise ValidationError('No file part', details={'field': 'file'})
@@ -36,8 +31,8 @@ def import_xtb_csv(portfolio_id):
         raise ValidationError('No selected file', details={'field': 'file'})
 
     try:
-        df = pd.read_csv(file)
-    except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as error:
+        df = read_xtb_file(file)
+    except ValueError as error:
         raise ApiError(
             'xtb_import_invalid_csv',
             str(error),
@@ -45,7 +40,12 @@ def import_xtb_csv(portfolio_id):
             details={},
         ) from error
 
-    result = PortfolioService.import_xtb_csv(portfolio_id, df, confirmed_hashes=confirmed_hashes, sub_portfolio_id=sub_portfolio_id)
+    try:
+        result = PortfolioService.import_xtb_csv(portfolio_id, df, confirmed_hashes=confirmed_hashes, sub_portfolio_id=sub_portfolio_id)
+    except ImportBookingError as error:
+        raise ApiError('BOOKING_ERROR', str(error), status=422, details={'row_errors': error.row_errors}) from error
+    except ValueError as error:
+        raise ApiError('IMPORT_VALIDATION_ERROR', str(error), status=400) from error
     if not result['success']:
         raise ApiError(
             'IMPORT_VALIDATION_ERROR',
@@ -60,7 +60,8 @@ def import_xtb_csv(portfolio_id):
             'message': 'Potential duplicates found',
             'status': 'warning',
             'potential_conflicts': result.get('potential_conflicts', []),
-            'missing_symbols': []
+            'missing_symbols': [],
+            'session': result.get('session'),
         })
 
     return success_response({'message': 'Import successful', **result})
@@ -85,8 +86,8 @@ def import_with_staging():
         raise ValidationError("mode must be one of: 'staging', 'direct'", details={'field': 'mode'})
 
     try:
-        df = pd.read_csv(file)
-    except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as error:
+        df = read_xtb_file(file)
+    except ValueError as error:
         raise ApiError(
             'xtb_import_invalid_csv',
             str(error),
@@ -102,6 +103,8 @@ def import_with_staging():
                 confirmed_hashes=None,
                 sub_portfolio_id=sub_portfolio_id,
             )
+        except ImportBookingError as error:
+            raise ApiError('BOOKING_ERROR', str(error), status=422, details={'row_errors': error.row_errors}) from error
         except ValueError as error:
             raise ApiError('IMPORT_VALIDATION_ERROR', str(error), status=400) from error
         if not result.get('success'):
@@ -134,6 +137,19 @@ def get_import_staging_session(session_id):
         raise NotFoundError(str(error)) from error
 
 
+@portfolio_bp.route('/<int:portfolio_id>/import/sessions', methods=['GET'])
+def list_import_sessions(portfolio_id):
+    return success_response(ImportStagingService.list_sessions(portfolio_id))
+
+
+@portfolio_bp.route('/import/staging/<session_id>/refresh-symbols', methods=['POST'])
+def refresh_import_symbols(session_id):
+    try:
+        return success_response(ImportStagingService.refresh_symbols(session_id))
+    except ValueError as error:
+        raise NotFoundError(str(error)) from error
+
+
 @portfolio_bp.route('/import/staging/<session_id>/rows/<int:row_id>/assign', methods=['PUT'])
 def assign_import_staging_row(session_id, row_id):
     payload = request.get_json(silent=True) or {}
@@ -142,13 +158,15 @@ def assign_import_staging_row(session_id, row_id):
         target_sub_portfolio_id = None
     else:
         try:
+            if isinstance(raw_target_sub_portfolio_id, bool):
+                raise ValueError()
             val = int(raw_target_sub_portfolio_id)
             if val != float(raw_target_sub_portfolio_id):
                 raise ValueError()
             if val <= 0:
                 raise ValueError()
             target_sub_portfolio_id = val
-        except (TypeError, ValueError) as error:
+        except (TypeError, ValueError, OverflowError) as error:
             raise ApiError(
                 'invalid_sub_portfolio',
                 'target_sub_portfolio_id must be a positive integer',
@@ -185,13 +203,15 @@ def assign_all_import_staging_rows(session_id):
         target_sub_portfolio_id = None
     else:
         try:
+            if isinstance(raw_target_sub_portfolio_id, bool):
+                raise ValueError()
             val = int(raw_target_sub_portfolio_id)
             if val != float(raw_target_sub_portfolio_id):
                 raise ValueError()
             if val <= 0:
                 raise ValueError()
             target_sub_portfolio_id = val
-        except (TypeError, ValueError) as error:
+        except (TypeError, ValueError, OverflowError) as error:
             raise ApiError(
                 'invalid_sub_portfolio',
                 'target_sub_portfolio_id must be a positive integer',
@@ -223,7 +243,9 @@ def reject_import_staging_row(session_id, row_id):
         result = ImportStagingService.reject_row(session_id=session_id, row_id=row_id)
         return success_response(result)
     except ValueError as error:
-        raise NotFoundError(str(error)) from error
+        if str(error) in {'Session not found', 'Row not found in session'}:
+            raise NotFoundError(str(error)) from error
+        raise ApiError('IMPORT_VALIDATION_ERROR', str(error), status=422) from error
 
 
 @portfolio_bp.route('/import/staging/<session_id>/book', methods=['POST'])
@@ -244,10 +266,15 @@ def book_import_staging_session(session_id):
             status=422,
         ) from error
     except ValueError as error:
-        raise NotFoundError(str(error)) from error
+        if str(error) == 'Session not found':
+            raise NotFoundError(str(error)) from error
+        raise ApiError('IMPORT_VALIDATION_ERROR', str(error), status=422) from error
 
 
 @portfolio_bp.route('/import/staging/<session_id>', methods=['DELETE'])
 def delete_import_staging_session(session_id):
-    result = ImportStagingService.delete_session(session_id=session_id)
+    try:
+        result = ImportStagingService.delete_session(session_id=session_id)
+    except ValueError as error:
+        raise NotFoundError(str(error)) from error
     return success_response(result)

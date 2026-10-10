@@ -6,6 +6,7 @@ import pandas as pd
 import re
 import hashlib
 import logging
+import math
 
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,8 @@ class PortfolioImportService(PortfolioCoreService):
             return None
         normalized = text.replace('\u00a0', '').replace(' ', '').replace(',', '.')
         try:
-            return float(normalized)
+            parsed = float(normalized)
+            return parsed if math.isfinite(parsed) else None
         except (TypeError, ValueError):
             return None
 
@@ -163,336 +165,44 @@ class PortfolioImportService(PortfolioCoreService):
         return mapping.ticker if mapping else None
 
     @staticmethod
-    def import_xtb_csv(portfolio_id: int, df: pd.DataFrame, confirmed_hashes: Optional[list[str]] = None, sub_portfolio_id: Optional[int] = None) -> dict[str, Any]:
-        db = get_db()
-        cursor = db.cursor()
-        missing_symbols: list[str] = []
-        potential_conflicts: list[dict] = []
-        internal_hashes = {} # hash -> row_index for internal duplicate source tracking
-        
-        # If sub_portfolio_id is provided, validate it belongs to the parent
-        if sub_portfolio_id:
-            child = db.execute('SELECT id, is_archived FROM portfolios WHERE id = ? AND parent_portfolio_id = ?', (sub_portfolio_id, portfolio_id)).fetchone()
-            if not child:
-                raise ValueError("Invalid sub-portfolio for this parent")
-            if child['is_archived']:
-                raise ValueError("Cannot import to an archived sub-portfolio")
+    def resolve_import_symbol(symbol_input: str) -> Optional[SymbolMapping]:
+        """Import uses exact identities, never a fuzzy name match."""
+        symbol = PortfolioImportService._normalize_symbol_input(symbol_input)
+        if not symbol:
+            return None
+        rows = get_db().execute('SELECT id, symbol_input, ticker, currency, created_at FROM symbol_mappings').fetchall()
+        aliases = [row for row in rows if PortfolioImportService._normalize_symbol_input(row['symbol_input']) == symbol]
+        # Convert only a known Warsaw instrument, not every arbitrary .PL symbol.
+        candidate = str(symbol_input).strip().upper()
+        if candidate.endswith('.PL'):
+            candidate = candidate[:-3] + '.WA'
+        matches = aliases or [row for row in rows if str(row['ticker']).strip().upper() == candidate]
+        if not matches or len({(row['ticker'], row['currency']) for row in matches}) != 1:
+            return None
+        row = matches[0]
+        return SymbolMapping(id=row['id'], symbol_input=row['symbol_input'], ticker=row['ticker'],
+                             currency=row['currency'], created_at=row['created_at'])
 
-        # ... (rest of the logic remains similar but needs sub_portfolio_id in queries)
-        # For simplicity, I'll search and replace specific parts.
-        
-        # Przygotowanie transakcji do przetworzenia
-        prepared_transactions = []
-
-        normalized_columns = {str(col).strip().lower(): col for col in df.columns}
-        time_column = PortfolioImportService._select_column(normalized_columns, ['time', 'date', 'close time'])
-        type_column = PortfolioImportService._select_column(normalized_columns, ['type', 'transaction type'])
-        amount_column = PortfolioImportService._select_column(
-            normalized_columns,
-            ['amount', 'profit', 'p/l', 'profit/loss', 'result'],
-            df=df,
-            numeric_preferred=True,
-        )
-        comment_column = PortfolioImportService._select_column(normalized_columns, ['comment', 'description', 'details'])
-        symbol_column = PortfolioImportService._select_column(normalized_columns, ['symbol'])
-        instrument_column = PortfolioImportService._select_column(normalized_columns, ['instrument'])
-
-        missing_required: list[str] = []
-        if time_column is None:
-            missing_required.append('Time')
-        if type_column is None:
-            missing_required.append('Type')
-        if amount_column is None:
-            missing_required.append('Amount')
-        if missing_required:
-            raise ValueError(f"Missing required columns: {', '.join(missing_required)}")
-
-        df = df.sort_values(time_column)
-
-        # ETAP 1: Walidacja i przygotowanie danych
-        for idx, row in df.iterrows():
-            typ = row[type_column]
-            typ_lower = str(typ).strip().lower()
-            time = str(row[time_column]).strip()
-            amount_value = PortfolioImportService._try_parse_float(row[amount_column])
-            if amount_value is None:
-                raise ValueError(f"Invalid numeric value in column '{amount_column}' at row {idx + 1}: {row[amount_column]}")
-            amount = amount_value
-            comment = ''
-            if comment_column is not None and not pd.isna(row[comment_column]):
-                comment = str(row[comment_column])
-
-            ticker: Optional[str] = None
-            ticker_currency = 'PLN'
-            is_stock_operation = typ_lower in {'stock purchase', 'stock sell'}
-
-            if is_stock_operation:
-                symbol_input = ''
-                if symbol_column is not None:
-                    symbol_value = row[symbol_column]
-                    symbol_input = '' if pd.isna(symbol_value) else str(symbol_value)
-                elif instrument_column is not None:
-                    instrument_value = row[instrument_column]
-                    symbol_input = '' if pd.isna(instrument_value) else str(instrument_value)
-
-                mapping = PortfolioImportService.resolve_symbol_mapping(symbol_input)
-                ticker = mapping.ticker if mapping else None
-                ticker_currency = (mapping.currency or 'PLN') if mapping else 'PLN'
-                if ticker is None:
-                    normalized_symbol = symbol_input.strip().upper()
-                    if normalized_symbol and normalized_symbol not in missing_symbols:
-                        missing_symbols.append(normalized_symbol)
-                    continue
-
-            # Ustalanie parametrów transakcji do walidacji duplikatów
-            tx_type = ''
-            tx_ticker = ticker or 'CASH'
-            tx_qty = 1.0
-            tx_total = abs(amount)
-            # abs() gwarantuje non-negative, walidacja poniżej jest defensive check
-            if not isinstance(tx_total, (int, float)) or tx_total != tx_total:  # NaN check
-                raise ValueError(f"Invalid transaction amount at row {idx + 1}")
-            logger.debug(
-                "Prepared transaction values row=%s typ=%s amount=%s tx_total=%s",
-                idx + 1,
-                typ_lower,
-                amount,
-                tx_total
-            )
-
-            if typ_lower in {'deposit', 'ike deposit'}:
-                tx_type = 'DEPOSIT'
-            elif typ_lower == 'free funds interest':
-                tx_type = 'INTEREST'
-            elif typ_lower == 'withdrawal':
-                tx_type = 'WITHDRAW'
-            elif typ_lower == 'stock purchase':
-                tx_type = 'BUY'
-                tx_qty = PortfolioImportService._parse_xtb_quantity(comment, idx + 1)
-            elif typ_lower == 'stock sell':
-                tx_type = 'SELL'
-                tx_qty = PortfolioImportService._parse_xtb_quantity(comment, idx + 1)
-
-            if not tx_type:
-                continue # Nieobsługiwany typ
-
-            row_hash = PortfolioImportService._generate_row_hash(time, tx_ticker, tx_total, tx_type, tx_qty)
-            
-            # Dane do zapisu w prepared_transactions
-            tx_data = {
-                'hash': row_hash,
-                'type_raw': typ_lower,
-                'time': time,
-                'amount_raw': amount,
-                'comment': comment,
-                'ticker': tx_ticker,
-                'ticker_currency': ticker_currency,
-                'tx_type': tx_type,
-                'tx_qty': tx_qty,
-                'tx_total': tx_total,
-                'is_conflict': False, # Domyślnie brak konfliktu
-                'import_data': {
-                    'date': time,
-                    'ticker': tx_ticker,
-                    'amount': tx_total,
-                    'type': tx_type,
-                    'quantity': tx_qty
-                }
-            }
-
-            # Sprawdzanie duplikatu wewnątrz pliku
-            if row_hash in internal_hashes:
-                source_idx = internal_hashes[row_hash]
-                tx_data['is_conflict'] = True # Ten konkretny wiersz (kopia) jest konfliktem
-                potential_conflicts.append({
-                    'row_hash': row_hash,
-                    'conflict_type': 'file_internal_duplicate',
-                    'import_data': tx_data['import_data'],
-                    'existing_match': {
-                        'id': None,
-                        'date': time,
-                        'amount': tx_total,
-                        'type': tx_type,
-                        'quantity': tx_qty,
-                        'source': f'file_row_{source_idx}'
-                    }
-                })
-            else:
-                internal_hashes[row_hash] = idx
-                # Sprawdzanie duplikatu w bazie danych
-                # Używamy ROUND dla total_value i quantity, aby uniknąć problemów z precyzją float
-                # Filter by sub_portfolio_id as well
-                existing = db.execute(
-                    '''SELECT id, date, total_value, type, quantity FROM transactions 
-                       WHERE portfolio_id = ? AND date = ? AND ticker = ? AND type = ?
-                       AND ABS(total_value - ?) < 0.01 AND ABS(quantity - ?) < 0.00000001
-                       AND sub_portfolio_id IS ''' + ('?' if sub_portfolio_id else 'NULL'),
-                    (portfolio_id, time, tx_ticker, tx_type, tx_total, tx_qty, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, time, tx_ticker, tx_type, tx_total, tx_qty)
-                ).fetchone()
-
-                if existing:
-                    tx_data['is_conflict'] = True # Wiersz ma duplikat w bazie
-                    potential_conflicts.append({
-                        'row_hash': row_hash,
-                        'conflict_type': 'database_duplicate',
-                        'import_data': tx_data['import_data'],
-                        'existing_match': {
-                            'id': existing['id'],
-                            'date': existing['date'],
-                            'amount': existing['total_value'],
-                            'type': existing['type'],
-                            'quantity': existing['quantity'],
-                            'source': 'database'
-                        }
-                    })
-
-            prepared_transactions.append(tx_data)
-
-        # Jeśli są brakujące symbole, przerywamy (istniejąca logika)
-        if missing_symbols:
-            return {'success': False, 'missing_symbols': missing_symbols}
-
-        # Jeśli są konflikty i nie zostały potwierdzone, zwracamy ostrzeżenie
-        confirmed_list = list(confirmed_hashes or [])
-        # Tworzymy słownik do liczenia ile razy dany hash został potwierdzony
-        from collections import Counter
-        confirmed_counts = Counter(confirmed_list)
-        
-        confirmed_set = set(confirmed_hashes) if confirmed_hashes is not None else None
-        if confirmed_set is None:
-            unconfirmed_conflicts = potential_conflicts
-        else:
-            unconfirmed_conflicts = [
-                c for c in potential_conflicts
-                if c['row_hash'] not in confirmed_set
-            ]
-        
-        if unconfirmed_conflicts:
-            return {
-                'success': True, 
-                'status': 'warning', 
-                'potential_conflicts': potential_conflicts,
-                'missing_symbols': []
-            }
-
-        # ETAP 2: Faktyczny zapis do bazy
-        db.execute('BEGIN')
-        try:
-            for tx in prepared_transactions:
-                # Sprawdzamy czy ta transakcja była konfliktem (flaga is_conflict)
-                if tx['is_conflict']:
-                    # Jeśli to był konflikt, sprawdzamy czy mamy jeszcze "dostępne" potwierdzenia dla tego hasha
-                    if confirmed_counts[tx['hash']] > 0:
-                        confirmed_counts[tx['hash']] -= 1
-                        # Kontynuujemy do zapisu (użytkownik potwierdził ten konkretny konflikt)
-                    else:
-                        # Brak potwierdzenia dla tego konkretnego wystąpienia duplikatu - pomijamy
-                        continue
-
-                typ_lower = tx['type_raw']
-                time = tx['time']
-                amount = tx['amount_raw']
-                comment = tx['comment']
-                ticker = tx['ticker']
-                ticker_currency = tx['ticker_currency']
-                qty = tx['tx_qty']
-                tx_total = tx['tx_total']
-
-                # Target ID for cash updates (parent or child)
-                target_portfolio_id = sub_portfolio_id if sub_portfolio_id else portfolio_id
-
-                if typ_lower in {'deposit', 'ike deposit'}:
-                    cursor.execute(
-                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (tx_total, target_portfolio_id)
-                    )
-                    cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, 'CASH', 'DEPOSIT', 1, tx_total, tx_total, time, sub_portfolio_id)
-                    )
-                elif typ_lower == 'free funds interest':
-                    cursor.execute(
-                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (tx_total, target_portfolio_id)
-                    )
-                    cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, 'CASH', 'INTEREST', 1, tx_total, tx_total, time, sub_portfolio_id)
-                    )
-                elif typ_lower == 'withdrawal':
-                    cursor.execute(
-                        'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                        (tx_total, target_portfolio_id)
-                    )
-                    cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, sub_portfolio_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, 'CASH', 'WITHDRAW', 1, tx_total, tx_total, time, sub_portfolio_id)
-                    )
-                elif typ_lower == 'stock purchase':
-                    price = tx_total / qty if qty else 0.0
-                    cursor.execute(
-                        'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                        (tx_total, target_portfolio_id)
-                    )
-                    holding = cursor.execute(
-                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'),
-                        (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)
-                    ).fetchone()
-                    if holding:
-                        new_qty = holding['quantity'] + qty
-                        new_total_cost = holding['total_cost'] + tx_total
-                        new_avg_price = new_total_cost / new_qty
-                        cursor.execute(
-                            '''UPDATE holdings SET quantity = ?, total_cost = ?, average_buy_price = ?, currency = ?, instrument_currency = ?, avg_buy_price_native = ?, avg_buy_fx_rate = ?, auto_fx_fees = ? WHERE id = ?''',
-                            (new_qty, new_total_cost, new_avg_price, ticker_currency, ticker_currency or holding['instrument_currency'] or holding['currency'] or 'PLN', new_avg_price, holding['avg_buy_fx_rate'] or 1.0, 1 if ticker_currency != 'PLN' else holding['auto_fx_fees'], holding['id'])
-                        )
-                        PortfolioImportService._assert_holding_consistency(cursor, holding['id'])
-                    else:
-                        inserted = cursor.execute(
-                            '''INSERT INTO holdings (portfolio_id, ticker, quantity, average_buy_price, total_cost, currency, instrument_currency, avg_buy_price_native, avg_buy_fx_rate, auto_fx_fees, sub_portfolio_id)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                            (portfolio_id, ticker, qty, price, tx_total, ticker_currency, ticker_currency or 'PLN', price, 1.0, 1 if ticker_currency != 'PLN' else 0, sub_portfolio_id)
-                        )
-                        PortfolioImportService._assert_holding_consistency(cursor, inserted.lastrowid)
-                    cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, date, commission, sub_portfolio_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'BUY', qty, price, tx_total, time, 0.0, sub_portfolio_id)
-                    )
-                elif typ_lower == 'stock sell':
-                    price = tx_total / qty if qty else 0.0
-                    cursor.execute(
-                        'UPDATE portfolios SET current_cash = current_cash + ? WHERE id = ?',
-                        (tx_total, target_portfolio_id)
-                    )
-                    holding = cursor.execute(
-                        'SELECT * FROM holdings WHERE portfolio_id = ? AND ticker = ? AND sub_portfolio_id IS ' + ('?' if sub_portfolio_id else 'NULL'),
-                        (portfolio_id, ticker, sub_portfolio_id) if sub_portfolio_id else (portfolio_id, ticker)
-                    ).fetchone()
-                    realized_profit = 0.0
-                    if holding:
-                        realized_profit = tx_total - (holding['average_buy_price'] * qty)
-                        new_qty = holding['quantity'] - qty
-                        new_total_cost = holding['total_cost'] - (qty * holding['average_buy_price'])
-                        if new_qty > 0.000001:
-                            cursor.execute(
-                                '''UPDATE holdings SET quantity = ?, total_cost = ?, instrument_currency = COALESCE(instrument_currency, currency, 'PLN'), avg_buy_price_native = COALESCE(avg_buy_price_native, average_buy_price, 0), avg_buy_fx_rate = COALESCE(avg_buy_fx_rate, 1) WHERE id = ?''',
-                                (new_qty, new_total_cost, holding['id'])
-                            )
-                            PortfolioImportService._assert_holding_consistency(cursor, holding['id'])
-                        else:
-                            cursor.execute('DELETE FROM holdings WHERE id = ?', (holding['id'],))
-                    cursor.execute(
-                        '''INSERT INTO transactions (portfolio_id, ticker, type, quantity, price, total_value, realized_profit, date, commission, sub_portfolio_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (portfolio_id, ticker, 'SELL', qty, price, tx_total, realized_profit, time, 0.0, sub_portfolio_id)
-                    )
-
-            db.commit()
-            return {'success': True, 'missing_symbols': [], 'status': 'success'}
-        except Exception:
-            db.rollback()
-            raise
+    @staticmethod
+    def import_xtb_csv(portfolio_id: int, df: pd.DataFrame, confirmed_hashes=None, sub_portfolio_id=None):
+        # Both entry points use the same validation and atomic booking engine.
+        from import_staging_service import ImportStagingService
+        session = ImportStagingService.create_session(portfolio_id, df, sub_portfolio_id, source_file='Import bezpośredni')
+        if session['summary']['missing_symbols']:
+            return {'success': False, 'missing_symbols': session['summary']['missing_symbols'], 'session': session}
+        confirmed_hashes = set(confirmed_hashes or [])
+        conflicts = [row for row in session['rows'] if row['conflict_type']]
+        if session['unsupported_rows'] or any(row['row_hash'] not in confirmed_hashes for row in conflicts):
+            return {'success': True, 'status': 'warning', 'session': session, 'missing_symbols': [],
+                    'potential_conflicts': [{
+                        'row_hash': row['row_hash'], 'conflict_type': row['conflict_type'],
+                        'import_data': {'date': row['date'], 'ticker': row['ticker'], 'amount': row['total_value'],
+                                        'type': row['type'], 'quantity': row['quantity']},
+                        'existing_match': {'id': None, 'date': row['date'], 'amount': row['total_value'],
+                                           'type': row['type'], 'quantity': row['quantity'], 'source': 'database'},
+                    } for row in conflicts if row['conflict_type'] in {'database_duplicate', 'file_internal_duplicate'}]}
+        if any(row['conflict_type'] not in {'database_duplicate', 'file_internal_duplicate'} for row in conflicts):
+            return {'success': True, 'status': 'warning', 'session': session, 'missing_symbols': []}
+        result = ImportStagingService.book_session(session['session_id'], [row['id'] for row in conflicts])
+        return {'success': True, 'status': 'warning' if result['remaining'] else 'success',
+                'missing_symbols': [], **result}

@@ -1,159 +1,23 @@
-import React, { useMemo } from 'react';
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { PortfolioHistoryPoint } from '../api';
-import { Holding, EquityAllocation } from '../types';
+import { useState } from 'react';
+import type { PortfolioHistoryPoint } from '../api';
+import type { Holding, EquityAllocation } from '../types';
+import { categoryColor, chartMoney } from './charts/chartTheme';
+import { allocationRows, type AllocationGroup } from './portfolio/allocationModel';
 import MonthlyAssetRatioChart from './MonthlyAssetRatioChart';
-import EquityAllocationChart from './EquityAllocationChart';
-
-interface PortfolioAnalyticsProps {
-  holdings: Holding[];
-  cashBalance: number;
-  historyData: PortfolioHistoryPoint[];
-  equityAllocation: EquityAllocation[];
+export default function PortfolioAnalytics({ holdings, cashBalance, historyData }: { holdings: Holding[]; cashBalance: number; historyData: PortfolioHistoryPoint[]; equityAllocation?: EquityAllocation[] }) {
+  const [group, setGroup] = useState<AllocationGroup>('instrument');
+  const [includeCash, setIncludeCash] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const allocation = allocationRows(holdings, cashBalance, group, includeCash);
+  const remaining = allocation.rows.slice(5).reduce((sum, row) => sum + row.value, 0);
+  const rows = expanded || allocation.rows.length <= 6 ? allocation.rows : [...allocation.rows.slice(0, 5), { name: 'Pozostałe', value: remaining, share: remaining / allocation.total * 100 }];
+  return <div className="space-y-5"><section className="chart-panel">
+    <div className="chart-heading"><div><h2>Jak rozłożony jest kapitał?</h2><p>Bieżąca wycena w PLN · {includeCash ? 'łącznie z gotówką' : 'część inwestycyjna bez gotówki'} · {chartMoney(allocation.total)}</p></div><label className="chart-toolbar"><input type="checkbox" checked={includeCash} onChange={event => setIncludeCash(event.target.checked)} /> Uwzględnij gotówkę</label></div>
+    <div className="chart-toolbar" aria-label="Podział struktury">{([['instrument', 'Instrumenty'], ['sector', 'Sektory'], ['industry', 'Branże'], ['currency', 'Waluty']] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={group === key} onClick={() => { setGroup(key); setExpanded(false); }}>{label}</button>)}</div>
+    {allocation.missing.length > 0 && <p className="chart-alert">Brak wyceny: {allocation.missing.join(', ')}. Udziały dotyczą tylko wycenionej części; koszt zakupu nie zastępuje ceny.</p>}
+    {rows.length ? <div aria-label="Udziały w wycenionej części portfela">{rows.map(row => <div className="chart-allocation-row" key={row.name}><span title={row.name}>{row.name}</span><span className="chart-track" aria-hidden="true"><i style={{ width: row.share + '%', backgroundColor: categoryColor(row.name) }} /></span><b>{chartMoney(row.value)}</b><small>{row.share.toLocaleString('pl-PL', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%</small></div>)}</div> : <p className="chart-empty">Brak wycenionych pozycji.</p>}
+    {allocation.rows.length > 6 && <div className="chart-actions"><button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? 'Pokaż największe udziały' : `Rozwiń wszystkie (${allocation.rows.length})`}</button></div>}
+    <p className="chart-note">{group === 'currency' ? 'Waluta notowania instrumentu; wszystkie udziały liczone z wartości w PLN. Gotówka jest pokazywana osobno.' : group === 'sector' || group === 'industry' ? 'Klasyfikacja instrumentów według metadanych. Dla ETF nie jest to analiza składu funduszu.' : 'Pozycje tego samego instrumentu są zsumowane. Kolor kategorii pozostaje stały po sortowaniu.'}</p>
+  </section><div className="chart-actions"><button type="button" aria-expanded={showHistory} onClick={() => setShowHistory(!showHistory)}>{showHistory ? 'Ukryj' : 'Pokaż'} udział inwestycji i gotówki w czasie</button></div>{showHistory && <MonthlyAssetRatioChart data={historyData.filter(point => Number.isFinite(point.value))} />}</div>;
 }
-
-const COLORS = [
-  '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#8dd1e1', '#a4de6c', '#d0ed57', '#ff6b6b'
-];
-
-interface CustomLabelProps {
-  cx?: number;
-  cy?: number;
-  midAngle?: number;
-  innerRadius?: number;
-  outerRadius?: number;
-  percent?: number;
-  x?: number;
-  y?: number;
-}
-
-const renderCustomLabel = ({ cx = 0, percent = 0, x = 0, y = 0 }: CustomLabelProps) => {
-  if (percent < 0.02) return null;
-
-  // Add a small offset to move text away from the line
-  const offset = x > cx ? 5 : -5;
-
-  return (
-    <text 
-      x={x + offset} 
-      y={y} 
-      fill="#374151" 
-      textAnchor={x > cx ? 'start' : 'end'} 
-      dominantBaseline="central" 
-      fontSize={10} 
-      fontWeight="600"
-    >
-      {`${(percent * 100).toFixed(0)}%`}
-    </text>
-  );
-};
-
-const PortfolioAnalytics: React.FC<PortfolioAnalyticsProps> = ({ holdings, cashBalance, historyData, equityAllocation }) => {
-  
-  const assetData = useMemo(() => {
-    const data = holdings.map(h => ({
-      name: h.ticker,
-      value: h.current_value || (h.quantity * h.average_buy_price)
-    }));
-    
-    if (cashBalance > 0.01) {
-        data.push({ name: 'Gotówka', value: cashBalance });
-    }
-    return data.sort((a, b) => b.value - a.value);
-  }, [holdings, cashBalance]);
-
-  const sectorData = useMemo(() => {
-    const sectors: Record<string, number> = {};
-    holdings.forEach(h => {
-      const sector = h.sector && h.sector !== 'Unknown' ? h.sector : 'Inne';
-      const val = h.current_value || (h.quantity * h.average_buy_price);
-      sectors[sector] = (sectors[sector] || 0) + val;
-    });
-
-    if (cashBalance > 0.01) {
-        sectors['Gotówka'] = cashBalance;
-    }
-
-    return Object.entries(sectors)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-  }, [holdings, cashBalance]);
-
-  const industryData = useMemo(() => {
-    const industries: Record<string, number> = {};
-    holdings.forEach(h => {
-      const industry = h.industry && h.industry !== 'Unknown' ? h.industry : 'Inne';
-      const val = h.current_value || (h.quantity * h.average_buy_price);
-      industries[industry] = (industries[industry] || 0) + val;
-    });
-
-     if (cashBalance > 0.01) {
-        industries['Gotówka'] = cashBalance;
-    }
-
-    return Object.entries(industries)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-  }, [holdings, cashBalance]);
-
-  const formatTooltip = (value: number) => `${value.toFixed(2)} PLN`;
-
-  const ChartSection = ({ title, data }: { title: string, data: { name: string, value: number }[] }) => (
-    <div className="bg-white p-6 rounded-lg shadow border border-gray-200 flex flex-col items-center min-h-[400px]">
-      <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">{title}</h3>
-      <div className="w-full h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="45%"
-              innerRadius={55}
-              outerRadius={75}
-              fill="#8884d8"
-              paddingAngle={1}
-              dataKey="value"
-              label={renderCustomLabel}
-              labelLine={{ stroke: '#9ca3af', strokeWidth: 1 }}
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip formatter={formatTooltip} />
-            <Legend 
-              verticalAlign="bottom" 
-              align="center"
-              iconType="square"
-              wrapperStyle={{ 
-                paddingTop: '20px',
-                fontSize: '12px',
-                width: '100%',
-                lineHeight: '20px'
-              }}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <ChartSection title="Struktura Aktywów" data={assetData} />
-        <ChartSection title="Ekspozycja na Sektory" data={sectorData} />
-        <ChartSection title="Ekspozycja na Branże" data={industryData} />
-      </div>
-
-      <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Alokacja Akcji (Tabela % portfela equity)</h3>
-        <EquityAllocationChart data={equityAllocation} />
-      </div>
-
-      <MonthlyAssetRatioChart data={historyData} />
-    </div>
-  );
-};
-
-export default PortfolioAnalytics;

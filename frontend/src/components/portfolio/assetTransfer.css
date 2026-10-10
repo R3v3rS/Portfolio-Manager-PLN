@@ -1,0 +1,4 @@
+.asset-transfer-form { display: grid; gap: 20px; }
+.asset-transfer-form > label { display: grid; gap: 8px; }
+.asset-transfer-form > label > input,
+.asset-transfer-form > label > select { width: 100%; min-width: 0; }

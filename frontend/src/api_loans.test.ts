@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getMock = vi.fn();
 const postMock = vi.fn();
+const putMock = vi.fn();
 
 vi.mock('./apiConfig', () => ({
-  createApiClient: () => ({ get: getMock, post: postMock, delete: vi.fn() }),
+  createApiClient: () => ({ get: getMock, post: postMock, put: putMock, delete: vi.fn() }),
 }));
 
 describe('api_loans', () => {
@@ -17,7 +18,7 @@ describe('api_loans', () => {
     getMock.mockResolvedValueOnce([{ id: '5', name: 'Hipoteka', original_amount: '200000' }]);
 
     await expect(getLoans()).resolves.toEqual([
-      expect.objectContaining({ id: 5, name: 'Hipoteka', original_amount: 200000, duration_months: 0 }),
+      expect.objectContaining({ id: 5, name: 'Hipoteka', original_amount: 200000, duration_months: 0, exclude_from_net_worth: false }),
     ]);
 
     getMock.mockResolvedValueOnce({ items: [] });
@@ -68,5 +69,14 @@ describe('api_loans', () => {
       initial_rate: 6.2,
       category: 'HOME',
     });
+  });
+  it('persists both exclusion and reinclusion using explicit booleans', async () => {
+    const { setLoanNetWorthExclusion, getSchedule } = await import('./api_loans');
+    await setLoanNetWorthExclusion(7, true);
+    await setLoanNetWorthExclusion(7, false);
+    expect(putMock).toHaveBeenNthCalledWith(1, '/7/net-worth-inclusion', { exclude_from_net_worth: true });
+    expect(putMock).toHaveBeenNthCalledWith(2, '/7/net-worth-inclusion', { exclude_from_net_worth: false });
+    getMock.mockResolvedValueOnce({ loan: { id: 7, exclude_from_net_worth: true } });
+    expect((await getSchedule(7)).loan.exclude_from_net_worth).toBe(true);
   });
 });

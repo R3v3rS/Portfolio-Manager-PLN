@@ -68,16 +68,16 @@ class PortfolioAuditService(PortfolioCoreService):
             actual_sub_portfolio_id = subportfolio_id
 
         if actual_sub_portfolio_id is not None:
-            query = '''SELECT id, ticker, type, quantity, total_value, date
+            query = '''SELECT id, ticker, type, quantity, total_value, date, asset_cost
                        FROM transactions
                        WHERE portfolio_id = ? AND sub_portfolio_id = ?
-                       ORDER BY date ASC, id ASC'''
+                       ORDER BY date(date), CASE WHEN type='SELL' AND length(date)=10 THEN '23:59:59' ELSE substr(date,12) END, id'''
             params = (actual_portfolio_id, actual_sub_portfolio_id)
         else:
-            query = '''SELECT id, ticker, type, quantity, total_value, date
+            query = '''SELECT id, ticker, type, quantity, total_value, date, asset_cost
                        FROM transactions
                        WHERE portfolio_id = ? AND sub_portfolio_id IS NULL
-                       ORDER BY date ASC, id ASC'''
+                       ORDER BY date(date), CASE WHEN type='SELL' AND length(date)=10 THEN '23:59:59' ELSE substr(date,12) END, id'''
             params = (actual_portfolio_id,)
 
         transactions = db.execute(query, params).fetchall()
@@ -92,21 +92,25 @@ class PortfolioAuditService(PortfolioCoreService):
             quantity = PortfolioAuditService._to_decimal(tx['quantity'])
             total_value = PortfolioAuditService._to_decimal(tx['total_value'])
 
-            if tx_type not in ('DEPOSIT', 'WITHDRAW', 'DIVIDEND', 'INTEREST', 'BUY', 'SELL'):
+            if tx_type not in ('DEPOSIT', 'WITHDRAW', 'DIVIDEND', 'INTEREST', 'BUY', 'SELL', 'ASSET_IN', 'ASSET_OUT'):
                 raise ValueError(f"Unsupported transaction type for rebuild: {tx_type}")
 
             cash += PortfolioAuditService._to_decimal(str(PortfolioValuationService.cash_delta(tx)))
+            # Bond quantities and cost basis live in the bond ledger. Their
+            # cash flows still participate in reconciliation above.
+            if str(ticker).startswith('BOND:'):
+                continue
 
-            if tx_type == 'BUY':
+            if tx_type in ('BUY', 'ASSET_IN'):
                 position = holdings.setdefault(ticker, {'quantity': Decimal('0'), 'total_cost': Decimal('0')})
                 position['quantity'] = PortfolioAuditService._quantize_accounting(position['quantity'] + quantity)
-                position['total_cost'] = PortfolioAuditService._quantize_accounting(position['total_cost'] + total_value)
-            elif tx_type == 'SELL':
+                position['total_cost'] = PortfolioAuditService._quantize_accounting(position['total_cost'] + (PortfolioAuditService._to_decimal(tx['asset_cost']) if tx_type == 'ASSET_IN' else total_value))
+            elif tx_type in ('SELL', 'ASSET_OUT'):
                 position = holdings.get(ticker)
                 if not position or position['quantity'] < quantity:
                     raise ValueError(f"Insufficient quantity for deterministic rebuild of {ticker} in transaction {tx['id']}")
                 avg_price = position['total_cost'] / position['quantity']
-                cost_basis = PortfolioAuditService._quantize_accounting(avg_price * quantity)
+                cost_basis = PortfolioAuditService._quantize_accounting(PortfolioAuditService._to_decimal(tx['asset_cost']) if tx_type == 'ASSET_OUT' else avg_price * quantity)
                 remaining_quantity = PortfolioAuditService._quantize_accounting(position['quantity'] - quantity)
                 remaining_total_cost = PortfolioAuditService._quantize_accounting(position['total_cost'] - cost_basis)
                 if remaining_quantity == 0:
@@ -115,7 +119,8 @@ class PortfolioAuditService(PortfolioCoreService):
                     raise ValueError(f"Negative cost basis detected during rebuild for {ticker} in transaction {tx['id']}")
                 position['quantity'] = remaining_quantity
                 position['total_cost'] = remaining_total_cost
-                realized_profit_total += total_value - cost_basis
+                if tx_type == 'SELL':
+                    realized_profit_total += total_value - cost_basis
 
         rebuilt_holdings: dict[str, dict[str, float]] = {}
         for ticker, position in holdings.items():

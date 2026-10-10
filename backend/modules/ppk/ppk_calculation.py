@@ -62,9 +62,11 @@ class PPKCalculation:
         emp_net_val = emp_purchase_val + emp_net_profit
         empr_net_val = empr_purchase_val + empr_net_profit
 
-        # 6. PPK withdrawal reduction (30% from employer purchase value)
-        employer_withdrawal_reduction = empr_purchase_val * PPKCalculation.EMPLOYER_WITHDRAWAL_REDUCTION_WEIGHT
-        employer_withdrawable_val = empr_net_val - employer_withdrawal_reduction
+        # Art. 105: 30% of current employer units goes to ZUS; only 70%
+        # of their profit is paid out and subject to capital gains tax.
+        employer_withdrawal_reduction = empr_current_val * PPKCalculation.EMPLOYER_WITHDRAWAL_REDUCTION_WEIGHT
+        employer_withdrawal_tax = PPKTaxCalculator.calculate_tax(empr_profit * Decimal("0.70"), is_employer=True)
+        employer_withdrawable_val = empr_current_val * Decimal("0.70") - employer_withdrawal_tax
 
         # Totals
         total_purchase_val = emp_purchase_val + empr_purchase_val
@@ -81,7 +83,7 @@ class PPKCalculation:
         # without applying employer 30% withdrawal reduction.
         net_profit_amount = total_net_val - total_purchase_val
 
-        return {
+        result = {
             "purchaseValueEmployee": PPKCalculation._q(emp_purchase_val),
             "currentValueEmployee": PPKCalculation._q(emp_current_val),
             "profitEmployee": PPKCalculation._q(emp_profit),
@@ -98,6 +100,9 @@ class PPKCalculation:
             "totalCurrentValue": PPKCalculation._q(total_current_val),
             "totalNetValue": PPKCalculation._q(total_withdrawable_val),
             "totalTax": PPKCalculation._q(total_tax),
+            "withdrawalTax": PPKCalculation._q(emp_tax + employer_withdrawal_tax),
+            "employerToZUS": PPKCalculation._q(employer_withdrawal_reduction),
+            "withdrawalResult": PPKCalculation._q(total_withdrawable_val - total_purchase_val),
             "totalProfit": PPKCalculation._q(total_profit),
 
             # Legacy fields
@@ -110,3 +115,11 @@ class PPKCalculation:
             "tax": PPKCalculation._q(total_tax),
             "netProfit": PPKCalculation._q(net_profit_amount)
         }
+
+        if current_price is None and total_units > 0:
+            for key in ('currentValueEmployee','profitEmployee','taxEmployee','netValueEmployee',
+                        'currentValueEmployer','profitEmployer','taxEmployer','netValueEmployer',
+                        'totalCurrentValue','totalNetValue','totalTax','totalProfit','withdrawalTax',
+                        'employerToZUS','withdrawalResult','currentValue','profit','tax','netProfit'):
+                result[key] = None
+        return result

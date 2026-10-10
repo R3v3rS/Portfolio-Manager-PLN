@@ -1,4 +1,5 @@
 import os
+import math
 import tempfile
 import yfinance as yf
 import pandas as pd
@@ -1004,12 +1005,11 @@ class PriceService:
                 anomalies = cls.audit_price_history_quality(
                     days=30,
                     jump_threshold_percent=25.0,
-                    refresh_flagged=False,
-                    delete_flagged=True
+                    refresh_flagged=False
                 )
                 if anomalies.get('flagged_count', 0) > 0:
                     logger.warning(
-                        "Price anomalies auto-deleted for %s: %s entries",
+                        "Price anomalies flagged for %s: %s entries",
                         ticker,
                         anomalies['flagged_count']
                     )
@@ -1125,7 +1125,7 @@ class PriceService:
             return None
 
     @classmethod
-    def get_quotes(cls, tickers):
+    def get_quotes(cls, tickers, force_refresh=False):
         """
         Fetches current price and multi-timeframe momentum (1D, 7D, 1M, 1Y) for a list of tickers.
         Returns: { 'AAPL': {'price': 150.0, 'change_1d': 1.5, 'change_7d': ..., 'change_1m': ..., 'change_1y': ...}, ... }
@@ -1149,7 +1149,7 @@ class PriceService:
             updated_at = cached_updated.get(ticker)
             cached_quote = cached.get(ticker)
             if (
-                ticker not in cached
+                force_refresh or ticker not in cached
                 or not cls._is_same_day(updated_at)
                 or cached_quote is None
             ):
@@ -1484,7 +1484,7 @@ class PriceService:
         if not tickers:
             return {}
 
-        quotes = cls.get_quotes(tickers)
+        quotes = cls.get_quotes(tickers, force_refresh=True)
         events = cls.fetch_market_events(tickers)
 
         db = get_db()
@@ -1791,6 +1791,18 @@ class PriceService:
                 return total, {"quality": q_score, "growth": g_score, "risk": r_score}
 
             total_score, score_details = calculate_score(fundamentals, growth, risk)
+            # Missing fundamentals must not turn into a low investment rating.
+            # This company heuristic is not applicable to funds.
+            score_inputs = {
+                'quality': [fundamentals.get(key) for key in ('returnOnEquity', 'profitMargins', 'freeCashflow')],
+                'growth': [growth.get(key) for key in ('revenueGrowth', 'earningsGrowth')],
+                'risk': [risk.get(key) for key in ('debtToEquity', 'currentRatio', 'beta')],
+            }
+            is_fund = info.get('quoteType') in ('ETF', 'MUTUALFUND') or ticker.upper().startswith('ETF')
+            for category, values in score_inputs.items():
+                if is_fund or any(value is None or not isinstance(value, (int, float)) or not math.isfinite(value) for value in values):
+                    score_details[category] = None
+            total_score = sum(score_details.values()) if all(value is not None for value in score_details.values()) else None
 
             # 7. Technicals
             technicals = {

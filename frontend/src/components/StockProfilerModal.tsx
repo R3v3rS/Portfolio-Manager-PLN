@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, TrendingUp, TrendingDown, AlertCircle, Activity, DollarSign, Users, BarChart3, ShieldCheck, PieChart, Info } from 'lucide-react';
 import { radarApi } from '../api_radar';
 import { extractErrorMessageFromUnknown } from '../http/response';
@@ -7,33 +7,44 @@ import { StockAnalysisData } from '../types';
 interface StockProfilerModalProps {
   ticker: string | null;
   onClose: () => void;
+  isFund?: boolean;
 }
 
-const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose }) => {
+const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose, isFund = false }) => {
   const [data, setData] = useState<StockAnalysisData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => { document.body.style.overflow = overflow; previous?.focus(); };
+  }, []);
 
   useEffect(() => {
     if (!ticker) return;
+    let live = true;
 
     const fetchData = async () => {
       setLoading(true);
       setError(null);
       try {
         const result = await radarApi.getAnalysis(ticker);
-        setData(result);
+        if (live) setData(result);
       } catch (err) {
         console.error(err);
-        setData(null);
-        setError(extractErrorMessageFromUnknown(err));
+        if (live) { setData(null); setError(extractErrorMessageFromUnknown(err)); }
       } finally {
-        setLoading(false);
+        if (live) setLoading(false);
       }
     };
 
     fetchData();
-  }, [ticker]);
+    return () => { live = false; };
+  }, [ticker, attempt]);
 
   if (!ticker) return null;
 
@@ -74,7 +85,14 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div ref={dialog} className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true" onKeyDown={event => {
+      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Tab') return;
+      const buttons = Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || []);
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }}>
       <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
         
         {/* Background overlay */}
@@ -91,9 +109,9 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
               <h3 className="text-xl leading-6 font-bold text-gray-900" id="modal-title">
                 {ticker}
               </h3>
-              {data && (
+              {data && !isFund && (
                 <div className={`px-3 py-1 rounded-full text-sm font-bold flex items-center ${getScoreBg(data.score)} ${getScoreColor(data.score)}`}>
-                  Score: {data.score}/100
+                  {data.score == null ? 'Ocena: niepełne dane' : `Ocena: ${data.score}/100`}
                 </div>
               )}
             </div>
@@ -119,7 +137,7 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
                 <AlertCircle className="h-12 w-12 mb-4" />
                 <p className="font-medium text-lg">{error}</p>
                 <button 
-                  onClick={() => window.location.reload()}
+                  onClick={() => setAttempt(value => value + 1)}
                   className="mt-4 text-blue-600 hover:underline"
                 >
                   Spróbuj ponownie
@@ -127,13 +145,16 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
               </div>
             ) : data ? (
               <div className="space-y-6">
+                <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
+                  {isFund ? 'ETF: punktacja przeznaczona dla spółek nie ma zastosowania. Poniżej dostępne dane instrumentu.' : 'Ocena jest prostą punktacją: jakość (ROE, marża zysku, przepływy pieniężne), wzrost (przychody i zyski) oraz stabilność (zadłużenie, płynność, beta). Wyższa liczba punktów oznacza spełnienie większej liczby progów; nie jest rekomendacją kupna. Brak wymaganych danych wyłącza ocenę, zamiast obniżać wynik.'}
+                </div>
                 
                 {/* Score Breakdown */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {!isFund && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Quality Score</p>
-                      <p className="text-2xl font-bold text-gray-900">{data.details.quality}/40</p>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Jakość</p>
+                      <p className="text-2xl font-bold text-gray-900">{data.details.quality == null ? '—' : `${data.details.quality}/40`}</p>
                     </div>
                     <div className="p-2 bg-blue-50 rounded-full">
                       <ShieldCheck className="h-6 w-6 text-blue-600" />
@@ -141,8 +162,8 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
                   </div>
                   <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Growth Score</p>
-                      <p className="text-2xl font-bold text-gray-900">{data.details.growth}/30</p>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Wzrost</p>
+                      <p className="text-2xl font-bold text-gray-900">{data.details.growth == null ? '—' : `${data.details.growth}/30`}</p>
                     </div>
                     <div className="p-2 bg-green-50 rounded-full">
                       <BarChart3 className="h-6 w-6 text-green-600" />
@@ -150,14 +171,14 @@ const StockProfilerModal: React.FC<StockProfilerModalProps> = ({ ticker, onClose
                   </div>
                   <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Risk Score</p>
-                      <p className="text-2xl font-bold text-gray-900">{data.details.risk}/30</p>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Stabilność</p>
+                      <p className="text-2xl font-bold text-gray-900">{data.details.risk == null ? '—' : `${data.details.risk}/30`}</p>
                     </div>
                     <div className="p-2 bg-red-50 rounded-full">
                       <AlertCircle className="h-6 w-6 text-red-600" />
                     </div>
                   </div>
-                </div>
+                </div>}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   

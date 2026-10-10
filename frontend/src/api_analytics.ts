@@ -3,7 +3,7 @@ import { ANALYTICS_ENDPOINTS, createApiClient } from './apiConfig';
 const analyticsHttp = createApiClient('/analytics');
 
 export interface MaxDrawdownMetric {
-  value: number;
+  value: number | null;
   start_date?: string;
   end_date?: string;
   recovery_date?: string | null;
@@ -14,6 +14,13 @@ export interface AnalyticsSummaryPayload {
   cached?: boolean;
   period?: string;
   performance?: {
+    data_status?: 'ok' | 'no_holdings' | 'insufficient_history' | 'missing_prices';
+    observed_from?: string | null;
+    observed_to?: string | null;
+    requested_from?: string | null;
+    data_points?: number;
+    risk_free_rate?: number;
+    drawdown_series?: { date: string; value: number }[];
     sharpe_ratio?: number | null;
     max_drawdown?: number | MaxDrawdownMetric | null;
     volatility_annualized?: number | null;
@@ -22,6 +29,7 @@ export interface AnalyticsSummaryPayload {
     worst_day?: { date?: string; return?: number | null };
   };
   risk?: {
+    data_status?: 'ok' | 'no_holdings' | 'insufficient_history' | 'missing_prices';
     var_1d?: number | null;
     var_1d_percent?: number | null;
     var_1d_pct?: number | null;

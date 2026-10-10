@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -64,6 +65,7 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             patch('routes_radar.PriceService.refresh_radar_data', return_value=radar_snapshot),
             patch('routes_radar.PriceService.get_cached_radar_data', return_value=radar_snapshot),
             patch('routes_radar.PriceService.get_stock_analysis', return_value=stock_analysis),
+            patch('investment_ideas_service.fetch_feed', return_value=b'<rss><channel/></rss>'),
         ]
         for patcher in self.patchers:
             patcher.start()
@@ -79,6 +81,7 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
         self.portfolio_id = self.create_portfolio('Core Portfolio', 1000.0, 'STANDARD')
         self.savings_portfolio_id = self.create_portfolio('Savings Portfolio', 500.0, 'SAVINGS')
         self.ppk_portfolio_id = self.create_portfolio('PPK Portfolio', 0.0, 'PPK')
+        self.bond_portfolio_id = self.create_portfolio('Bond Portfolio', 0.0, 'BONDS')
         self.loan_id = self.create_loan('Mortgage')
 
         self.contract_request_builders, self.non_contract_assertions = self.build_contract_request_builders()
@@ -400,6 +403,111 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                     'date': '2026-03-13',
                 },
             ),
+            ('/api/budget/workspace', 'GET'): lambda: self.client.get('/api/budget/workspace?month=2026-03'),
+            ('/api/budget/workspace/', 'GET'): lambda: self.client.get('/api/budget/workspace/?month=2026-03'),
+            ('/api/budget/workspace/accounts', 'POST'): lambda: self.client.post(
+                '/api/budget/workspace/accounts', json={'name': 'Contract account', 'balance': 0},
+            ),
+            ('/api/budget/workspace/categories', 'POST'): lambda: self.client.post(
+                '/api/budget/workspace/categories', json={'name': 'Contract category'},
+            ),
+            ('/api/budget/workspace/categories/<int:category_id>', 'PUT'): lambda: self.client.put('/api/budget/workspace/categories/1', json={'name':'Category edited','parent_id':None,'version':1}),
+            ('/api/budget/workspace/plans/<int:category_id>', 'PUT'): lambda: self.client.put(
+                '/api/budget/workspace/plans/1', json={'month': '2026-03', 'amount': 200},
+            ),
+            ('/api/budget/workspace/plans/copy', 'POST'): lambda: self.client.post(
+                '/api/budget/workspace/plans/copy', json={'source': '2026-03', 'target': '2026-04'},
+            ),
+            ('/api/budget/workspace/entries', 'POST'): lambda: self.client.post(
+                '/api/budget/workspace/entries', json={},
+            ),
+            ('/api/budget/workspace/entries/<int:entry_id>', 'PUT'): lambda: self.client.put(
+                '/api/budget/workspace/entries/1', json={},
+            ),
+            ('/api/budget/workspace/entries/<int:entry_id>', 'DELETE'): lambda: self.client.delete(
+                '/api/budget/workspace/entries/1',
+            ),
+            ('/api/budget/workspace/entries/<int:entry_id>/receipt', 'POST'): lambda: self.client.post(
+                '/api/budget/workspace/entries/1/receipt', data={},
+            ),
+            ('/api/budget/workspace/entries/<int:entry_id>/receipt', 'GET'): lambda: self.client.get(
+                '/api/budget/workspace/entries/1/receipt',
+            ),
+            ('/api/budget/workspace/bills', 'POST'): lambda: self.client.post(
+                '/api/budget/workspace/bills', json={},
+            ),
+            ('/api/budget/workspace/bills/<int:bill_id>', 'PUT'): lambda: self.client.put('/api/budget/workspace/bills/999999',json={}),
+            ('/api/budget/planning/settings', 'PUT'): lambda: self.client.put('/api/budget/planning/settings',json={}),
+            ('/api/budget/planning/reserve-plans/<int:reserve_id>', 'PUT'): lambda: self.client.put('/api/budget/planning/reserve-plans/999999',json={}),
+            ('/api/budget/planning/category-policies/<int:category_id>', 'PUT'): lambda: self.client.put('/api/budget/planning/category-policies/999999',json={}),
+            ('/api/budget/planning/close-month', 'POST'): lambda: self.client.post('/api/budget/planning/close-month',json={}),
+            ('/api/budget/planning/purchases', 'POST'): lambda: self.client.post('/api/budget/planning/purchases',json={}),
+            ('/api/budget/planning/purchases/<int:purchase_id>', 'PUT'): lambda: self.client.put('/api/budget/planning/purchases/999999',json={}),
+            ('/api/budget/workspace/bills/<int:bill_id>', 'DELETE'): lambda: self.client.delete(
+                '/api/budget/workspace/bills/1',
+            ),
+            ('/api/budget/workspace/bills/<int:bill_id>/pay', 'POST'): lambda: self.client.post(
+                '/api/budget/workspace/bills/1/pay', json={'month': '2026-03'},
+            ),
+            ('/api/dashboard/net-worth-history', 'GET'): lambda: self.client.get('/api/dashboard/net-worth-history'),
+            ('/api/dashboard/actions', 'GET'): lambda: self.client.get('/api/dashboard/actions'),
+            ('/api/dashboard/monthly-report', 'GET'): lambda: self.client.get('/api/dashboard/monthly-report?month=2026-01'),
+            ('/api/budget/reserves/', 'GET'): lambda: self.client.get('/api/budget/reserves/'),
+            ('/api/budget/accounts/', 'GET'): lambda: self.client.get('/api/budget/accounts/'),
+            ('/api/budget/forecast/', 'GET'): lambda: self.client.get('/api/budget/forecast/'),
+            ('/api/budget/imports/', 'GET'): lambda: self.client.get('/api/budget/imports/'),
+            ('/api/budget/imports/csv/preview', 'POST'): lambda: self.client.post('/api/budget/imports/csv/preview'),
+            ('/api/budget/imports/csv', 'POST'): lambda: self.client.post('/api/budget/imports/csv'),
+            ('/api/budget/imports/sessions/<int:session_id>', 'GET'): lambda: self.client.get('/api/budget/imports/sessions/999999'),
+            ('/api/budget/imports/sessions/<int:session_id>/rows/<int:row_id>', 'PUT'): lambda: self.client.put('/api/budget/imports/sessions/999999/rows/999999',json={}),
+            ('/api/budget/imports/sessions/<int:session_id>/refresh', 'POST'): lambda: self.client.post('/api/budget/imports/sessions/999999/refresh',json={}),
+            ('/api/budget/imports/sessions/<int:session_id>/commit', 'POST'): lambda: self.client.post('/api/budget/imports/sessions/999999/commit',json={}),
+            ('/api/budget/imports/rules', 'POST'): lambda: self.client.post('/api/budget/imports/rules',json={}),
+            ('/api/budget/imports/rules/<int:rule_id>', 'PUT'): lambda: self.client.put('/api/budget/imports/rules/999999',json={}),
+            ('/api/budget/imports/transfer-rules', 'POST'): lambda: self.client.post('/api/budget/imports/transfer-rules',json={}),
+            ('/api/budget/imports/transfer-rules/<int:rule_id>', 'PUT'): lambda: self.client.put('/api/budget/imports/transfer-rules/999999',json={}),
+            ('/api/budget/imports/categorize', 'POST'): lambda: self.client.post('/api/budget/imports/categorize',json={}),
+            ('/api/budget/imports/categorize/rules', 'POST'): lambda: self.client.post('/api/budget/imports/categorize/rules',json={}),
+            ('/api/budget/imports/matches', 'GET'): lambda: self.client.get('/api/budget/imports/matches'),
+            ('/api/budget/imports/receipts', 'POST'): lambda: self.client.post('/api/budget/imports/receipts'),
+            ('/api/budget/imports/receipts/<int:draft_id>', 'GET'): lambda: self.client.get('/api/budget/imports/receipts/999999'),
+            ('/api/budget/imports/receipts/<int:draft_id>/file', 'GET'): lambda: self.client.get('/api/budget/imports/receipts/999999/file'),
+            ('/api/budget/imports/receipts/<int:draft_id>/parse', 'POST'): lambda: self.client.post('/api/budget/imports/receipts/999999/parse',json={}),
+            ('/api/budget/imports/receipts/<int:draft_id>/commit', 'POST'): lambda: self.client.post('/api/budget/imports/receipts/999999/commit',json={}),
+            ('/api/budget/forecast/incomes', 'POST'): lambda: self.client.post('/api/budget/forecast/incomes',json={}),
+            ('/api/budget/forecast/incomes/<int:income_id>', 'PUT'): lambda: self.client.put('/api/budget/forecast/incomes/999999',json={}),
+            ('/api/budget/forecast/incomes/<int:income_id>/active', 'PUT'): lambda: self.client.put('/api/budget/forecast/incomes/999999/active',json={}),
+            ('/api/budget/forecast/incomes/<int:income_id>/receive', 'POST'): lambda: self.client.post('/api/budget/forecast/incomes/999999/receive',json={}),
+            ('/api/budget/accounts/', 'POST'): lambda: self.client.post('/api/budget/accounts/',json={}),
+            ('/api/budget/accounts/transfers', 'POST'): lambda: self.client.post('/api/budget/accounts/transfers',json={}),
+            ('/api/budget/accounts/<int:account_id>/opening-balance', 'POST'): lambda: self.client.post('/api/budget/accounts/999999/opening-balance',json={}),
+            ('/api/budget/accounts/<int:account_id>/reconcile', 'POST'): lambda: self.client.post('/api/budget/accounts/999999/reconcile',json={}),
+            ('/api/budget/reserves/', 'POST'): lambda: self.client.post('/api/budget/reserves/',json={}),
+            ('/api/budget/reserves/<int:reserve_id>', 'PUT'): lambda: self.client.put('/api/budget/reserves/999999',json={}),
+            ('/api/budget/reserves/<int:reserve_id>/movements', 'POST'): lambda: self.client.post('/api/budget/reserves/999999/movements',json={}),
+            ('/api/budget/reserves/<int:reserve_id>/archive', 'PUT'): lambda: self.client.put('/api/budget/reserves/999999/archive',json={}),
+            ('/api/dashboard/tasks', 'POST'): lambda: self.client.post('/api/dashboard/tasks', json={'title':'Check fees','request_id':'00000000-0000-4000-8000-000000000001'}),
+            ('/api/dashboard/tasks/<int:task_id>', 'PUT'): lambda: self.client.put('/api/dashboard/tasks/999999', json={'title':'Check fees','version':1}),
+            ('/api/dashboard/tasks/<int:task_id>/completion', 'PUT'): lambda: self.client.put('/api/dashboard/tasks/999999/completion', json={'completed':True,'version':1}),
+            ('/api/investment-goals/', 'GET'): lambda: self.client.get('/api/investment-goals/'),
+            ('/api/investor-journal/', 'GET'): lambda: self.client.get('/api/investor-journal/'),
+            ('/api/investor-journal/export', 'GET'): lambda: self.client.get('/api/investor-journal/export'),
+            ('/api/investor-journal/<int:entry_id>', 'GET'): lambda: self.client.get('/api/investor-journal/999999'),
+            ('/api/investor-journal/', 'POST'): lambda: self.client.post('/api/investor-journal/', json={
+                'title':'ETF thesis','entry_date':'2026-01-01','kind':'IDEA','status':'WATCHING','portfolio_id':self.portfolio_id,'tags':[],
+            }),
+            ('/api/investor-journal/<int:entry_id>', 'PUT'): lambda: self.client.put('/api/investor-journal/999999', json={'version':1}),
+            ('/api/investor-journal/<int:entry_id>/archive', 'PUT'): lambda: self.client.put('/api/investor-journal/999999/archive', json={'version':1,'archived':True}),
+            ('/api/investor-journal/<int:entry_id>/reviews', 'POST'): lambda: self.client.post('/api/investor-journal/999999/reviews', json={'version':1}),
+            ('/api/investment-goals/', 'POST'): lambda: self.client.post('/api/investment-goals/', json={
+                'name': 'Contract goal', 'description': '', 'target_amount': 10000, 'target_date': '2030-12-31',
+                'monthly_contribution': 100, 'annual_return': 0, 'portfolio_ids': [self.portfolio_id], 'target_allocation': None,
+            }),
+            ('/api/investment-goals/<int:goal_id>', 'PUT'): lambda: self.client.put('/api/investment-goals/999999', json={}),
+            ('/api/investment-goals/<int:goal_id>/archive', 'PUT'): lambda: self.client.put('/api/investment-goals/999999/archive', json={'archived': True}),
+            ('/api/investment-goals/<int:goal_id>/results', 'GET'): lambda: self.client.get('/api/investment-goals/999999/results'),
+            ('/api/portfolio/history/results/<int:portfolio_id>', 'GET'): lambda: self.client.get(f'/api/portfolio/history/results/{self.portfolio_id}'),
+            ('/api/portfolio/history/attribution/<int:portfolio_id>', 'GET'): lambda: self.client.get(f'/api/portfolio/history/attribution/{self.portfolio_id}?from=2026-03-01&to=2026-03-31'),
             ('/api/dashboard/global-summary', 'GET'): lambda: self.client.get('/api/dashboard/global-summary'),
             ('/api/dashboard/dividends/current-month', 'GET'): lambda: self.client.get(
                 '/api/dashboard/dividends/current-month'
@@ -426,6 +534,20 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/loans/<int:loan_id>/overpayments', 'POST'): lambda: self.client.post(
                 f'/api/loans/{self.loan_id}/overpayments',
                 json={'amount': 1000.0, 'date': '2026-03-15', 'type': 'REDUCE_TERM'},
+            ),
+            ('/api/loans/<int:loan_id>/overpayments/<int:overpayment_id>', 'DELETE'): lambda: self.client.delete(
+                f'/api/loans/{self.loan_id}/overpayments/999999'
+            ),
+            ('/api/loans/<int:loan_id>/payments', 'POST'): lambda: self.client.post(
+                f'/api/loans/{self.loan_id}/payments',
+                json={'installment_month': 1, 'paid_on': '2026-03-01'},
+            ),
+            ('/api/loans/<int:loan_id>/payments/<int:payment_id>', 'DELETE'): lambda: self.client.delete(
+                f'/api/loans/{self.loan_id}/payments/999999'
+            ),
+            ('/api/loans/<int:loan_id>/balance-checks', 'POST'): lambda: self.client.post(
+                f'/api/loans/{self.loan_id}/balance-checks',
+                json={'balance': 48000, 'checked_on': '2026-03-01'},
             ),
             ('/api/loans/<int:loan_id>/rates', 'POST'): lambda: self.client.post(
                 f'/api/loans/{self.loan_id}/rates',
@@ -470,6 +592,12 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/portfolio/import/staging/<session_id>', 'GET'): lambda: self.client.get(
                 f'/api/portfolio/import/staging/{missing_staging_session_id}'
             ),
+            ('/api/portfolio/<int:portfolio_id>/import/sessions', 'GET'): lambda: self.client.get(
+                f'/api/portfolio/{self.portfolio_id}/import/sessions'
+            ),
+            ('/api/portfolio/import/staging/<session_id>/refresh-symbols', 'POST'): lambda: self.client.post(
+                f'/api/portfolio/import/staging/{missing_staging_session_id}/refresh-symbols'
+            ),
             ('/api/portfolio/import/staging/<session_id>/rows/<int:row_id>/assign', 'PUT'): lambda: self.client.put(
                 f'/api/portfolio/import/staging/{missing_staging_session_id}/rows/{missing_staging_row_id}/assign',
                 json={'target_sub_portfolio_id': 1},
@@ -505,16 +633,31 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/portfolio/bonds', 'POST'): lambda: self.client.post(
                 '/api/portfolio/bonds',
                 json={
-                    'portfolio_id': self.portfolio_id,
+                    'portfolio_id': self.bond_portfolio_id,
                     'name': 'COI Bond',
-                    'principal': 1500.0,
+                    'kind': 'COI', 'quantity': 15, 'purchase_price': 100,
+                    'acquisition': 'EXISTING', 'request_id': str(uuid4()),
                     'interest_rate': 5.5,
                     'purchase_date': '2026-03-16',
                 },
             ),
             ('/api/portfolio/bonds/<int:portfolio_id>', 'GET'): lambda: self.client.get(
-                f'/api/portfolio/bonds/{self.portfolio_id}'
+                f'/api/portfolio/bonds/{self.bond_portfolio_id}'
             ),
+            ('/api/portfolio/bonds/workspace/<int:portfolio_id>', 'GET'): lambda: self.client.get(f'/api/portfolio/bonds/workspace/{self.bond_portfolio_id}'),
+            ('/api/portfolio/bonds/position/<int:bond_id>', 'PUT'): lambda: self.client.put('/api/portfolio/bonds/position/999999', json={}),
+            ('/api/portfolio/bonds/position/<int:bond_id>/estimate', 'GET'): lambda: self.client.get('/api/portfolio/bonds/position/999999/estimate?date=2026-10-03'),
+            ('/api/portfolio/bonds/position/<int:bond_id>/<action>', 'POST'): lambda: self.client.post('/api/portfolio/bonds/position/999999/rate', json={}),
+            ('/api/portfolio/bonds/import/preview', 'POST'): lambda: self.client.post('/api/portfolio/bonds/import/preview', json={'portfolio_id':self.bond_portfolio_id,'text':'name;kind;quantity;purchase_date;interest_rate\nTOS example;TOS;2;2026-01-01;6'}),
+            ('/api/portfolio/bonds/import/book', 'POST'): lambda: self.client.post('/api/portfolio/bonds/import/book', json={'portfolio_id':self.bond_portfolio_id,'rows':[],'request_id':str(uuid4())}),
+            ('/api/budget/imports/receipts/<int:draft_id>/recognize', 'POST'): lambda: self.client.post('/api/budget/imports/receipts/999999/recognize', json={}),
+            ('/api/budget/imports/receipts/<int:draft_id>', 'DELETE'): lambda: self.client.delete('/api/budget/imports/receipts/999999'),
+            ('/api/budget/workspace/entries/<int:entry_id>/apply-balance', 'POST'): lambda: self.client.post('/api/budget/workspace/entries/999999/apply-balance', json={}),
+            ('/api/budget/workspace/entries/<int:entry_id>/refunds', 'POST'): lambda: self.client.post('/api/budget/workspace/entries/999999/refunds', json={}),
+            ('/api/budget/workspace/entries/<int:entry_id>/settlement-preview', 'GET'): lambda: self.client.get('/api/budget/workspace/entries/999999/settlement-preview'),
+            ('/api/budget/workspace/entries/<int:entry_id>/reverse-settlement', 'POST'): lambda: self.client.post('/api/budget/workspace/entries/999999/reverse-settlement',json={}),
+            ('/api/loans/<int:loan_id>/net-worth-inclusion', 'PUT'): lambda: self.client.put('/api/loans/999999/net-worth-inclusion',json={}),
+            ('/api/portfolio/ppk/prices/refresh/<int:portfolio_id>', 'POST'): lambda: self.client.post('/api/portfolio/ppk/prices/refresh/999999',json={}),
             ('/api/portfolio/buy', 'POST'): lambda: self.client.post(
                 '/api/portfolio/buy',
                 json={
@@ -567,6 +710,8 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/portfolio/holdings/<int:portfolio_id>', 'GET'): lambda: self.client.get(
                 f'/api/portfolio/holdings/{self.portfolio_id}?refresh=0'
             ),
+            ('/api/portfolio/manual-price/<string:ticker>', 'PUT'): lambda: self.client.put('/api/portfolio/manual-price/AAPL',json={}),
+            ('/api/portfolio/manual-price/<string:ticker>', 'DELETE'): lambda: self.client.delete('/api/portfolio/manual-price/AAPL',json={}),
             ('/api/portfolio/limits', 'GET'): lambda: self.client.get('/api/portfolio/limits'),
             ('/api/portfolio/list', 'GET'): lambda: self.client.get('/api/portfolio/list'),
             ('/api/portfolio/ppk/transactions', 'POST'): lambda: self.client.post(
@@ -625,6 +770,8 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                     'date': '2026-03-24',
                 },
             ),
+            ('/api/portfolio/transfer/assets/<int:portfolio_id>', 'GET'): lambda: self.client.get(f'/api/portfolio/transfer/assets/{self.portfolio_id}'),
+            ('/api/portfolio/transfer/asset', 'POST'): lambda: self.client.post('/api/portfolio/transfer/asset', json={}),
             ('/api/portfolio/transfer/cash/<string:transfer_id>', 'DELETE'): lambda: self.client.delete(
                 f'/api/portfolio/transfer/cash/{transfer_id}'
             ),
@@ -637,7 +784,14 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 json={'portfolio_id': self.portfolio_id, 'amount': 25.0, 'date': '2026-03-22'},
             ),
             ('/api/radar/', 'GET'): lambda: self.client.get('/api/radar/'),
+            ('/api/investment-ideas/', 'GET'): lambda: self.client.get('/api/investment-ideas/'),
+            ('/api/investment-ideas/refresh', 'POST'): lambda: self.client.post('/api/investment-ideas/refresh',json={}),
+            ('/api/investment-ideas/publications', 'POST'): lambda: self.client.post('/api/investment-ideas/publications',json={}),
+            ('/api/investment-ideas/ideas', 'POST'): lambda: self.client.post('/api/investment-ideas/ideas',json={}),
+            ('/api/investment-ideas/ideas/<int:idea_id>', 'PUT'): lambda: self.client.put('/api/investment-ideas/ideas/999999',json={}),
             ('/api/radar/analysis/<ticker>', 'GET'): lambda: self.client.get('/api/radar/analysis/AAPL'),
+            ('/api/radar/history/<ticker>', 'GET'): lambda: self.client.get('/api/radar/history/AAPL'),
+            ('/api/radar/notes/<ticker>', 'POST'): lambda: self.client.post('/api/radar/notes/AAPL', json={'thesis': 'Contract test', 'target_price': None}),
             ('/api/radar/refresh', 'POST'): lambda: self.client.post('/api/radar/refresh', json={}),
             ('/api/radar/watchlist', 'POST'): lambda: self.client.post('/api/radar/watchlist', json={'ticker': 'MSFT'}),
             ('/api/radar/watchlist/<ticker>', 'DELETE'): lambda: self.client.delete('/api/radar/watchlist/AAPL'),
@@ -654,6 +808,25 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 f'/api/symbol-map/{self.create_symbol_mapping("GOOG.US", "GOOG")}'
             ),
         }, non_contract_assertions
+
+    def test_managed_account_workspace_and_opening_do_not_use_the_legacy_account_route(self):
+        from uuid import uuid4
+
+        legacy = self.client.get('/api/budget/accounts').get_json()['payload']
+        self.assertIsInstance(legacy, list)
+        workspace = self.client.get('/api/budget/accounts/').get_json()['payload']
+        self.assertIsInstance(workspace, dict)
+        self.assertIn('history', workspace)
+
+        response = self.client.post('/api/budget/accounts/', json={
+            'name': 'Opening route check', 'balance': 912, 'request_id': str(uuid4()),
+        })
+        self.assertEqual(response.status_code, 201)
+        account_id = response.get_json()['payload']['id']
+        workspace = self.client.get('/api/budget/accounts/').get_json()['payload']
+        account = next(a for a in workspace['accounts'] if a['id'] == account_id)
+        self.assertEqual((account['balance'], account['opening_balance']), (912, 912))
+        self.assertFalse(any(r['account_id'] == account_id for r in workspace['history']))
 
     def test_all_registered_endpoints_follow_the_api_contract(self):
         expected_routes = {

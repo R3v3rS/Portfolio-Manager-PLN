@@ -1,12 +1,45 @@
-from flask import Blueprint
+from flask import Blueprint, current_app, request
+import sqlite3
+import json
+from contextlib import closing
 from database import get_db
-from budget_service import BudgetService
+from budget_summary_service import monthly_budget_totals
 from portfolio_service import PortfolioService
 from loan_service import LoanService
 from api.response import success_response
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 dashboard_bp = Blueprint('dashboard_bp', __name__)
+
+
+@dashboard_bp.get('/monthly-report')
+def monthly_report():
+    from monthly_report_service import generate
+    return success_response(generate(request.args.get('month')))
+
+
+@dashboard_bp.get('/actions')
+def dashboard_actions():
+    from dashboard_actions_service import workspace
+    return success_response(workspace())
+
+
+@dashboard_bp.post('/tasks')
+def create_dashboard_task():
+    from dashboard_actions_service import save_task
+    return success_response(save_task(request.get_json(silent=True)), status=201)
+
+
+@dashboard_bp.put('/tasks/<int:task_id>')
+def update_dashboard_task(task_id):
+    from dashboard_actions_service import save_task
+    return success_response(save_task(request.get_json(silent=True), task_id))
+
+
+@dashboard_bp.put('/tasks/<int:task_id>/completion')
+def complete_dashboard_task(task_id):
+    from dashboard_actions_service import complete_task
+    return success_response(complete_task(task_id, request.get_json(silent=True)))
 
 POLISH_MONTHS = {
     1: "Styczeń",
@@ -27,30 +60,36 @@ POLISH_MONTHS = {
 def global_summary():
     db = get_db()
     
-    # 1. Total Cash (Budget Module)
-    # Only unallocated funds should count towards dashboard assets/net worth.
-    # We therefore use Total Free Pool instead of raw account balances.
-    accounts = db.execute("SELECT id FROM budget_accounts").fetchall()
-    total_free_pool = 0.0
-    for acc in accounts:
-        total_free_pool += BudgetService.get_free_pool(acc['id'])
-    total_cash = total_free_pool
+    # Actual money is an asset even when it has been assigned to a monthly plan.
+    budget_totals = monthly_budget_totals(db, date.today().strftime('%Y-%m'))
+    total_cash = budget_totals['balance']
+    total_free_pool = budget_totals['to_plan']
 
     # 2. Total Investments (Portfolio Module)
     portfolios = PortfolioService.list_portfolios()
     total_investments = 0.0
     
     # Breakdown variables
-    breakdown_cash_budget = total_cash # Free Pool from budget accounts
+    breakdown_cash_budget = total_cash
     breakdown_cash_invest = 0.0
     breakdown_savings = 0.0
     breakdown_bonds = 0.0
     breakdown_stocks = 0.0
     breakdown_ppk = 0.0
+    valuation_notes = []
+    investment_statuses = []
     
     for p in portfolios:
         p_val = PortfolioService.get_portfolio_value(p['id'], cached_prices_only=True)
         if p_val:
+            investment_statuses.append(p_val.get('valuation_status', 'ok'))
+            valuation_notes.extend(p_val.get('valuation_warnings', []))
+            if p_val.get('portfolio_value') is None:
+                total_investments += p_val.get('available_value', 0)
+                breakdown_cash_invest += p_val['cash_value']
+                if p['account_type'] in ('STANDARD', 'IKE', 'IKZE'):
+                    breakdown_stocks += max(0, p_val.get('available_value', 0) - p_val['cash_value'])
+                continue
             total_investments += p_val['portfolio_value']
             
             p_type = p.get('account_type', 'STANDARD')
@@ -61,6 +100,13 @@ def global_summary():
             elif p_type == 'PPK':
                 # Keep PPK as separate bucket in global assets structure
                 breakdown_ppk += p_val['portfolio_value']
+                from modules.ppk.ppk_service import PPKService
+                price = PPKService.get_cached_price()
+                valuation_notes.append('PPK w majątku: szacunkowa kwota zwrotu według modelu aplikacji; raport wyników funduszu pokazuje wartość brutto.')
+                if not price:
+                    valuation_notes.append(f'{p["name"]}: brak zapisanej ceny jednostki.')
+                elif (date.today()-date.fromisoformat(price['date'])).days>7:
+                    valuation_notes.append(f'{p["name"]}: cena jednostki z {price["date"]}, starsza niż 7 dni.')
             elif p_type == 'BONDS':
                 # For BONDS, split cash and holdings
                 breakdown_cash_invest += p_val['cash_value']
@@ -71,76 +117,60 @@ def global_summary():
                 breakdown_stocks += p_val['holdings_value']
 
     # 3. Total Liabilities (Loans Module)
-    loans_rows = db.execute("SELECT id, name, category FROM loans").fetchall()
+    loans_rows = db.execute("SELECT id, name, category, exclude_from_net_worth FROM loans").fetchall()
     total_liabilities = 0.0
     short_term_liabilities = 0.0
     long_term_liabilities = 0.0
+    excluded_liabilities = []
+    all_short_term_liabilities = 0.0
     next_installment_amount = 0.0
     next_installment_date = None
     
     today = date.today()
     
     for loan_row in loans_rows:
-        loan_id = loan_row['id']
-        # We use the schedule generation to get the accurate current remaining balance
-        # considering all overpayments/rate changes up to now.
-        schedule_data = LoanService.generate_amortization_schedule(loan_id)
-        
-        if not schedule_data or 'simulation' not in schedule_data:
+        status = LoanService.get_status(loan_row['id'], as_of=today.isoformat())
+        if not status:
             continue
-            
-        schedule = schedule_data['simulation']['schedule']
-        
-        # Find current balance: last entry where date <= today
-        # If today is before start, it's original amount (handled by month 0 in schedule usually)
-        
-        current_loan_balance = 0.0
-        
-        # Sort just in case, though usually sorted
-        sorted_schedule = sorted(schedule, key=lambda x: x['date'])
-        
-        # Find the state as of today
-        # We look for the last payment that occurred <= today
-        past_payments = [p for p in sorted_schedule if p['date'] <= today.isoformat()]
-        
-        if past_payments:
-            current_loan_balance = past_payments[-1]['remaining_balance']
+        # The loan overview and dashboard use the same projected balance.
+        # A bank reconciliation is a dated observation, not a current forecast.
+        current_loan_balance = status['estimated_balance']
+        if loan_row['category'] != 'HIPOTECZNY':
+            all_short_term_liabilities += current_loan_balance
+        if loan_row['exclude_from_net_worth']:
+            excluded_liabilities.append({'id': loan_row['id'], 'name': loan_row['name'], 'estimated_balance': round(current_loan_balance, 2)})
+            valuation_notes.append(f'Kredyt „{loan_row["name"]}” nie jest uwzględniany w majątku netto. Raty nadal są uwzględniane w budżecie i prognozie. Zmiana tego ustawienia wpływa na porównanie majątku w czasie.')
         else:
-            # If no payments yet (and month 0 is future?), use loan original amount
-            # But LoanService puts Month 0 at start_date.
-            if sorted_schedule:
-                current_loan_balance = sorted_schedule[0]['remaining_balance'] # Month 0
-        
-        total_liabilities += current_loan_balance
-
-        category = loan_row['category'] if loan_row['category'] else 'GOTOWKOWY'
-        if category == 'HIPOTECZNY':
-            long_term_liabilities += current_loan_balance
-        else:
-            # Short-term: cash loans + 0% installments (and fallback for unknown categories)
-            short_term_liabilities += current_loan_balance
-        
-        # Find next installment
-        future_payments = [p for p in sorted_schedule if p['date'] > today.isoformat()]
-        if future_payments:
-            next_payment = future_payments[0]
-            # We want the *soonest* installment across all loans
-            np_date = datetime.strptime(next_payment['date'], '%Y-%m-%d').date()
-            
-            if next_installment_date is None or np_date < next_installment_date:
-                next_installment_date = np_date
-                next_installment_amount = next_payment['installment']
-            elif np_date == next_installment_date:
-                next_installment_amount += next_payment['installment']
+            total_liabilities += current_loan_balance
+            if loan_row['category'] == 'HIPOTECZNY':
+                long_term_liabilities += current_loan_balance
+            else:
+                short_term_liabilities += current_loan_balance
+        if status['next_due_date']:
+            next_date = date.fromisoformat(status['next_due_date'])
+            if next_installment_date is None or next_date < next_installment_date:
+                next_installment_date = next_date
+                next_installment_amount = status['next_installment']
+            elif next_date == next_installment_date:
+                next_installment_amount += status['next_installment']
 
     # 4. Aggregation
     total_assets = total_cash + total_investments
     net_worth = total_assets - total_liabilities
     
+    from valuation_quality import combined_status
+    valuation_status = combined_status(investment_statuses)
     payload = {
+        "valuation_status": valuation_status,
+        "available_assets": round(total_assets, 2),
         "net_worth": round(net_worth, 2),
         "total_assets": round(total_assets, 2),
         "total_liabilities": round(total_liabilities, 2),
+        "excluded_liabilities": excluded_liabilities,
+        "all_short_term_liabilities": round(all_short_term_liabilities, 2),
+        "liabilities_source": "estimated",
+        "liabilities_as_of": today.isoformat(),
+        "valuation_notes": list(dict.fromkeys(valuation_notes)),
         "liabilities_breakdown": {
             "short_term": round(short_term_liabilities, 2),
             "long_term": round(long_term_liabilities, 2)
@@ -155,11 +185,32 @@ def global_summary():
         },
         "quick_stats": {
             "free_pool": round(total_free_pool, 2),
+            "expected_income": budget_totals['expected_income'],
             "next_loan_installment": round(next_installment_amount, 2),
             "next_loan_date": next_installment_date.isoformat() if next_installment_date else None
         }
     }
+    # Separate connection: recording a chart observation must never commit a financial transaction.
+    if valuation_status == 'incomplete':
+        payload.update(net_worth=None, total_assets=None)
+        return success_response(payload)
+    with closing(sqlite3.connect(current_app.config['DATABASE'])) as snapshots:
+        snapshots.execute('''INSERT INTO net_worth_snapshots
+            (date, net_worth, total_assets, total_liabilities, recorded_at, assets_breakdown, valuation_notes) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET net_worth=excluded.net_worth,
+            total_assets=excluded.total_assets, total_liabilities=excluded.total_liabilities,
+            recorded_at=excluded.recorded_at, assets_breakdown=excluded.assets_breakdown,
+            valuation_notes=excluded.valuation_notes''',
+            (today.isoformat(), payload['net_worth'], payload['total_assets'], payload['total_liabilities'], datetime.now(timezone.utc).isoformat(),
+             json.dumps(payload['assets_breakdown']),json.dumps(payload['valuation_notes'])))
+        snapshots.commit()
     return success_response(payload)
+
+
+@dashboard_bp.get('/net-worth-history')
+def net_worth_history():
+    rows = get_db().execute('SELECT date, net_worth, total_assets, total_liabilities FROM net_worth_snapshots ORDER BY date').fetchall()
+    return success_response({'history': [dict(row) for row in rows]})
 
 
 @dashboard_bp.route('/dividends/current-month', methods=['GET'])

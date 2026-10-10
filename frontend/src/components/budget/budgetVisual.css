@@ -1,0 +1,79 @@
+/* Clear hierarchy shared by the budget overview, plan and bills. */
+.budget-month-highlights { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.budget-month-highlights article { padding:1.1rem; }
+.budget-month-highlights article>strong { font-size:clamp(1.35rem,2.15vw,1.9rem); letter-spacing:-.035em; }
+.budget-month-highlights article>p,.budget-month-highlights article>small { font-size:.8rem; }
+.budget-month-highlights article>span { min-height:2.5em; font-size:.82rem; }
+.budget-month-highlights .bp-money-now>strong { color:var(--accent); }
+.budget-cash-context { display:flex; flex-wrap:wrap; align-items:center; gap:1rem 2rem; padding:.5rem .2rem; color:var(--muted); font-size:.85rem; }
+.budget-cash-context span,.budget-cash-context a { display:inline-flex; align-items:center; gap:.5rem; }
+.budget-cash-context strong { color:var(--ink); font-variant-numeric:tabular-nums; }
+.budget-cash-context a { color:var(--accent); margin-left:auto; }
+.budget-calculation-help { color:var(--muted); font-size:.82rem; line-height:1.7; }
+.budget-calculation-help summary { cursor:pointer; font-weight:550; padding:.3rem 0; }
+.budget-calculation-help p { margin:.6rem 0; max-width:75rem; }
+.budget-calculation-help[open] { padding-bottom:.5rem; }
+.budget-spending-summary.is-compact { grid-template-columns:repeat(2,minmax(0,1fr)); padding:1rem 1.2rem; gap:.8rem 1.5rem; background:var(--surface); border-color:var(--line); }
+.budget-spending-summary.is-compact .budget-spending-detail { border:0; padding:0; display:grid; grid-template-columns:1fr auto; align-items:center; gap:.3rem 1rem; }
+.budget-spending-summary.is-compact .budget-spending-detail b { font-size:1.15rem; margin:0; }
+.budget-spending-summary.is-compact .budget-spending-detail p,.budget-spending-summary.is-compact .budget-spending-detail small { grid-column:1/-1; font-size:.8rem; margin:0; }
+.budget-priority-panel .budget-bill-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 1.5rem; }
+.budget-priority-panel .budget-section-heading { margin-bottom:.5rem; }
+.budget-priority-panel .budget-section-footer { margin-top:.5rem; }
+.budget-chart-stack { display:flex; flex-direction:column; gap:1rem; }
+.budget-page .budget-main-grid { grid-template-columns:1fr; }
+.budget-category-group { padding:0; }
+.budget-category-row { padding:.8rem 0; align-items:center; }
+.budget-category-icon { flex-shrink:0; }
+.budget-category-money { text-align:right; font-variant-numeric:tabular-nums; }
+.budget-category-money b { color:var(--ink); font-size:.95rem; }
+.budget-category-money small { display:block; color:var(--muted); font-size:.78rem; margin-top:.2rem; }
+.budget-category-body .budget-progress { height:5px; margin-top:.4rem; }
+.budget-subcategory-details { margin-left:3rem; padding-bottom:.5rem; }
+.budget-subcategory-details summary { font-size:.8rem; cursor:pointer; }
+.budget-subcategory-list small { font-size:.78rem; }
+.budget-plan-mode { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.8rem 0 1rem; }
+.budget-plan-mode p { color:var(--muted); font-size:.85rem; }
+.budget-plan-read-row { display:grid; grid-template-columns:auto minmax(100px,1fr) repeat(3,minmax(90px,auto)); gap:1rem; align-items:center; padding:.8rem 0; }
+.budget-plan-read-row>div { text-align:right; font-variant-numeric:tabular-nums; }
+.budget-plan-read-row>div span { display:block; color:var(--muted); font-size:.78rem; margin-bottom:.3rem; }
+.budget-plan-read-row b { font-size:.95rem; }
+.budget-reserve-read-row { display:grid; grid-template-columns:minmax(130px,1fr) repeat(3,minmax(90px,auto)) auto; gap:1rem; align-items:center; padding:1rem 0; border-top:1px solid var(--line); }
+.budget-reserve-read-row>div:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
+.budget-reserve-read-row span,.budget-reserve-read-row small { display:block; color:var(--muted); font-size:.78rem; line-height:1.5; margin:.3rem 0; }
+.budget-reserve-read-row a { color:var(--ink); }
+.budget-reserve-read-row b { font-size:.95rem; }
+.budget-plan-group { padding:.3rem 0; }
+.budget-plan-settings { border:1px solid var(--line); background:var(--surface); border-radius:1rem; padding:1rem 1.2rem; }
+.budget-plan-settings>summary { font-size:.9rem; font-weight:600; cursor:pointer; color:var(--ink); }
+.budget-plan-settings[open]>summary { margin-bottom:1rem; }
+.budget-bill-status { display:inline-flex; width:fit-content; align-items:center; gap:.35rem; border-radius:.5rem; padding:.3rem .5rem; font-size:.78rem; font-weight:600; }
+.budget-bill-status.is-paid { background:color-mix(in srgb,#4ade80 10%,var(--surface)); color:#86efac; }
+.budget-bill-status.is-pending { background:var(--surface-muted); color:var(--muted); }
+.budget-bill-status.is-overdue { background:color-mix(in srgb,#fb7185 12%,var(--surface)); color:#fda4af; }
+.budget-bill-status.is-paused { background:var(--surface-muted); color:var(--muted); }
+.bp-obligation.is-overdue { border-left:3px solid #fb7185; padding-left:.85rem; }
+.budget-paid-bills { margin-top:1rem; padding:1rem; border:1px solid var(--line); border-radius:.85rem; }
+.budget-paid-bills>summary { cursor:pointer; font-size:.85rem; font-weight:600; color:var(--muted); }
+.budget-paid-bills>summary svg { display:inline; vertical-align:middle; margin-right:.4rem; color:#86efac; }
+.budget-page .bp-help,.budget-page .budget-insight-note,.budget-page .budget-plan-explanation,.budget-page .chart-note { font-size:.82rem; line-height:1.7; }
+.budget-page .bp-warning { border-color:color-mix(in srgb,#fbbf24 35%,var(--line)); color:#fcd898; }
+.budget-page .budget-entry-amount:not(.is-income) { color:var(--ink); }
+.budget-page .budget-entry-icon:not(.is-income) { background:var(--surface-muted); color:var(--muted); }
+.budget-page .budget-progress .is-over { background:#fb7185; }
+.budget-page .budget-progress .is-warning { background:#fbbf24; }
+@media(max-width:1100px) { .budget-month-highlights { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) {
+  .budget-priority-panel .budget-bill-list { grid-template-columns:1fr; }
+  .budget-cash-context { flex-direction:column; align-items:flex-start; gap:.65rem; }
+  .budget-cash-context a { margin-left:0; }
+  .budget-plan-mode { align-items:flex-start; flex-direction:column; }
+  .budget-plan-read-row { grid-template-columns:auto 1fr; gap:.75rem; }
+  .budget-plan-read-row>div { text-align:left; grid-column:1/-1; display:flex; justify-content:space-between; gap:.5rem; }
+  .budget-plan-read-row>div span { margin:0; }
+  .budget-reserve-read-row { grid-template-columns:1fr auto; }
+  .budget-reserve-read-row>div:first-child { grid-column:1/-1; }
+  .budget-reserve-read-row>div:not(:first-child) { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+  .budget-spending-summary.is-compact { grid-template-columns:1fr; }
+}
+@media(max-width:430px) { .budget-month-highlights { grid-template-columns:1fr; } .budget-month-highlights article>span { min-height:0; } }

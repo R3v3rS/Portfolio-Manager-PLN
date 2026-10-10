@@ -82,19 +82,23 @@ class PortfolioHistoryService(PortfolioCoreService):
 
         state['cash'] += PortfolioValuationService.cash_delta(tx)
 
-        if t_type == 'DEPOSIT':
+        if t_type in ('DEPOSIT', 'ASSET_IN'):
             state['invested_capital'] += t_val
             if benchmark_ticker and benchmark_ticker != '__INFLATION__':
                 bp = price_getter(benchmark_ticker, t_date)
+                if bp <= 0:
+                    state['benchmark_complete'] = False
                 if bp > 0:
                     state['benchmark_shares'] += (t_val / bp)
             ip = price_getter('__INFLATION__', t_date)
             if ip > 0:
                 state['inflation_shares'] += (t_val / ip)
-        elif t_type == 'WITHDRAW':
+        elif t_type in ('WITHDRAW', 'ASSET_OUT'):
             state['invested_capital'] -= t_val
             if benchmark_ticker and benchmark_ticker != '__INFLATION__':
                 bp = price_getter(benchmark_ticker, t_date)
+                if bp <= 0:
+                    state['benchmark_complete'] = False
                 if bp > 0:
                     state['benchmark_shares'] -= (t_val / bp)
             ip = price_getter('__INFLATION__', t_date)
@@ -102,9 +106,9 @@ class PortfolioHistoryService(PortfolioCoreService):
                 state['inflation_shares'] -= (t_val / ip)
 
         if t_ticker != 'CASH':
-            if t_type == 'BUY':
+            if t_type in ('BUY', 'ASSET_IN'):
                 state['holdings_qty'][t_ticker] = state['holdings_qty'].get(t_ticker, 0.0) + t_qty
-            elif t_type == 'SELL':
+            elif t_type in ('SELL', 'ASSET_OUT'):
                 state['holdings_qty'][t_ticker] = state['holdings_qty'].get(t_ticker, 0.0) - t_qty
 
     @staticmethod
@@ -186,6 +190,9 @@ class PortfolioHistoryService(PortfolioCoreService):
 
     @staticmethod
     def _build_price_context(portfolio_id, tickers, start_date, account_type, benchmark_ticker=None):
+        tickers = set(tickers)
+        if benchmark_ticker and benchmark_ticker != '__INFLATION__':
+            tickers.add(benchmark_ticker)
         db = get_db()
         ticker_currency: dict[str, str] = {}
         # Fetch current holdings to get currencies
@@ -247,6 +254,29 @@ class PortfolioHistoryService(PortfolioCoreService):
         return ticker_currency, price_history
 
     @staticmethod
+    def _holding_value(quantities, currencies, price_getter, point_date):
+        value, missing = 0.0, []
+        for ticker, quantity in quantities.items():
+            if quantity <= 0.0001:
+                continue
+            price = price_getter(ticker, point_date)
+            currency = currencies.get(ticker, 'PLN')
+            fx = 1.0 if currency == 'PLN' else price_getter(f'{currency}PLN=X', point_date)
+            if price <= 0 or fx <= 0:
+                missing.append(ticker)
+                continue
+            gross = quantity * price * fx
+            value += gross - PortfolioTradeService._calculate_fx_fee(gross, currency)
+        return value, missing
+
+    @staticmethod
+    def _benchmark_price(ticker, currencies, price_getter, point_date):
+        price = price_getter(ticker, point_date)
+        currency = currencies.get(ticker, 'PLN')
+        fx = 1.0 if currency == 'PLN' else price_getter(f'{currency}PLN=X', point_date)
+        return price * fx if price > 0 and fx > 0 else 0.0
+
+    @staticmethod
     def _sql_parent_scope_transactions():
         return (
             'portfolio_id = ? AND (sub_portfolio_id IS NULL OR sub_portfolio_id IN '
@@ -255,6 +285,9 @@ class PortfolioHistoryService(PortfolioCoreService):
 
     @staticmethod
     def _calculate_historical_metrics(portfolio_id, benchmark_ticker=None):
+        from strategy_archive_service import snapshot
+        frozen=snapshot(portfolio_id,'metrics')
+        if frozen is not None: return frozen
         cache_key = (portfolio_id, benchmark_ticker)
         if cache_key in PortfolioHistoryService._metrics_cache:
             return PortfolioHistoryService._metrics_cache[cache_key]
@@ -363,25 +396,17 @@ class PortfolioHistoryService(PortfolioCoreService):
         for end_date in month_ends:
             while tx_idx < tx_count and normalized_transactions[tx_idx]['date'] <= end_date:
                 PortfolioHistoryService._apply_tx_to_rolling(
-                    normalized_transactions[tx_idx], state, get_price_at_date, benchmark_ticker
+                    normalized_transactions[tx_idx], state,
+                    lambda ticker, day: PortfolioHistoryService._benchmark_price(
+                        ticker, ticker_currency, get_price_at_date, day)
+                    if ticker == benchmark_ticker else get_price_at_date(ticker, day), benchmark_ticker
                 )
                 tx_idx += 1
 
-            holdings_value = 0.0
+            holdings_value, missing = (0.0, [])
             if account_type not in ['SAVINGS', 'BONDS']:
-                for ticker, qty in state['holdings_qty'].items():
-                    if qty > 0.0001:
-                        native_price = get_price_at_date(ticker, end_date)
-                        currency = ticker_currency.get(ticker, 'PLN')
-                        fx_rate = 1.0 if currency == 'PLN' else get_price_at_date(f"{currency}PLN=X", end_date)
-                        if fx_rate <= 0:
-                            fx_rate = 1.0
-                        gross_value_pln = qty * native_price * fx_rate
-                        if currency != 'PLN':
-                            net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
-                        else:
-                            net_value_pln = gross_value_pln
-                        holdings_value += net_value_pln
+                holdings_value, missing = PortfolioHistoryService._holding_value(
+                    state['holdings_qty'], ticker_currency, get_price_at_date, end_date)
 
             total_value = state['cash'] + holdings_value
             profit = total_value - state['invested_capital']
@@ -390,22 +415,24 @@ class PortfolioHistoryService(PortfolioCoreService):
             # This avoids overstating/understating "today" versus the current portfolio value.
             if end_date == today:
                 live_value = PortfolioValuationService.get_portfolio_value(portfolio_id)
-                if live_value:
-                    total_value = float(live_value.get('portfolio_value', total_value))
+                if live_value and live_value.get('portfolio_value') is not None:
+                    total_value = float(live_value['portfolio_value'])
                     state['cash'] = float(live_value.get('cash_value', state['cash']))
                     holdings_value = float(live_value.get('holdings_value', holdings_value))
                     profit = total_value - state['invested_capital']
 
             metrics = {
-                "total_value": total_value,
-                "profit": profit,
+                "total_value": None if missing else total_value,
+                "profit": None if missing else profit,
+                "missing_tickers": missing,
                 "net_contributions": state['invested_capital'],
                 "cash_value": round(state['cash'], 2),
-                "holdings_value": round(holdings_value, 2),
+                "holdings_value": None if missing else round(holdings_value, 2),
             }
             if benchmark_ticker and benchmark_ticker != '__INFLATION__':
-                bp_end = get_price_at_date(benchmark_ticker, end_date)
-                metrics["benchmark_value"] = round(state['benchmark_shares'] * bp_end, 2)
+                bp_end = PortfolioHistoryService._benchmark_price(benchmark_ticker, ticker_currency, get_price_at_date, end_date)
+                metrics["benchmark_value"] = (round(state['benchmark_shares'] * bp_end, 2)
+                    if bp_end > 0 and state.get('benchmark_complete', True) else None)
             
             ip_end = get_price_at_date('__INFLATION__', end_date)
             metrics["benchmark_inflation_value"] = round(state['inflation_shares'] * ip_end, 2)
@@ -428,10 +455,11 @@ class PortfolioHistoryService(PortfolioCoreService):
             entry = {
                 'date': k,
                 'label': dt.strftime('%b %Y'),
-                'value': round(monthly_data[k]['total_value'], 2),
+                'value': round(monthly_data[k]['total_value'], 2) if monthly_data[k]['total_value'] is not None else None,
                 'net_contributions': round(monthly_data[k].get('net_contributions', 0.0), 2),
                 'cash_value': round(monthly_data[k].get('cash_value', 0), 2),
-                'holdings_value': round(monthly_data[k].get('holdings_value', 0), 2),
+                'holdings_value': monthly_data[k].get('holdings_value'),
+                'missing_tickers': monthly_data[k].get('missing_tickers', []),
             }
             
             # If inflation is the primary benchmark, set it to benchmark_value
@@ -455,15 +483,18 @@ class PortfolioHistoryService(PortfolioCoreService):
         result = []
         for k in sorted(monthly_data.keys()):
             dt = datetime.strptime(k, '%Y-%m')
-            result.append({'date': k, 'label': dt.strftime('%b %Y'), 'value': round(monthly_data[k]['profit'], 2)})
+            result.append({'date': k, 'label': dt.strftime('%b %Y'), 'value': round(monthly_data[k]['profit'], 2) if monthly_data[k]['profit'] is not None else None})
         return result
 
     @staticmethod
     def get_portfolio_profit_history_daily(portfolio_id, days=30, metric="profit"):
+        from strategy_archive_service import snapshot
+        frozen=snapshot(portfolio_id,'daily_value' if metric=='value' else 'daily_profit')
+        if frozen is not None: return frozen[-max(1,min(int(days),365)):]
         db = get_db()
         days = max(1, min(int(days), 365))
         end_date = date.today()
-        cache_key = f"{metric}_{days}_{end_date.isoformat()}"
+        cache_key = f"v3_{metric}_{days}_{end_date.isoformat()}"
         cached = PortfolioHistoryService._get_daily_cache(portfolio_id, cache_key)
         if cached is not None:
             return cached
@@ -492,7 +523,9 @@ class PortfolioHistoryService(PortfolioCoreService):
         if not transactions:
             return []
         start_date = end_date - timedelta(days=days - 1)
-        date_points = [start_date + timedelta(days=offset) for offset in range(days)]
+        if portfolio['parent_portfolio_id']:
+            start_date=max(start_date,min(PortfolioHistoryService._to_date(t['date']) for t in transactions))
+        date_points = [start_date + timedelta(days=offset) for offset in range((end_date-start_date).days+1)]
         tickers = {t['ticker'] for t in transactions if t['ticker'] not in ['CASH', '']}
 
         ticker_currency, price_history = PortfolioHistoryService._build_price_context(
@@ -549,33 +582,23 @@ class PortfolioHistoryService(PortfolioCoreService):
                 PortfolioHistoryService._apply_tx_to_rolling(normalized_transactions[tx_idx], state, get_price_at_date)
                 tx_idx += 1
 
-            total_value = state['cash']
+            holdings_value, missing = (0.0, [])
             if account_type not in ['SAVINGS', 'BONDS']:
-                for ticker, qty in state['holdings_qty'].items():
-                    if qty > 0.0001:
-                        native_price = get_price_at_date(ticker, point_date)
-                        currency = ticker_currency.get(ticker, 'PLN')
-                        fx_rate = 1.0 if currency == 'PLN' else get_price_at_date(f"{currency}PLN=X", point_date)
-                        if fx_rate <= 0:
-                            fx_rate = 1.0
-                        gross_value_pln = qty * native_price * fx_rate
-                        if currency != 'PLN':
-                            net_value_pln = gross_value_pln - PortfolioTradeService._calculate_fx_fee(gross_value_pln, currency)
-                        else:
-                            net_value_pln = gross_value_pln
-                        total_value += net_value_pln
+                holdings_value, missing = PortfolioHistoryService._holding_value(
+                    state['holdings_qty'], ticker_currency, get_price_at_date, point_date)
+            total_value = state['cash'] + holdings_value
 
             if point_date == end_date:
                 live_value = PortfolioValuationService.get_portfolio_value(portfolio_id)
-                if live_value:
-                    total_value = float(live_value.get('portfolio_value', total_value))
+                if live_value and live_value.get('portfolio_value') is not None:
+                    total_value = float(live_value['portfolio_value'])
                     # Sync invested_capital from live_value if available
                     live_invested = live_value.get('invested_capital') or live_value.get('net_contributions')
                     if live_invested is not None:
                         state['invested_capital'] = float(live_invested)
 
             value = total_value if metric == 'value' else total_value - state['invested_capital']
-            result.append({'date': point_date.strftime('%Y-%m-%d'), 'label': point_date.strftime('%d %b'), 'value': round(value, 2)})
+            result.append({'date': point_date.strftime('%Y-%m-%d'), 'label': point_date.strftime('%d %b'), 'value': None if missing else round(value, 2), 'missing_tickers': missing})
 
         PortfolioHistoryService._set_daily_cache(portfolio_id, cache_key, result)
         return result
@@ -586,6 +609,9 @@ class PortfolioHistoryService(PortfolioCoreService):
 
     @staticmethod
     def get_performance_matrix(portfolio_id):
+        from strategy_archive_service import snapshot
+        frozen=snapshot(portfolio_id,'matrix')
+        if frozen is not None: return frozen
         monthly_values_map = PortfolioHistoryService._calculate_historical_metrics(portfolio_id)
         if not monthly_values_map:
             return {}
@@ -605,11 +631,12 @@ class PortfolioHistoryService(PortfolioCoreService):
         else:
             # It's a parent - aggregate ALL transactions for this portfolio_id
             actual_portfolio_id = portfolio['id']
-            tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
-            tx_params = (actual_portfolio_id,)
+            tx_query = f"SELECT date, type, total_value FROM transactions WHERE {PortfolioHistoryService._sql_parent_scope_transactions()} AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
+            tx_params = (actual_portfolio_id, actual_portfolio_id)
 
         transactions = db.execute(tx_query, tx_params).fetchall()
         monthly_flows = {}
+        weighted_flows = {}
         for t in transactions:
             t_date_str = str(t['date']).split(' ')[0]
             month_key = t_date_str[:7]
@@ -619,6 +646,13 @@ class PortfolioHistoryService(PortfolioCoreService):
                 monthly_flows[month_key] += amount
             elif t['type'] == 'WITHDRAW':
                 monthly_flows[month_key] -= amount
+            flow_date = PortfolioHistoryService._to_date(t_date_str)
+            start = flow_date.replace(day=1)
+            next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+            end = min(next_month - timedelta(days=1), date.today())
+            weight = max((end - flow_date).days, 0) / ((end - start).days + 1)
+            signed_amount = amount if t['type'] == 'DEPOSIT' else -amount
+            weighted_flows[month_key] = weighted_flows.get(month_key, 0.0) + signed_amount * weight
 
         results = {}
         previous_end_value = 0.0
@@ -633,17 +667,19 @@ class PortfolioHistoryService(PortfolioCoreService):
             end_value = monthly_values_map[month_key]['total_value']
             net_flows = monthly_flows.get(month_key, 0.0)
             start_value = previous_end_value
-            profit = end_value - start_value - net_flows
-            denominator = start_value + (net_flows / 2.0)
+            profit = None if end_value is None or start_value is None else end_value - start_value - net_flows
+            denominator = None if start_value is None else start_value + weighted_flows.get(month_key, 0.0)
             
-            if denominator <= 0:
+            if profit is None or denominator is None or denominator <= 0:
                 monthly_return = None
                 results[year_key][month_int] = None
+                yearly_compounding[year_key] = None
             else:
                 monthly_return = profit / denominator
                 results[year_key][month_int] = round(monthly_return * 100, 2)
-                yearly_compounding[year_key] *= (1.0 + monthly_return)
+                if yearly_compounding[year_key] is not None:
+                    yearly_compounding[year_key] *= (1.0 + monthly_return)
             
-            results[year_key]['YTD'] = round((yearly_compounding[year_key] - 1.0) * 100, 2)
+            results[year_key]['YTD'] = round((yearly_compounding[year_key] - 1.0) * 100, 2) if yearly_compounding[year_key] is not None else None
             previous_end_value = end_value
         return results
