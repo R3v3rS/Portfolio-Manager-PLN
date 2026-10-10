@@ -626,12 +626,12 @@ class PortfolioHistoryService(PortfolioCoreService):
             # It's a child - filter transactions by parent_id and this child_id
             actual_portfolio_id = portfolio['parent_portfolio_id']
             actual_sub_portfolio_id = portfolio['id']
-            tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
+            tx_query = "SELECT date, type, total_value FROM transactions WHERE portfolio_id = ? AND sub_portfolio_id = ? AND type IN ('DEPOSIT', 'WITHDRAW','ASSET_IN','ASSET_OUT') ORDER BY date ASC"
             tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
         else:
             # It's a parent - aggregate ALL transactions for this portfolio_id
             actual_portfolio_id = portfolio['id']
-            tx_query = f"SELECT date, type, total_value FROM transactions WHERE {PortfolioHistoryService._sql_parent_scope_transactions()} AND type IN ('DEPOSIT', 'WITHDRAW') ORDER BY date ASC"
+            tx_query = f"SELECT date, type, total_value FROM transactions WHERE {PortfolioHistoryService._sql_parent_scope_transactions()} AND type IN ('DEPOSIT', 'WITHDRAW','ASSET_IN','ASSET_OUT') ORDER BY date ASC"
             tx_params = (actual_portfolio_id, actual_portfolio_id)
 
         transactions = db.execute(tx_query, tx_params).fetchall()
@@ -642,16 +642,16 @@ class PortfolioHistoryService(PortfolioCoreService):
             month_key = t_date_str[:7]
             amount = float(t['total_value'])
             monthly_flows.setdefault(month_key, 0.0)
-            if t['type'] == 'DEPOSIT':
+            if t['type'] in ('DEPOSIT','ASSET_IN'):
                 monthly_flows[month_key] += amount
-            elif t['type'] == 'WITHDRAW':
+            elif t['type'] in ('WITHDRAW','ASSET_OUT'):
                 monthly_flows[month_key] -= amount
             flow_date = PortfolioHistoryService._to_date(t_date_str)
             start = flow_date.replace(day=1)
             next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
             end = min(next_month - timedelta(days=1), date.today())
             weight = max((end - flow_date).days, 0) / ((end - start).days + 1)
-            signed_amount = amount if t['type'] == 'DEPOSIT' else -amount
+            signed_amount = amount if t['type'] in ('DEPOSIT','ASSET_IN') else -amount
             weighted_flows[month_key] = weighted_flows.get(month_key, 0.0) + signed_amount * weight
 
         results = {}

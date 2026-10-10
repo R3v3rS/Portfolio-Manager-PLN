@@ -8,6 +8,7 @@ const groups = [
     description: 'Zarządzaj strukturą portfeli i powiązaniami symboli.',
     tiles: [
       { title: 'Narzędzia portfeli', description: 'Importuj dane i zarządzaj portfelami.', to: '/admin/portfolios', icon: ListTree },
+      { title: 'Kopie bezpieczeństwa', description: 'Sprawdź ostatnią kopię, zapisz nową lub przywróć bazę.', to: '/admin/backups', icon: ShieldCheck },
       { title: 'Mapowanie symboli', description: 'Sprawdź powiązania nazw aktywów z tickerami i walutami.', to: '/admin/symbol-mapping', icon: SlidersHorizontal },
     ],
   },

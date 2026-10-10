@@ -12,6 +12,6 @@ export type ActualResults = {
 const portfolio = createApiClient('/portfolio');
 const goals = createApiClient('/investment-goals');
 export const actualResultsApi = {
-  portfolio: (id: number, from?: string) => portfolio.get<ActualResults>(`/history/results/${id}`, { params: from ? { from } : {} }),
+  portfolio: (id: number, from?: string,to?:string) => portfolio.get<ActualResults>(`/history/results/${id}`, { params: {...(from?{from}:{}),...(to?{to}:{})} }),
   goal: (id: number, from?: string) => goals.get<ActualResults>(`/${id}/results`, { params: from ? { from } : {} }),
 };

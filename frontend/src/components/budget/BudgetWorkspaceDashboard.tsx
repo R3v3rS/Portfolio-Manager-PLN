@@ -405,7 +405,7 @@ export default function BudgetWorkspaceDashboard() {
             </div>
           </>}
 
-          {view === 'plan' && <><BudgetMonthPlan data={data}/><section className="budget-panel surface-card">
+          {view === 'plan' && <><BudgetMonthPlan data={data} reload={reload}/><section className="budget-panel surface-card">
             <div className="budget-section-heading"><div><p className="page-eyebrow">{monthLabel(month)}</p><h2>Plan miesiąca</h2><p>Limit głównej kategorii jest wspólny dla jej podkategorii. Możesz też rozdzielić go na osobne limity. Rachunki i podkategorie liczymy tylko raz.</p></div><button type="button" className="budget-button-secondary" disabled={busy} onClick={() => void action(
               () => budgetWorkspaceApi.copyPlans(previousMonth, month).then(() => undefined),
               'Skopiowano brakujące limity z poprzedniego miesiąca.',

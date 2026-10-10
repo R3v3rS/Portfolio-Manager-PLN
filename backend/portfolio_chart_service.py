@@ -8,6 +8,25 @@ from portfolio_history_service import PortfolioHistoryService as History
 from portfolio_valuation_service import PortfolioValuationService
 
 
+def benchmark_returns(portfolio_id,start,end,ticker):
+    allowed={'^GSPC','ETFBW20TR.WA','ETFBM40TR.WA','VT','EEM','^STOXX'}
+    if ticker not in allowed or start>end or end>date.today():raise ValidationError('Wybierz poprawny benchmark i zakres dat.')
+    db=get_db();p=db.execute('SELECT * FROM portfolios WHERE id=?',(portfolio_id,)).fetchone()
+    if not p:raise NotFoundError('Portfel nie istnieje.')
+    currencies,prices=History._build_price_context(portfolio_id,{ticker},start,p['account_type'])
+    index=History._build_sorted_price_index(prices)
+    getter=lambda symbol,day:History._price_at(index,symbol,day)
+    def value(day):return History._holding_value({ticker:1},currencies,getter,day)
+    base,missing=value(start)
+    cursor=start.replace(day=1);items=[]
+    while cursor<=end:
+        next_month=(cursor.replace(day=28)+timedelta(days=4)).replace(day=1)
+        point=min(next_month-timedelta(days=1),end);current,absent=value(point)
+        items.append({'date':point.strftime('%Y-%m'),'value':None if missing or absent or base<=0 else round((current/base-1)*100,4)})
+        cursor=next_month
+    return {'items':items,'from':start.isoformat(),'to':end.isoformat(),'ticker':ticker,'method':'buy_and_hold_PLN_price_return'}
+
+
 def attribution(portfolio_id, start, end):
     if start > end or end > date.today():
         raise ValidationError('Invalid analysis dates')
@@ -35,19 +54,24 @@ def attribution(portfolio_id, start, end):
             continue
         before = History._to_date(row['date']) < start
         quantity = float(row['quantity'] or 0)
-        if row['type'] in ('BUY', 'SELL'):
-            change = quantity if row['type'] == 'BUY' else -quantity
+        if row['type'] in ('BUY', 'SELL', 'ASSET_IN', 'ASSET_OUT'):
+            change = quantity if row['type'] in ('BUY','ASSET_IN') else -quantity
             closing[ticker] += change
             if before:
                 opening[ticker] += change
             else:
-                flows[ticker] += PortfolioValuationService.cash_delta(row)
+                flows[ticker] += (-float(row['total_value']) if row['type']=='ASSET_IN' else float(row['total_value']) if row['type']=='ASSET_OUT' else PortfolioValuationService.cash_delta(row))
         elif not before and row['type'] == 'DIVIDEND':
             dividends[ticker] += float(row['total_value'] or 0)
     items, missing = [], []
+    live={h['ticker']:h for h in PortfolioValuationService.get_holdings(portfolio_id,cached_prices_only=True)} if end==date.today() else {}
     for ticker in sorted(tickers):
         start_value, missing_start = History._holding_value({ticker: opening[ticker]}, currencies, getter, start - timedelta(days=1))
         end_value, missing_end = History._holding_value({ticker: closing[ticker]}, currencies, getter, end)
+        if ticker in live and abs(closing[ticker]-float(live[ticker]['quantity']))<1e-6:
+            current=live[ticker].get('current_value')
+            if current is None:missing_end=[ticker]
+            else:end_value=float(current);missing_end=[]
         if missing_start or missing_end:
             missing.append(ticker)
             continue

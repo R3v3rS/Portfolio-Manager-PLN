@@ -20,6 +20,7 @@ const InvestorJournal = lazy(() => import('./pages/InvestorJournal'));
 const MonthlyReport = lazy(() => import('./pages/MonthlyReport'));
 const SymbolMappingPanel = lazy(() => import('./pages/SymbolMappingPanel'));
 const AdminHome = lazy(() => import('./pages/admin/AdminHome'));
+const AdminBackups = lazy(() => import('./pages/admin/AdminBackups'));
 const AdminPortfolios = lazy(() => import('./pages/admin/AdminPortfolios'));
 const AdminPortfolioTools = lazy(() => import('./pages/admin/AdminPortfolioTools'));
 const AdminConsistencyAudit = lazy(() => import('./pages/admin/AdminConsistencyAudit'));
@@ -33,6 +34,7 @@ function App() {
         <Suspense fallback={<div className="p-4 text-sm text-gray-500">Ładowanie widoku...</div>}>
           <Routes>
             <Route path="/" element={<MainDashboard />} />
+            <Route path="/admin/backups" element={<AdminBackups />} />
             <Route path="/portfolios" element={<PortfolioDashboard />} />
             <Route path="/portfolio/:id" element={<PortfolioDetails />} />
             <Route path="/radar" element={<InvestmentRadar />} />

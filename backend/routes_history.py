@@ -11,6 +11,39 @@ from price_service import PriceService
 from routes_portfolio_base import portfolio_bp
 
 
+@portfolio_bp.get('/<int:portfolio_id>/instrument-history')
+def instrument_history(portfolio_id):
+    from investment_review_service import instrument
+    return success_response(instrument(portfolio_id,request.args.get('ticker')))
+
+
+@portfolio_bp.get('/<int:portfolio_id>/strategy-comparison')
+def strategy_comparison(portfolio_id):
+    from investment_review_service import strategies
+    return success_response(strategies(portfolio_id))
+
+
+@portfolio_bp.get('/<int:portfolio_id>/events')
+def portfolio_events(portfolio_id):
+    from investment_review_service import events
+    from datetime import date
+    try:
+        start=date.fromisoformat(request.args.get('from','2000-01-01')).isoformat()
+        end=date.fromisoformat(request.args.get('to',date.today().isoformat())).isoformat()
+        if start>end or end>date.today().isoformat():raise ValueError()
+    except ValueError:raise ValidationError('Podaj poprawny zakres historii.') from None
+    _,rows=events(portfolio_id)
+    rows=[r for r in rows if start<=str(r['date'])[:10]<=end]
+    from database import get_db
+    db=get_db();p=db.execute('SELECT * FROM portfolios WHERE id=?',(portfolio_id,)).fetchone()
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name='investor_journal'").fetchone():
+        ids=[portfolio_id] if p['parent_portfolio_id'] else [portfolio_id]+[r['id'] for r in db.execute('SELECT id FROM portfolios WHERE parent_portfolio_id=?',(portfolio_id,))]
+        for note in db.execute(f"SELECT * FROM investor_journal WHERE portfolio_id IN ({','.join('?' for _ in ids)}) AND entry_date BETWEEN ? AND ?",[*ids,start,end]):
+            rows.append({'id':-note['id'],'date':note['entry_date'],'type':'JOURNAL','ticker':note['ticker'],'quantity':0,'price':0,'total_value':0,'strategy_name':None,'note_title':note['title']})
+    rows.sort(key=lambda r:(r['date'],r['id']))
+    return success_response({'items':rows[-5000:],'count':len(rows),'truncated':len(rows)>5000})
+
+
 @portfolio_bp.get('/history/results/<int:portfolio_id>')
 def get_actual_results(portfolio_id):
     from actual_results_service import analyze
@@ -27,6 +60,17 @@ def get_attribution(portfolio_id):
     except ValueError:
         raise ValidationError('Analysis dates must use YYYY-MM-DD') from None
     return success_response(attribution(portfolio_id, start, end))
+
+
+@portfolio_bp.get('/history/benchmark/<int:portfolio_id>')
+def benchmark_history(portfolio_id):
+    from datetime import date
+    from portfolio_chart_service import benchmark_returns
+    try:
+        start=date.fromisoformat(request.args.get('from',''))
+        end=date.fromisoformat(request.args.get('to',date.today().isoformat()))
+    except ValueError:raise ValidationError('Podaj zakres dat.') from None
+    return success_response(benchmark_returns(portfolio_id,start,end,request.args.get('ticker')))
 
 
 @portfolio_bp.route('/history/monthly/<int:portfolio_id>', methods=['GET'])

@@ -17,4 +17,4 @@ Baza SQLite, kopie bezpieczeństwa, przesłane paragony, prywatne raporty i zrzu
 
 ## Znane ograniczenia analiz
 
-Wkład instrumentów w wynik oraz miesięczna mapa stóp zwrotu wymagają jeszcze pełnego uwzględnienia transferów akcji pomiędzy strategiami. Wskaźniki ryzyka opisują obecny koszyk części akcyjnej, bez gotówki i historycznych zmian składu.
+Wkład instrumentów i miesięczne stopy uwzględniają przeniesienia akcji. Wskaźniki ryzyka nadal opisują obecny koszyk części akcyjnej, bez gotówki i historycznych zmian składu. Łączona miesięczna stopa Modified Dietz jest przybliżeniem, nie dokładną dzienną stopą TWR.

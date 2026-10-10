@@ -1,0 +1,8 @@
+.pr-date-range { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
+.pr-date-range label { display: grid; gap: 8px; }
+.pr-month-map { display: grid; grid-template-columns: repeat(auto-fit,minmax(120px,1fr)); gap: 12px; }
+.pr-month-map > div { display: grid; gap: 8px; border: 1px solid; border-radius: 12px; padding: 16px; }
+.pr-month-map strong { font-size: 22px; }
+
+.pr-result-toolbar { padding:16px; }
+.pr-result-toolbar .chart-heading { margin-bottom:0; }

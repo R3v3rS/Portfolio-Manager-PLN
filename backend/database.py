@@ -17,7 +17,8 @@ def close_db(e=None):
         db.close()
 
 def init_db(app):
-    app.teardown_appcontext(close_db)
+    if close_db not in app.teardown_appcontext_funcs:
+        app.teardown_appcontext(close_db)
     
     # Create tables if they don't exist
     with app.app_context():

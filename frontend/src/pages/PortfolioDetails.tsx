@@ -1,4 +1,6 @@
 import AccountOverview from '../components/portfolio/AccountOverview';
+import InstrumentHistory from '../components/portfolio/InstrumentHistory';
+import StrategyComparison from '../components/portfolio/StrategyComparison';
 import {extractErrorMessageFromUnknown} from '../http/response';
 import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
@@ -423,7 +425,7 @@ const formatSellDate = (value?: string | null) => {
   return parsed.toLocaleDateString('pl-PL');
 };
 
-type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history' | 'ai';
+type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'strategies' | 'ppk' | 'ppk_history' | 'ai';
 
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -439,6 +441,7 @@ const PortfolioDetails: React.FC = () => {
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('holdings');
+  const [historyInstrument,setHistoryInstrument]=useState<string|null>(null);
   const [analysisView, setAnalysisView] = useState<'structure' | 'risk' | 'income'>('structure');
   
   // Modals state
@@ -879,6 +882,7 @@ const PortfolioDetails: React.FC = () => {
   };
 
   const tabLabels: Record<string, string> = {
+    strategies:'Strategie i archiwum',
     holdings: 'Przegląd i pozycje',
     analytics: 'Analiza portfela',
     analytics_dashboard: 'Ryzyko',
@@ -887,7 +891,7 @@ const PortfolioDetails: React.FC = () => {
     history: 'Transakcje',
     bonds: 'Obligacje',
     savings: 'Oszczędności',
-    closed: 'Zamknięte pozycje',
+    closed: 'Sprzedaże i cykle',
     closed_cycles: 'Cykle pozycji',
     ppk: 'PPK',
     ppk_history: 'Historia wpłat',
@@ -920,13 +924,13 @@ const PortfolioDetails: React.FC = () => {
   const isChild = !!portfolio.parent_portfolio_id;
 
   const visibleTabs: ActiveTab[] =
-    portfolio.is_archived && isEquity ? ['holdings', 'results', 'history', 'closed', 'closed_cycles'] : portfolio.account_type === 'SAVINGS'
+    portfolio.is_archived && isEquity ? ['holdings', 'results', 'history', 'closed'] : portfolio.account_type === 'SAVINGS'
       ? ['savings', 'history', 'ai']
       : portfolio.account_type === 'BONDS'
         ? ['bonds', 'history', 'ai']
         : portfolio.account_type === 'PPK'
           ? ['ppk', 'ppk_history', 'ai']
-          : ['holdings', 'results', 'analytics', 'history', 'closed', 'closed_cycles', 'ai'];
+          : ['holdings', 'results', 'analytics', 'strategies', 'history', 'closed', 'ai'];
 
   const toggleTxSelection = (id: number) => {
     setSelectedTxIds(prev => 
@@ -944,6 +948,7 @@ const PortfolioDetails: React.FC = () => {
 
   return (
     <div className="portfolio-research-page space-y-6">
+      {historyInstrument&&<InstrumentHistory portfolioId={portfolio.id} ticker={historyInstrument} onClose={()=>setHistoryInstrument(null)}/>}
       {sectionsLoading && <p role="status" className="text-sm text-slate-400">Uzupełnianie historii i pozostałych sekcji…</p>}
       {sectionErrors.length > 0 && <div role="alert" className="rounded-xl border border-amber-700 p-4 text-sm text-amber-200">Nie udało się wczytać: {sectionErrors.join(', ')}. Dane tych sekcji są niedostępne. <button className="underline" onClick={fetchData}>Spróbuj ponownie</button></div>}
       {valueData.valuation_status && valueData.valuation_status !== 'ok' && <div role="status" className="rounded-xl border border-amber-700 p-4 text-sm text-amber-200"><strong>{valueData.valuation_status === 'incomplete' ? 'Niepełna wycena' : 'Wycena orientacyjna — nieaktualne notowania'}</strong>{valueData.valuation_warnings?.map(note => <p key={note}>{note}</p>)}{valueData.valuation_status === 'incomplete' && <p>Suma dostępnych wycen i gotówki: {valueData.available_value?.toLocaleString('pl-PL', {style:'currency',currency:'PLN'})}. Pełny wynik pozostaje niewyliczony.</p>}</div>}
@@ -1099,7 +1104,7 @@ const PortfolioDetails: React.FC = () => {
       )}
       {isEquity && <>
         {portfolio.is_archived && <p role="status" className="budget-feedback">Archiwum strategii — wynik i wykresy zatrzymane na dzień archiwizacji. Akcje i gotówka przeniesione do głównego portfela. Poniższe kwoty przedstawiają stan przy zamknięciu, nie dodatkowe środki.</p>}
-        <PortfolioSummary value={valueData} closedProfit={totalClosedProfit} />
+        {(activeTab!=='results'||portfolio.is_archived)&&<PortfolioSummary value={valueData} closedProfit={totalClosedProfit} />}
         {!portfolio.is_archived && <div className="pr-actions">
           <small>{latestPriceUpdate ? 'Notowania: ' + formatPriceUpdateTimestamp(latestPriceUpdate.toISOString()) : 'Brak daty aktualizacji notowań'}</small>
           <div>
@@ -1235,7 +1240,7 @@ const PortfolioDetails: React.FC = () => {
       <div className="pr-navigation overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-gray-200 px-4 py-4 dark:border-slate-800 md:px-6">
           <select
-            value={activeTab}
+            value={activeTab==='closed_cycles'?'closed':activeTab}
             onChange={(event) => setActiveTab(event.target.value as ActiveTab)}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 md:hidden"
             aria-label="Wybierz sekcję portfela"
@@ -1247,9 +1252,9 @@ const PortfolioDetails: React.FC = () => {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                aria-current={activeTab === tab ? "page" : undefined}
+                aria-current={(activeTab === tab || (tab==='closed'&&activeTab==='closed_cycles')) ? "page" : undefined}
                 className={cn(
-                  activeTab === tab
+                  (activeTab === tab || (tab==='closed'&&activeTab==='closed_cycles'))
                     ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
                     : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                   'px-3 py-2 font-medium text-sm rounded-md transition-colors whitespace-nowrap'
@@ -1272,12 +1277,15 @@ const PortfolioDetails: React.FC = () => {
           {(activeTab === 'results' || activeTab === 'value_history') && (portfolio.is_archived ? <PortfolioHistoryChart data={portfolioHistory} title="Historia wartości — zatrzymana przy archiwizacji" /> : <PortfolioResults key={portfolio.id} portfolioId={portfolio.id} history={portfolioHistory} benchmark={selectedBenchmark} onBenchmark={setSelectedBenchmark} dailyProfit={portfolioProfit30dHistory} />)}
 
           {activeTab === 'ai' && <PortfolioAIChat portfolioId={portfolio.id} />}
+          {activeTab === 'strategies' && <StrategyComparison portfolioId={portfolio.id}/>}
+          {(activeTab==='closed'||activeTab==='closed_cycles')&&<div className="chart-toolbar" aria-label="Sposób analizy sprzedaży"><button aria-pressed={activeTab==='closed'} onClick={()=>setActiveTab('closed')}>Według spółki</button><button aria-pressed={activeTab==='closed_cycles'} onClick={()=>setActiveTab('closed_cycles')}>Według cyklu posiadania</button><p className="chart-note">Sprzedaże obejmują także częściowo sprzedane pozycje. Cykl trwa od pierwszego zakupu lub przeniesienia do wyjścia z danej pozycji.</p></div>}
 
           {activeTab === 'holdings' && !portfolio.is_archived && <GoalsSummary portfolioId={portfolio.id} />}
           {activeTab === 'holdings' && (
             <div className="space-y-6">
               {!portfolio.is_archived && <PortfolioResearch key={portfolio.id}
                 holdings={holdings} value={valueData} onRefresh={fetchData}
+                onInstrument={setHistoryInstrument}
                 history={portfolioHistory} profitHistory={portfolioProfitHistory}
                 dailyHistory={portfolioValue30dHistory} dailyProfit={portfolioProfit30dHistory}
                 onHistory={fetchHistory} onSell={initiateSell} onClose={closePositionAtLastPrice}
@@ -1470,7 +1478,7 @@ const PortfolioDetails: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {t.ticker === 'CASH' ? '-' : t.ticker}
+                        {t.ticker === 'CASH' ? '-' : <button className="pr-text-button" onClick={()=>setHistoryInstrument(t.ticker)}>{t.ticker}</button>}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-gray-300 tabular-nums">
                         {parseFloat(Number(t.quantity).toFixed(4))}

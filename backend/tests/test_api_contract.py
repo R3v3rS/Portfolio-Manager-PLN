@@ -298,6 +298,13 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
         }
 
         return {
+            ('/api/backups/', 'GET'): lambda: self.client.get('/api/backups/'),
+            ('/api/backups/', 'POST'): lambda: self.client.post('/api/backups/',json={}),
+            ('/api/backups/restore', 'POST'): lambda: self.client.post('/api/backups/restore',json={}),
+            ('/api/portfolio/<int:portfolio_id>/instrument-history','GET'):lambda:self.client.get(f'/api/portfolio/{self.portfolio_id}/instrument-history?ticker=AAA'),
+            ('/api/portfolio/<int:portfolio_id>/strategy-comparison','GET'):lambda:self.client.get(f'/api/portfolio/{self.portfolio_id}/strategy-comparison'),
+            ('/api/portfolio/<int:portfolio_id>/events','GET'):lambda:self.client.get(f'/api/portfolio/{self.portfolio_id}/events'),
+            ('/api/portfolio/history/benchmark/<int:portfolio_id>','GET'):lambda:self.client.get(f'/api/portfolio/history/benchmark/{self.portfolio_id}'),
             ('/', 'GET'): lambda: self.client.get('/'),
             ('/monitoring', 'GET'): lambda: self.client.get('/monitoring'),
             ('/monitoring/stats', 'GET'): lambda: self.client.get('/monitoring/stats'),

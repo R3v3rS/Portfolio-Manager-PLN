@@ -4,8 +4,8 @@ import './charts.css';
 
 import { chartColors, chartDate, chartTooltip } from './chartTheme';
 export type TrendSeries = { key: string; name: string; color?: string; area?: boolean; dashed?: boolean };
-export function TrendChart<T extends object>({ data, series, unit = 'PLN', height = 300, zero = false, note = 'Kliknij nazwę serii w legendzie, aby ją ukryć. Przerwy oznaczają brak wyceny.' }: {
-  data: T[]; series: TrendSeries[]; unit?: string; height?: number; zero?: boolean; note?:string;
+export function TrendChart<T extends object>({ data, series, unit = 'PLN', height = 300, zero = false,annotations=[], note = 'Kliknij nazwę serii w legendzie, aby ją ukryć. Przerwy oznaczają brak wyceny.' }: {
+  data: T[]; series: TrendSeries[]; unit?: string; height?: number; zero?: boolean; note?:string;annotations?:{date:string;label:string}[];
 }) {
   const [hidden, setHidden] = useState<string[]>([]);
   const [table, setTable] = useState(false);
@@ -24,6 +24,7 @@ export function TrendChart<T extends object>({ data, series, unit = 'PLN', heigh
         <YAxis width={65} tickFormatter={value => `${new Intl.NumberFormat('pl-PL', { notation: 'compact' }).format(Number(value))}${unit === '%' ? '%' : ''}`} tick={{ fill: chartColors.text, fontSize: 11 }} tickLine={false} axisLine={false} />
         <Tooltip contentStyle={chartTooltip} labelStyle={{ color: '#edf7fa' }} labelFormatter={label => chartDate(String(label))} formatter={(value, name) => [format(Number(value)), name]} />
         {zero && <ReferenceLine y={0} stroke={chartColors.muted} />}
+        {annotations.map(a=><ReferenceLine key={a.date} x={a.date} stroke={chartColors.secondary} strokeDasharray="2 6" label={{value:a.label,position:'insideTopRight',fill:chartColors.text,fontSize:10}} />)}
         <Legend onClick={item => { const key = String(item.dataKey); setHidden(previous => previous.includes(key) ? previous.filter(value => value !== key) : [...previous, key]); }} wrapperStyle={{ fontSize: 12, cursor: 'pointer', paddingTop: 12 }} />
         {series.map((item, index) => item.area ? <Area key={item.key} dataKey={item.key} name={item.name} type="linear" hide={hidden.includes(item.key)} fill={item.color ?? chartColors.primary} fillOpacity={.13} stroke={item.color ?? chartColors.primary} strokeWidth={2} dot={showDots(item.key)} connectNulls={false} isAnimationActive={false} /> : <Line key={item.key} dataKey={item.key} name={item.name} type="linear" hide={hidden.includes(item.key)} stroke={item.color ?? (index ? chartColors.secondary : chartColors.primary)} strokeWidth={2} dot={showDots(item.key)} connectNulls={false} strokeDasharray={item.dashed ? '5 5' : undefined} isAnimationActive={false} />)}
       </ComposedChart>

@@ -102,7 +102,17 @@ def create_app():
     app.config['DATABASE'] = db_path
 
     # Initialize database
+    from backup_service import automatic
+    automatic(db_path,before_update=True)
     init_db(app)
+    from routes_backups import backups_bp
+    app.register_blueprint(backups_bp)
+
+    @app.before_request
+    def ensure_daily_backup():
+        if not app.config.get('TESTING'):
+            try: automatic(app.config['DATABASE'])
+            except Exception: app.logger.exception('Automatic daily backup failed')
 
     # Network warmup is opt-in. Starting the API must not depend on Yahoo being
     # available; normal views use the most recent persisted prices immediately.
