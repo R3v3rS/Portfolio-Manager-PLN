@@ -11,7 +11,7 @@ from portfolio_scope import resolve_portfolio_scope
 def assert_unlinked_transactions(db, transaction_ids):
     if not transaction_ids:
         return
-    if db.execute(f"SELECT 1 FROM transactions t JOIN portfolios p ON p.id=COALESCE(t.sub_portfolio_id,t.portfolio_id) WHERE t.id IN ({','.join('?' for _ in transaction_ids)}) AND p.is_archived=1 LIMIT 1",transaction_ids).fetchone():
+    if db.execute(f"SELECT 1 FROM transactions t JOIN portfolios p ON p.id=COALESCE(t.sub_portfolio_id,t.portfolio_id) JOIN portfolio_archive_snapshots s ON s.portfolio_id=p.id WHERE t.id IN ({','.join('?' for _ in transaction_ids)}) AND p.is_archived=1 LIMIT 1",transaction_ids).fetchone():
         raise ValidationError('Historia zarchiwizowanej strategii jest zamknięta i nie może zmieniać przypisania.')
     if db.execute(f"SELECT 1 FROM transactions WHERE id IN ({','.join('?' for _ in transaction_ids)}) AND transfer_id LIKE 'archive-cash:%' LIMIT 1",transaction_ids).fetchone():
         raise ValidationError('Transfer przy archiwizacji jest połączoną operacją i nie może zmieniać przypisania.')

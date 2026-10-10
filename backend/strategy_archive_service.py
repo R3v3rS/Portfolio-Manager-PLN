@@ -7,6 +7,8 @@ from api.exceptions import ValidationError
 
 
 def snapshot(portfolio_id, key):
+    from flask import has_app_context
+    if not has_app_context(): return None
     db=get_db()
     if not db.execute("SELECT 1 FROM sqlite_master WHERE name='portfolio_archive_snapshots'").fetchone(): return None
     row=db.execute('SELECT s.data FROM portfolio_archive_snapshots s JOIN portfolios p ON p.id=s.portfolio_id WHERE s.portfolio_id=? AND p.is_archived=1',(portfolio_id,)).fetchone()

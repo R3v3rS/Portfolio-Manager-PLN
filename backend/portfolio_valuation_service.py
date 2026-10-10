@@ -477,7 +477,7 @@ class PortfolioValuationService(PortfolioCoreService):
 
         db = get_db()
         # Check if this portfolio has children (is it a parent?)
-        children = db.execute('SELECT id, name, is_archived FROM portfolios WHERE parent_portfolio_id = ?', (portfolio_id,)).fetchall()
+        children = db.execute('SELECT id, name, is_archived FROM portfolios WHERE parent_portfolio_id = ? AND (is_archived=0 OR id IN (SELECT portfolio_id FROM portfolio_archive_snapshots))', (portfolio_id,)).fetchall()
         
         # Calculate its OWN value (where sub_portfolio_id is NULL)
         own_value_data = PortfolioValuationService._calculate_single_portfolio_value(
