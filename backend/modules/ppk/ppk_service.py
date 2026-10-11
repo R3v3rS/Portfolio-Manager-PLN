@@ -1,13 +1,26 @@
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timezone
 import re
 import json
+import math
+import logging
+import time
+from threading import RLock
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from typing import Optional, Dict, Any
 
+from valuation_quality import quote_status
 from database import get_db
 from .ppk_calculation import PPKCalculation
 from .ppk_dto import PPKSummaryDTO
+
+PPK_NN_API_URL = 'https://www.nn.pl/api/api-data'
+PPK_NN_FUND_CODE = 'FZD2055'
+PPK_DEFAULT_FUND_ID = '61777738'
+_refresh_lock = RLock()
+_failed_refreshes = {}
+logger = logging.getLogger(__name__)
 
 PPK_PRICE_URL = 'https://mojefundusze.pl/Fundusze/PPK/Nationale-Nederlanden-DFE-Nasze-Jutro-2055-PPK'
 PPK_BIZNESRADAR_HISTORY_URL = 'https://www.biznesradar.pl/notowania-historyczne/NNDN55.TFI'
@@ -19,6 +32,105 @@ def _q(value: Decimal, places: str = '0.01') -> float:
     return float(value.quantize(Decimal(places), rounding=ROUND_HALF_UP))
 
 class PPKService:
+    @staticmethod
+    def get_cached_price(fund_id: str = '61777738') -> Optional[Dict[str, Any]]:
+        cached = get_db().execute(
+            'SELECT data FROM ppk_weekly_history WHERE fund_id = ?',
+            (fund_id,),
+        ).fetchone()
+        if not cached:
+            return None
+
+        cached_data = json.loads(cached['data'])
+        if not cached_data:
+            return None
+
+        eligible = PPKService._valid_points(cached_data, 'week')
+        if not eligible:
+            return None
+        latest = max(eligible, key=lambda p: p['week'])
+        result = {'price': latest['price'], 'date': latest['week']}
+        if latest.get('source'):
+            result['source'] = latest['source']
+        return result
+
+    @staticmethod
+    def _valid_points(points, date_field='date') -> list[dict]:
+        valid = {}
+        for point in points:
+            try:
+                stamp = str(point[date_field])[:10]
+                day = date.fromisoformat(stamp)
+                price = float(point['price'])
+                if day > date.today() or not math.isfinite(price) or price <= 0:
+                    continue
+                valid[stamp] = {date_field: stamp, 'price': price}
+                if point.get('source'):
+                    valid[stamp]['source'] = point['source']
+            except (KeyError, TypeError, ValueError):
+                continue
+        return [valid[stamp] for stamp in sorted(valid)]
+
+    @staticmethod
+    def _fetch_nn_json(path: str):
+        url = PPK_NN_API_URL + '?' + urlencode({'pathname': path})
+        request = Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'})
+        with urlopen(request, timeout=8) as response:
+            return json.loads(response.read().decode('utf-8'))
+
+    @staticmethod
+    def _parse_nn_current(data) -> dict:
+        rows = [item for item in data.get('items', [])
+                if item.get('code') == PPK_NN_FUND_CODE and item.get('product') == 'PPK'
+                and item.get('currency') == 'PLN']
+        points = PPKService._valid_points([
+            {'date': row.get('quoteDate'), 'price': row.get('purchasePrice'), 'source': 'Nationale-Nederlanden'}
+            for row in rows
+        ])
+        if not points:
+            raise ValueError('Brak poprawnej wyceny funduszu NN Nasze Jutro 2055.')
+        return points[-1]
+
+    @staticmethod
+    def _parse_nn_history(data) -> list[dict]:
+        graph = data.get(PPK_NN_FUND_CODE, {}).get('graphData', {})
+        points = PPKService._valid_points([
+            {'date': stamp, 'price': price, 'source': 'Nationale-Nederlanden'}
+            for stamp, price in graph.items()
+        ])
+        if not points:
+            raise ValueError('Brak poprawnej historii wycen funduszu NN Nasze Jutro 2055.')
+        return points
+
+    @staticmethod
+    def refresh_price(portfolio_id: int, force: bool = False) -> dict:
+        # Serialize requests so the list and detail view share one cache update.
+        db = get_db()
+        with _refresh_lock:
+            cached = PPKService.get_cached_price()
+            cache_row = db.execute('SELECT CAST(updated_at AS TEXT) AS updated_at FROM ppk_weekly_history WHERE fund_id=?',
+                                   (PPK_DEFAULT_FUND_ID,)).fetchone()
+            if not force and cached and cache_row:
+                try:
+                    checked = datetime.fromisoformat(cache_row['updated_at'])
+                    if 0 <= (datetime.now(timezone.utc).replace(tzinfo=None) - checked).total_seconds() < 12 * 3600:
+                        return {'currentPrice': cached, 'changed': False, 'warning': None}
+                except (ValueError, TypeError):
+                    pass
+            cache_key = tuple(db.execute('PRAGMA database_list').fetchone()) + (PPK_DEFAULT_FUND_ID,)
+            failed = _failed_refreshes.get(cache_key)
+            if not force and failed and time.monotonic() - failed[0] < 600:
+                return {'currentPrice': cached, 'changed': False, 'warning': failed[1]}
+            first = db.execute("SELECT MIN(t.date) FROM ppk_transactions t JOIN portfolios p ON p.id=t.portfolio_id WHERE p.account_type='PPK'").fetchone()[0]
+            result = PPKService.update_cache(PPK_DEFAULT_FUND_ID, first or date.today().isoformat())
+            warning = result.get('warning')
+            if warning:
+                _failed_refreshes[cache_key] = (time.monotonic(), warning)
+            else:
+                _failed_refreshes.pop(cache_key, None)
+            latest = PPKService.get_cached_price()
+            return {'currentPrice': latest, 'changed': latest != cached, 'warning': warning}
+
     @staticmethod
     def _parse_biznesradar_history(html: str) -> list[dict]:
         rows = re.findall(
@@ -44,6 +156,20 @@ class PPKService:
 
     @staticmethod
     def fetch_current_price() -> Dict[str, Any]:
+        try:
+            return PPKService._parse_nn_current(PPKService._fetch_nn_json(
+                '/funds/pension/overview?' + urlencode({'quoteDate': date.today().isoformat(), 'size': 200, 'sort': 'name,asc'})
+            ))
+        except Exception as exc:
+            logger.warning('Official NN PPK quote unavailable: %s', exc)
+        try:
+            request = Request(PPK_BIZNESRADAR_HISTORY_URL, headers={'User-Agent': 'Mozilla/5.0'})
+            with urlopen(request, timeout=8) as response:
+                points = PPKService._valid_points(PPKService._parse_biznesradar_history(response.read().decode('utf-8', 'ignore')))
+            if points:
+                return dict(points[-1], source='BiznesRadar')
+        except Exception as exc:
+            logger.warning('Alternative PPK quote unavailable: %s', exc)
         request = Request(
             PPK_PRICE_URL,
             headers={
@@ -74,13 +200,25 @@ class PPKService:
             raise ValueError('Nie udało się pobrać aktualnej ceny PPK ze strony źródłowej.')
 
         price = float(price_match.group(1).replace(' ', '').replace(',', '.'))
+        points = PPKService._valid_points([{'date': date_match.group(1), 'price': price}])
+        if not points:
+            raise ValueError('Niepoprawna cena lub data wyceny PPK.')
         return {
             'price': _q(Decimal(str(price))),
             'date': date_match.group(1),
+            'source': 'mojeFundusze',
         }
 
     @staticmethod
     def fetch_daily_history(fund_id: str) -> list[dict]:
+        if fund_id != PPK_DEFAULT_FUND_ID:
+            raise ValueError('Nieobsługiwany fundusz PPK. Skonfigurowany jest NN Nasze Jutro 2055.')
+        try:
+            return PPKService._parse_nn_history(PPKService._fetch_nn_json(
+                '/funds/quotes/graph?' + urlencode({'codes': PPK_NN_FUND_CODE, 'from': '2019-09-09', 'to': date.today().isoformat()})
+            ))
+        except Exception as exc:
+            logger.warning('Official NN PPK history unavailable: %s', exc)
         history_by_date: dict[str, float] = {}
 
         # Primary source: BiznesRadar historical table (supports pagination via ",<page>").
@@ -107,7 +245,7 @@ class PPKService:
         if history_by_date:
             history = [{'date': dt, 'price': price} for dt, price in history_by_date.items()]
             history.sort(key=lambda x: x['date'])
-            return history
+            return [dict(point, source='BiznesRadar') for point in PPKService._valid_points(history)]
 
         # Fallback source: mojefundusze JSON endpoint.
         url = f'https://mojefundusze.pl/inc/wykres_small.php?ID={fund_id}&OK=9'
@@ -130,125 +268,62 @@ class PPKService:
                     if len(point) == 2:
                         history.append({'date': point[0], 'price': float(point[1])})
                 history.sort(key=lambda x: x['date'])
-                return history
+                return [dict(point, source='mojeFundusze') for point in PPKService._valid_points(history)]
         except Exception as e:
             print(f"Error fetching daily history for {fund_id}: {e}")
             return []
 
     @staticmethod
     def aggregate_weekly(daily_data: list[dict]) -> list[dict]:
-        if not daily_data:
-            return []
-
-        # Group by calendar week
-        weeks_map = {}
-        min_date = date.fromisoformat(daily_data[0]['date'])
-        max_date = date.fromisoformat(daily_data[-1]['date'])
-        
-        for entry in daily_data:
-            dt = date.fromisoformat(entry['date'])
-            iso_year, iso_week, _ = dt.isocalendar()
-            key = (iso_year, iso_week)
-            
-            if key not in weeks_map:
-                weeks_map[key] = entry
-            else:
-                if entry['date'] > weeks_map[key]['date']:
-                    weeks_map[key] = entry
-
-        weekly_history = []
-        current_dt = min_date
-        # Move to the Monday of the starting week to ensure consistent iteration
-        current_dt = current_dt - timedelta(days=current_dt.weekday())
-        
-        last_known_price = daily_data[0]['price']
-        
-        while current_dt <= max_date:
-            iso_year, iso_week, _ = current_dt.isocalendar()
-            key = (iso_year, iso_week)
-            
-            if key in weeks_map:
-                last_known_price = weeks_map[key]['price']
-                ref_date = weeks_map[key]['date']
-            else:
-                # No data for this week, use last known price
-                # Friday of the week as fallback reference date
-                friday_of_week = current_dt + timedelta(days=4)
-                ref_date = min(friday_of_week, max_date).isoformat()
-            
-            weekly_history.append({
-                'week': ref_date,
-                'price': last_known_price
-            })
-            
-            current_dt += timedelta(days=7)
-            
-        return weekly_history
+        # Preserve the actual quotation date; gaps must not pretend to be fresh quotes.
+        weeks = {}
+        for point in PPKService._valid_points(daily_data):
+            key = PPKService._iso_week_key(point['date'])
+            weeks[key] = dict(point)
+        return [dict({'week': point['date'], 'price': point['price']},
+                     **({'source': point['source']} if point.get('source') else {}))
+                for point in sorted(weeks.values(), key=lambda point: point['date'])]
 
     @staticmethod
-    def update_cache(fund_id: str, first_contribution_date: str) -> dict:
+    def update_cache(fund_id: str, first_contribution_date: str, cached_only: bool = False) -> dict:
         db = get_db()
-        cached = db.execute(
-            'SELECT data, last_week FROM ppk_weekly_history WHERE fund_id = ?',
-            (fund_id,)
-        ).fetchone()
-
-        daily_history = PPKService.fetch_daily_history(fund_id)
-        latest_price = daily_history[-1]['price'] if daily_history else 0
-        
-        if not daily_history:
-            if cached:
-                return {
-                    'data': json.loads(cached['data']),
-                    'last_week': cached['last_week'],
-                    'latest_price': 0
-                }
-            return {'data': [], 'last_week': None, 'latest_price': 0}
-
-        if cached:
-            cached_data = json.loads(cached['data'])
-            last_week = cached['last_week']
-            
-            # Compute only weeks AFTER last_week
-            new_daily = [d for d in daily_history if d['date'] > last_week]
-            if new_daily:
-                new_weekly = PPKService.aggregate_weekly(new_daily)
-                
-                # Filter out duplicates (by ISO week) and append
-                existing_weeks = {PPKService._iso_week_key(w['week']) for w in cached_data}
-                filtered_new_weekly = [w for w in new_weekly if PPKService._iso_week_key(w['week']) not in existing_weeks]
-                
-                if filtered_new_weekly:
-                    cached_data.extend(filtered_new_weekly)
-                    last_week = cached_data[-1]['week']
-                    
-                    db.execute(
-                        'UPDATE ppk_weekly_history SET data = ?, last_week = ?, updated_at = CURRENT_TIMESTAMP WHERE fund_id = ?',
-                        (json.dumps(cached_data), last_week, fund_id)
-                    )
-                    db.commit()
-            
-            return {'data': cached_data, 'last_week': last_week, 'latest_price': latest_price}
+        cached = db.execute('SELECT data, last_week FROM ppk_weekly_history WHERE fund_id=?', (fund_id,)).fetchone()
+        cached_data = PPKService._valid_points(json.loads(cached['data']), 'week') if cached else []
+        if cached_only:
+            return {'data': cached_data, 'last_week': cached_data[-1]['week'] if cached_data else None,
+                    'latest_price': cached_data[-1]['price'] if cached_data else None}
+        daily = PPKService._valid_points(PPKService.fetch_daily_history(fund_id))
+        if not daily:
+            try:
+                daily = [PPKService.fetch_current_price()]
+            except Exception as exc:
+                logger.warning('PPK refresh failed: %s', exc)
+        warning = None
+        if not daily:
+            warning = 'Nie udało się pobrać wyceny PPK. Zachowano ostatnią zapisaną cenę.'
+        elif cached_data and daily[-1]['date'] < cached_data[-1]['week']:
+            warning = 'Źródło zwróciło starszą wycenę PPK. Zachowano nowszą zapisaną cenę.'
         else:
-            # Full compute from first_contribution_date
-            filtered_daily = [d for d in daily_history if d['date'] >= first_contribution_date]
-            if not filtered_daily and daily_history:
-                filtered_daily = [daily_history[-1]] # At least something
-                
-            weekly_data = PPKService.aggregate_weekly(filtered_daily)
-            if weekly_data:
-                last_week = weekly_data[-1]['week']
-                db.execute(
-                    'INSERT INTO ppk_weekly_history (fund_id, data, last_week) VALUES (?, ?, ?)',
-                    (fund_id, json.dumps(weekly_data), last_week)
-                )
+            # Replace the current ISO week when a newer day arrives instead of dropping it.
+            by_week = {PPKService._iso_week_key(p['week']): p for p in cached_data}
+            filtered = [p for p in daily if p['date'] >= first_contribution_date]
+            for point in PPKService.aggregate_weekly(filtered or daily[-1:]):
+                key = PPKService._iso_week_key(point['week'])
+                existing = by_week.get(key)
+                if not existing or point['week'] >= existing['week']:
+                    by_week[key] = point
+            cached_data = sorted(by_week.values(), key=lambda point: point['week'])
+            if cached_data:
+                db.execute("""INSERT INTO ppk_weekly_history(fund_id,data,last_week,updated_at)
+                    VALUES (?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(fund_id) DO UPDATE SET
+                    data=excluded.data,last_week=excluded.last_week,updated_at=CURRENT_TIMESTAMP""",
+                    (fund_id, json.dumps(cached_data), cached_data[-1]['week']))
                 db.commit()
-                return {'data': weekly_data, 'last_week': last_week, 'latest_price': latest_price}
-            
-            return {'data': [], 'last_week': None, 'latest_price': latest_price}
+        return {'data': cached_data, 'last_week': cached_data[-1]['week'] if cached_data else None,
+                'latest_price': cached_data[-1]['price'] if cached_data else None, 'warning': warning}
 
     @staticmethod
-    def compute_performance(portfolio_id: int, fund_id: str) -> dict:
+    def compute_performance(portfolio_id: int, fund_id: str, cached_only: bool = False) -> dict:
         db = get_db()
         first_tx = db.execute(
             'SELECT date FROM ppk_transactions WHERE portfolio_id = ? ORDER BY date ASC LIMIT 1',
@@ -268,17 +343,18 @@ class PPKService:
         first_date = first_tx['date']
         
         # Incremental update
-        cache_result = PPKService.update_cache(fund_id, first_date)
-        weekly_data = cache_result['data']
-        current_price = cache_result['latest_price']
+        cache_result = PPKService.update_cache(fund_id, first_date, cached_only=cached_only)
+        weekly_data = [p for p in cache_result['data'] if p['week'] <= date.today().isoformat() and float(p['price']) > 0]
+        current_price = weekly_data[-1]['price'] if weekly_data else None
         
         if not weekly_data:
              return {
                 'start_week': None,
                 'start_price': 0,
                 'current_price': current_price,
-                'return_pln': 0,
-                'return_pct': 0,
+                'return_pln': None,
+                'return_pct': None,
+                'valuation_status': 'incomplete',
                 'chart': []
             }
 
@@ -327,8 +403,10 @@ class PPKService:
             'start_week': start_week_entry['week'],
             'start_price': start_price,
             'current_price': current_price,
-            'return_pln': float(summary['netProfit']),
-            'return_pct': float(summary['netProfit'] / summary['totalPurchaseValue'] * 100) if summary['totalPurchaseValue'] > 0 else 0,
+            'return_pln': summary['totalProfit'],
+            'return_pct': summary['totalProfit'] / summary['totalPurchaseValue'] * 100 if summary['totalPurchaseValue'] > 0 else None,
+            'valuation_status': quote_status(current_price, weekly_data[-1]['week']),
+            'valuation_as_of': weekly_data[-1]['week'],
             'chart': extended_chart
         }
 

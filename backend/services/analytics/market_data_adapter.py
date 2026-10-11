@@ -11,6 +11,7 @@ from flask import g, has_app_context
 from api.exceptions import ValidationError
 from database import get_db
 from price_service import PriceService
+from portfolio_scope import resolve_portfolio_scope
 
 
 class MarketDataAdapter:
@@ -217,11 +218,12 @@ class MarketDataAdapter:
             raise ValidationError("portfolio_id must be a positive integer")
 
         db = cls._db()
+        portfolio_id, sub_portfolio_id = resolve_portfolio_scope(db, portfolio_id, sub_portfolio_id)
         params: list[Any] = [portfolio_id]
         query = """
             SELECT ticker, quantity, average_buy_price, total_cost, sector, currency, sub_portfolio_id
             FROM holdings
-            WHERE portfolio_id = ?
+            WHERE portfolio_id = ? AND quantity > 0
         """
         if sub_portfolio_id is not None:
             if sub_portfolio_id <= 0:
@@ -266,7 +268,7 @@ class MarketDataAdapter:
                     "total_cost": 0.0,
                     "weighted_buy_value": 0.0,
                     "sector": sector,
-                    "currency": row["currency"],
+                    "currency": (row["currency"] or 'PLN').upper(),
                 }
 
             aggregated[ticker]["quantity"] += quantity
@@ -287,13 +289,19 @@ class MarketDataAdapter:
         ).fetchall()
         price_map = {row["ticker"]: float(row["price"]) for row in price_rows if row["price"] is not None}
 
+        currencies = {item['currency'] for item in aggregated.values()} - {'PLN'}
+        fx_prices = PriceService.get_prices([f'{currency}PLN=X' for currency in currencies]) if currencies else {}
+
         position_values: dict[str, float] = {}
         for ticker, item in aggregated.items():
             current_price = price_map.get(ticker)
-            current_value = item["quantity"] * current_price if current_price is not None else 0.0
+            fx_rate = 1.0 if item['currency'] == 'PLN' else fx_prices.get(f"{item['currency']}PLN=X")
+            current_value = (item['quantity'] * current_price * fx_rate
+                             if current_price and fx_rate else None)
             position_values[ticker] = current_value
 
-        total_portfolio_value = sum(position_values.values())
+        total_portfolio_value = (sum(position_values.values())
+                                 if all(value is not None for value in position_values.values()) else 0)
 
         snapshot: list[dict[str, Any]] = []
         for ticker in tickers:
@@ -312,6 +320,7 @@ class MarketDataAdapter:
                     "sector": item["sector"],
                     "currency": item["currency"],
                     "weight": weight,
+                    "current_value_pln": current_value,
                 }
             )
 

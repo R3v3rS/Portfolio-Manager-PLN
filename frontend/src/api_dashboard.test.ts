@@ -18,7 +18,7 @@ describe('dashboardApi', () => {
       net_worth: '1000.50',
       liabilities_breakdown: { short_term: '9' },
       assets_breakdown: { stocks: '77.7' },
-      quick_stats: { next_loan_date: '  ' },
+      quick_stats: { next_loan_date: '  ', expected_income: '6100' },
     });
 
     const result = await dashboardApi.getGlobalSummary();
@@ -26,6 +26,7 @@ describe('dashboardApi', () => {
     expect(result.liabilities_breakdown.long_term).toBe(0);
     expect(result.assets_breakdown.stocks).toBe(77.7);
     expect(result.quick_stats.next_loan_date).toBeNull();
+    expect(result.quick_stats.expected_income).toBe(6100);
 
     getMock.mockResolvedValueOnce(null);
     await expect(dashboardApi.getGlobalSummary()).resolves.toEqual(EMPTY_GLOBAL_SUMMARY);

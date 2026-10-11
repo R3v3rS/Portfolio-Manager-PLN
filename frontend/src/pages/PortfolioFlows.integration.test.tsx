@@ -115,6 +115,8 @@ const apiError = (message: string, status = 500) =>
   HttpResponse.json({ error: { code: 'TEST_ERROR', message, details: null } }, { status });
 
 const handlers = [
+  http.get('*/api/investment-goals/', () => ok({ goals: [], portfolios: [], as_of: '2026-10-02' })),
+  http.get('*/api/portfolio/history/results/:portfolioId', () => apiError('No result history in this fixture', 404)),
   http.get('*/api/portfolio/list', () => {
     return ok({ portfolios });
   }),
@@ -379,6 +381,17 @@ describe('Create portfolio integration flow', () => {
   });
 });
 
+describe('Independent portfolio sections', () => {
+  it('shows the summary and transactions when a supporting section fails', async () => {
+    server.use(http.get('*/api/portfolio/history/monthly/:id', () => apiError('History unavailable')));
+    renderPortfolioDetails();
+    expect(await screen.findByText('Core Portfolio')).toBeInTheDocument();
+    expect(await screen.findByText(/Nie udało się wczytać: Historia wartości/)).toBeInTheDocument();
+    expect(screen.getByRole('region', {name:'Podsumowanie portfela'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name:'Nowa Operacja'})).toBeEnabled();
+  });
+});
+
 describe('BUY transaction integration flow', () => {
   it('sends BUY payload and updates holdings + summary cards', async () => {
     const user = userEvent.setup();
@@ -500,7 +513,8 @@ describe('Transfer funds integration flow', () => {
     await user.type(screen.getAllByRole('spinbutton').at(-1) as HTMLElement, '10');
     await user.click(screen.getByRole('button', { name: 'Wykonaj przelew' }));
 
-    expect(alertSpy).toHaveBeenCalledWith('Transfer failed');
+    expect(await screen.findByText('Transfer failed')).toBeInTheDocument();
+    expect(alertSpy).not.toHaveBeenCalled();
     expect(screen.getByText('Transfer Środków')).toBeInTheDocument();
   });
 });
@@ -547,14 +561,14 @@ describe('Filter transactions integration flow', () => {
       </MemoryRouter>
     );
 
-    await screen.findByText('Transaction History');
-    fireEvent.change(screen.getByLabelText('Date from'), { target: { value: '2026-02-01' } });
-    fireEvent.change(screen.getByLabelText('Date to'), { target: { value: '2026-02-28' } });
-    await user.selectOptions(screen.getByLabelText('Type'), 'SELL');
-    await user.selectOptions(screen.getByLabelText('Ticker'), 'MSFT');
+    await screen.findByText('Historia transakcji');
+    fireEvent.change(screen.getByLabelText('Data od'), { target: { value: '2026-02-01' } });
+    fireEvent.change(screen.getByLabelText('Data do'), { target: { value: '2026-02-28' } });
+    await user.selectOptions(screen.getByLabelText('Typ'), 'SELL');
+    await user.selectOptions(screen.getByLabelText('Symbol'), 'MSFT');
 
-    expect(screen.getByLabelText('Date from')).toHaveValue('2026-02-01');
-    expect(screen.getByLabelText('Date to')).toHaveValue('2026-02-28');
+    expect(screen.getByLabelText('Data od')).toHaveValue('2026-02-01');
+    expect(screen.getByLabelText('Data do')).toHaveValue('2026-02-28');
 
     expect(screen.getAllByText('MSFT').length).toBeGreaterThan(0);
     expect(screen.queryByText('AAPL')).not.toBeInTheDocument();
@@ -570,8 +584,8 @@ describe('Filter transactions integration flow', () => {
       </MemoryRouter>
     );
 
-    await screen.findByText('Transaction History');
+    await screen.findByText('Historia transakcji');
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Query failed'));
-    expect(screen.getByText('Transaction History')).toBeInTheDocument();
+    expect(screen.getByText('Historia transakcji')).toBeInTheDocument();
   });
 });

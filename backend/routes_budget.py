@@ -168,6 +168,8 @@ def transfer_to_portfolio():
             envelope_id=optional_body_positive_int(data, 'envelope_id'),
             description=optional_string(data, 'description') or 'Transfer to Investments',
             date=optional_string(data, 'date'),
+            sub_portfolio_id=optional_body_positive_int(data, 'sub_portfolio_id'),
+            request_id=optional_string(data, 'request_id'),
         )
     except ValueError as error:
         raise_budget_validation_error(error)
@@ -184,6 +186,8 @@ def withdraw_from_portfolio():
             amount=require_number(data, 'amount', positive=True),
             description=optional_string(data, 'description') or 'Wypłata z portfela inwestycyjnego',
             date=optional_string(data, 'date'),
+            sub_portfolio_id=optional_body_positive_int(data, 'sub_portfolio_id'),
+            request_id=optional_string(data, 'request_id'),
         )
     except ValueError as error:
         raise_budget_validation_error(error)

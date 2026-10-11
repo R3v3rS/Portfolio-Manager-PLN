@@ -1,9 +1,13 @@
 import { createApiClient } from './apiConfig';
 
 export interface GlobalSummary {
-  net_worth: number;
-  total_assets: number;
+  net_worth: number | null;
+  valuation_status?: 'ok' | 'stale' | 'incomplete';
+  valuation_notes?: string[];
+  total_assets: number | null;
   total_liabilities: number;
+  excluded_liabilities?: Array<{ id: number; name: string; estimated_balance: number }>;
+  all_short_term_liabilities?: number;
   liabilities_breakdown: {
     short_term: number;
     long_term: number;
@@ -18,6 +22,7 @@ export interface GlobalSummary {
   };
   quick_stats: {
     free_pool: number;
+    expected_income?: number;
     next_loan_installment: number;
     next_loan_date: string | null;
   };
@@ -37,9 +42,13 @@ export interface CurrentMonthDividends {
 const dashboardHttp = createApiClient('/dashboard');
 
 const EMPTY_GLOBAL_SUMMARY: GlobalSummary = {
+  valuation_status: 'ok',
   net_worth: 0,
+  valuation_notes: [],
   total_assets: 0,
   total_liabilities: 0,
+  excluded_liabilities: [],
+  all_short_term_liabilities: 0,
   liabilities_breakdown: {
     short_term: 0,
     long_term: 0,
@@ -54,6 +63,7 @@ const EMPTY_GLOBAL_SUMMARY: GlobalSummary = {
   },
   quick_stats: {
     free_pool: 0,
+    expected_income: 0,
     next_loan_installment: 0,
     next_loan_date: null,
   },
@@ -89,9 +99,13 @@ const normalizeGlobalSummary = (value: unknown): GlobalSummary => {
   const quickStats = isRecord(source.quick_stats) ? source.quick_stats : {};
 
   return {
-    net_worth: toNumber(source.net_worth),
-    total_assets: toNumber(source.total_assets),
+    net_worth: source.net_worth === null ? null : toNumber(source.net_worth),
+    valuation_status: source.valuation_status === 'incomplete' || source.valuation_status === 'stale' ? source.valuation_status : 'ok',
+    valuation_notes: Array.isArray(source.valuation_notes) ? source.valuation_notes.filter((v): v is string => typeof v === 'string') : [],
+    total_assets: source.total_assets === null ? null : toNumber(source.total_assets),
     total_liabilities: toNumber(source.total_liabilities),
+    excluded_liabilities: Array.isArray(source.excluded_liabilities) ? source.excluded_liabilities.filter(isRecord).map(item => ({ id: toNumber(item.id), name: toString(item.name), estimated_balance: toNumber(item.estimated_balance) })) : [],
+    all_short_term_liabilities: toNumber(source.all_short_term_liabilities, toNumber(liabilities.short_term)),
     liabilities_breakdown: {
       short_term: toNumber(liabilities.short_term),
       long_term: toNumber(liabilities.long_term),
@@ -106,6 +120,7 @@ const normalizeGlobalSummary = (value: unknown): GlobalSummary => {
     },
     quick_stats: {
       free_pool: toNumber(quickStats.free_pool),
+      expected_income: toNumber(quickStats.expected_income),
       next_loan_installment: toNumber(quickStats.next_loan_installment),
       next_loan_date: toNullableString(quickStats.next_loan_date),
     },

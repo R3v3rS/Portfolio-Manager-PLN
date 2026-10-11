@@ -2,6 +2,8 @@ from flask import request
 
 from api.response import success_response
 from modules.ppk.ppk_service import PPKService
+from database import get_db
+from api.exceptions import NotFoundError, ValidationError
 from routes_portfolio_base import (
     optional_string,
     portfolio_bp,
@@ -16,19 +18,35 @@ def get_ppk_transactions(portfolio_id):
     current_price_raw = request.args.get('current_price')
     current_price_data = None
     current_price = None
+    refresh = request.args.get('refresh') == '1'
 
     if current_price_raw is not None:
         current_price = float(current_price_raw)
+    elif refresh:
+        current_price_data = PPKService.refresh_price(portfolio_id, force=True)['currentPrice']
+        current_price = current_price_data['price'] if current_price_data else None
     else:
-        try:
-            current_price_data = PPKService.fetch_current_price()
+        current_price_data = PPKService.get_cached_price()
+        if current_price_data:
             current_price = current_price_data['price']
-        except Exception:
-            current_price_data = None
 
     transactions = PPKService.get_transactions(portfolio_id)
     summary = PPKService.get_portfolio_summary(portfolio_id, current_price)
     return success_response({'transactions': transactions, 'summary': summary, 'currentPrice': current_price_data})
+
+
+@portfolio_bp.route('/ppk/prices/refresh/<int:portfolio_id>', methods=['POST'])
+def refresh_ppk_price(portfolio_id):
+    portfolio = get_db().execute('SELECT account_type FROM portfolios WHERE id=?', (portfolio_id,)).fetchone()
+    if not portfolio:
+        raise NotFoundError('Nie znaleziono portfela.')
+    if portfolio['account_type'] != 'PPK':
+        raise ValidationError('Odświeżanie dotyczy wyłącznie portfela PPK.')
+    body = require_json_body()
+    force = body.get('force', False)
+    if not isinstance(force, bool):
+        raise ValidationError('Pole force musi być wartością logiczną.')
+    return success_response(PPKService.refresh_price(portfolio_id, force=force))
 
 
 @portfolio_bp.route('/ppk/transactions', methods=['POST'])
@@ -48,5 +66,6 @@ def add_ppk_transaction():
 def get_ppk_performance(portfolio_id):
     # Default fund ID for NN PPK 2055
     fund_id = request.args.get('fund_id', '61777738')
-    performance = PPKService.compute_performance(portfolio_id, fund_id)
+    refresh = request.args.get('refresh') == '1'
+    performance = PPKService.compute_performance(portfolio_id, fund_id, cached_only=not refresh)
     return success_response(performance)

@@ -1,4 +1,5 @@
 import os
+import math
 import tempfile
 import yfinance as yf
 import pandas as pd
@@ -513,7 +514,7 @@ class PriceService:
         return ((current - old) / old) * 100
 
     @classmethod
-    def get_prices(cls, tickers, force_refresh=False):
+    def get_prices(cls, tickers, force_refresh=False, cached_only=False):
         if not tickers:
             return {}
 
@@ -533,6 +534,11 @@ class PriceService:
             return cls._price_cache
 
         cls._load_price_cache_from_db(normalized_tickers)
+
+        # Dashboard-style reads must not wait for an external provider. Stale
+        # persisted prices are preferable to blocking the entire page.
+        if cached_only:
+            return {ticker: cls._price_cache.get(ticker) for ticker in normalized_tickers}
 
         missing_tickers = []
         for ticker in normalized_tickers:
@@ -727,11 +733,11 @@ class PriceService:
         return {ticker: cls._price_cache.get(ticker) for ticker in normalized_tickers}
 
     @classmethod
-    def get_price_updates(cls, tickers):
+    def get_price_updates(cls, tickers, cached_only=False):
         if not tickers:
             return {}
 
-        cls.get_prices(tickers)
+        cls.get_prices(tickers, cached_only=cached_only)
         return {ticker: cls._price_cache_updated_at.get(ticker) for ticker in tickers}
 
     @classmethod
@@ -999,12 +1005,11 @@ class PriceService:
                 anomalies = cls.audit_price_history_quality(
                     days=30,
                     jump_threshold_percent=25.0,
-                    refresh_flagged=False,
-                    delete_flagged=True
+                    refresh_flagged=False
                 )
                 if anomalies.get('flagged_count', 0) > 0:
                     logger.warning(
-                        "Price anomalies auto-deleted for %s: %s entries",
+                        "Price anomalies flagged for %s: %s entries",
                         ticker,
                         anomalies['flagged_count']
                     )
@@ -1120,7 +1125,7 @@ class PriceService:
             return None
 
     @classmethod
-    def get_quotes(cls, tickers):
+    def get_quotes(cls, tickers, force_refresh=False):
         """
         Fetches current price and multi-timeframe momentum (1D, 7D, 1M, 1Y) for a list of tickers.
         Returns: { 'AAPL': {'price': 150.0, 'change_1d': 1.5, 'change_7d': ..., 'change_1m': ..., 'change_1y': ...}, ... }
@@ -1144,7 +1149,7 @@ class PriceService:
             updated_at = cached_updated.get(ticker)
             cached_quote = cached.get(ticker)
             if (
-                ticker not in cached
+                force_refresh or ticker not in cached
                 or not cls._is_same_day(updated_at)
                 or cached_quote is None
             ):
@@ -1279,7 +1284,7 @@ class PriceService:
         return quotes
 
     @classmethod
-    def get_quotes_lite(cls, tickers, force_refresh=False):
+    def get_quotes_lite(cls, tickers, force_refresh=False, cached_only=False):
         quotes = {}
         if not tickers:
             return quotes
@@ -1293,6 +1298,23 @@ class PriceService:
 
         cached = cls._quotes_cache.get(level, {})
         cached_updated = cls._quotes_cache_updated_at.get(level, {})
+
+        if cached_only:
+            for ticker in normalized_tickers:
+                cached_quote = cached.get(ticker)
+                if cached_quote is not None:
+                    quotes[ticker] = dict(cached_quote)
+                else:
+                    quotes[ticker] = {
+                        'price': 0.0,
+                        'change_1d': None,
+                        'change_7d': None,
+                        'change_1m': None,
+                        'change_1y': None,
+                        'prev_close': None,
+                        'price_7d_ago': None,
+                    }
+            return quotes
 
         missing_tickers = []
         for ticker in normalized_tickers:
@@ -1462,7 +1484,7 @@ class PriceService:
         if not tickers:
             return {}
 
-        quotes = cls.get_quotes(tickers)
+        quotes = cls.get_quotes(tickers, force_refresh=True)
         events = cls.fetch_market_events(tickers)
 
         db = get_db()
@@ -1769,6 +1791,18 @@ class PriceService:
                 return total, {"quality": q_score, "growth": g_score, "risk": r_score}
 
             total_score, score_details = calculate_score(fundamentals, growth, risk)
+            # Missing fundamentals must not turn into a low investment rating.
+            # This company heuristic is not applicable to funds.
+            score_inputs = {
+                'quality': [fundamentals.get(key) for key in ('returnOnEquity', 'profitMargins', 'freeCashflow')],
+                'growth': [growth.get(key) for key in ('revenueGrowth', 'earningsGrowth')],
+                'risk': [risk.get(key) for key in ('debtToEquity', 'currentRatio', 'beta')],
+            }
+            is_fund = info.get('quoteType') in ('ETF', 'MUTUALFUND') or ticker.upper().startswith('ETF')
+            for category, values in score_inputs.items():
+                if is_fund or any(value is None or not isinstance(value, (int, float)) or not math.isfinite(value) for value in values):
+                    score_details[category] = None
+            total_score = sum(score_details.values()) if all(value is not None for value in score_details.values()) else None
 
             # 7. Technicals
             technicals = {

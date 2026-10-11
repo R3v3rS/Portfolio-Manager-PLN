@@ -6,7 +6,7 @@ const AdminBudget: React.FC = () => {
   const [resetting, setResetting] = useState(false);
 
   const handleReset = async () => {
-    const confirmed = window.confirm('To usunie WSZYSTKIE dane budżetu (Transactions, Envelopes, Loans). Czy kontynuować?');
+    const confirmed = window.confirm('To usunie konta, wpisy i paragony budżetu, plany wydatków i dochodów, rachunki, rezerwy na wydatki, przelewy i historię sprawdzeń salda oraz dawne koperty i pożyczki między nimi. Inwestycje i kredyty bankowe pozostaną. Czy kontynuować?');
     if (!confirmed) return;
 
     setResetting(true);
@@ -30,7 +30,7 @@ const AdminBudget: React.FC = () => {
 
       <section className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/40">
         <div className="text-sm font-medium text-red-900 dark:text-red-100">Danger zone</div>
-        <div className="mt-1 text-sm text-red-800 dark:text-red-200">Reset usuwa wszystkie transakcje budżetowe, koperty i pożyczki.</div>
+        <div className="mt-1 text-sm text-red-800 dark:text-red-200">Reset usuwa konta i wpisy budżetu, paragony, plany wydatków i dochodów, rachunki, rezerwy, przelewy i historię sprawdzeń salda oraz dawne koperty i pożyczki między nimi. Inwestycje i kredyty bankowe pozostają.</div>
         <div className="mt-4">
           <button
             type="button"

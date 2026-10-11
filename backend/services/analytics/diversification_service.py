@@ -78,9 +78,9 @@ def diversification_score(
 
     if not positive_holdings:
         return {
-            "hhi": 0.0,
-            "score": 100,
-            "rating": "excellent",
+            "hhi": None,
+            "score": None,
+            "rating": "unavailable",
             "by_asset": [],
             "by_sector": [],
             "top_concentration_warning": None,

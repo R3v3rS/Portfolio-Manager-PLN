@@ -15,9 +15,17 @@ from price_service import PriceService
 from monitoring import monitoring_bp
 from routes import portfolio_bp
 from routes_budget import budget_bp
+from routes_budget_workspace import workspace_bp
+from routes_budget_reserves import reserves_bp
+from routes_budget_accounts import accounts_bp
+from routes_budget_planning import planning_bp
+from routes_cash_forecast import forecast_bp
+from routes_budget_imports import imports_bp as budget_imports_bp
 from routes_dashboard import dashboard_bp
+from routes_investment_goals import goals_bp
 from routes_loans import loans_bp
 from routes_radar import radar_bp
+from routes_investment_ideas import ideas_bp
 from routes_symbol_map import symbol_map_bp
 from routes_analytics import analytics_bp
 from routes_ai import ai_bp
@@ -81,6 +89,7 @@ def configure_logging():
 
 
 def create_app():
+    from routes_investor_journal import journal_bp
     app = Flask(__name__)
     CORS(app)  # Enable CORS for all routes
 
@@ -93,21 +102,42 @@ def create_app():
     app.config['DATABASE'] = db_path
 
     # Initialize database
+    from backup_service import automatic
+    automatic(db_path,before_update=True)
     init_db(app)
+    from routes_backups import backups_bp
+    app.register_blueprint(backups_bp)
 
-    # Warmup price cache
-    with app.app_context():
-        try:
-            PriceService.warmup_cache()
-        except Exception as e:
-            logging.warning("Startup warmup failed (DB might not be ready): %s", e)
+    @app.before_request
+    def ensure_daily_backup():
+        if not app.config.get('TESTING'):
+            try: automatic(app.config['DATABASE'])
+            except Exception: app.logger.exception('Automatic daily backup failed')
+
+    # Network warmup is opt-in. Starting the API must not depend on Yahoo being
+    # available; normal views use the most recent persisted prices immediately.
+    if os.getenv('PRICE_CACHE_WARMUP', '').strip().lower() in {'1', 'true', 'yes', 'on'}:
+        with app.app_context():
+            try:
+                PriceService.warmup_cache()
+            except Exception as e:
+                logging.warning("Startup warmup failed (DB might not be ready): %s", e)
 
     # Register blueprints
     app.register_blueprint(portfolio_bp, url_prefix='/api/portfolio')
     app.register_blueprint(loans_bp, url_prefix='/api/loans')
     app.register_blueprint(budget_bp, url_prefix='/api/budget')
+    app.register_blueprint(workspace_bp, url_prefix='/api/budget/workspace')
+    app.register_blueprint(reserves_bp, url_prefix='/api/budget/reserves')
+    app.register_blueprint(accounts_bp, url_prefix='/api/budget/accounts')
+    app.register_blueprint(planning_bp, url_prefix='/api/budget/planning')
+    app.register_blueprint(forecast_bp, url_prefix='/api/budget/forecast')
+    app.register_blueprint(budget_imports_bp, url_prefix='/api/budget/imports')
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+    app.register_blueprint(goals_bp, url_prefix='/api/investment-goals')
+    app.register_blueprint(journal_bp, url_prefix='/api/investor-journal')
     app.register_blueprint(radar_bp, url_prefix='/api/radar')
+    app.register_blueprint(ideas_bp, url_prefix='/api/investment-ideas')
     app.register_blueprint(symbol_map_bp, url_prefix='/api/symbol-map')
     app.register_blueprint(analytics_bp)
     app.register_blueprint(monitoring_bp, url_prefix='/monitoring')

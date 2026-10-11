@@ -1,7 +1,16 @@
 export interface Portfolio {
+  valuation_status?: 'ok' | 'stale' | 'incomplete';
+  valuation_warnings?: string[];
+  estimated_portfolio_value?: number;
+  reference_positions_count?: number;
+  asset_value?: number;
+  withdrawable_value?: number;
+  investment_result?: number;
+  net_contributions?: number;
+  available_value?: number;
   id: number;
   name: string;
-  account_type: 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK';
+  account_type: 'STANDARD' | 'IKE' | 'IKZE' | 'BONDS' | 'SAVINGS' | 'PPK';
   current_cash: number;
   total_deposits: number;
   savings_rate: number;
@@ -32,7 +41,7 @@ export interface Transaction {
   transfer_id?: string | null;
   ticker: string;
   date: string;
-  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW' | 'DIVIDEND' | 'INTEREST';
+  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAW' | 'DIVIDEND' | 'INTEREST' | 'ASSET_IN' | 'ASSET_OUT';
   quantity: number;
   price: number;
   total_value: number;
@@ -60,6 +69,13 @@ export interface Dividend {
 }
 
 export interface Holding {
+  price_basis?: 'market' | 'manual' | 'purchase';
+  manual_price_version?: number;
+  estimated_current_value?: number;
+  valuation_status?: 'ok' | 'stale' | 'incomplete';
+  valuation_warnings?: string[];
+  estimated_portfolio_value?: number;
+  reference_positions_count?: number;
   id: number;
   portfolio_id: number;
   sub_portfolio_id?: number | null;
@@ -86,9 +102,19 @@ export interface Holding {
 }
 
 export interface PortfolioValue {
-  portfolio_value: number;
+  valuation_status?: 'ok' | 'stale' | 'incomplete';
+  valuation_warnings?: string[];
+  estimated_portfolio_value?: number;
+  reference_positions_count?: number;
+  asset_value?: number;
+  withdrawable_value?: number;
+  investment_result?: number;
+  net_contributions?: number;
+  available_value?: number;
+
+  portfolio_value: number | null;
   cash_value: number;
-  holdings_value: number;
+  holdings_value: number | null;
   breakdown?: {
     id: number;
     name: string;
@@ -97,9 +123,9 @@ export interface PortfolioValue {
   }[];
   total_dividends: number;
   total_interest?: number;
-  open_positions_result: number;
-  total_result: number;
-  total_result_percent: number;
+  open_positions_result: number | null;
+  total_result: number | null;
+  total_result_percent: number | null;
   xirr_percent?: number;
   change_1d?: number;
   change_1d_percent?: number;
@@ -144,6 +170,13 @@ export interface EquityAllocation {
 }
 
 export interface RadarItem {
+  company_name?: string;
+  currency?: string | null;
+  sector?: string | null;
+  instrument_type?: 'ETF' | 'OTHER';
+  events_updated_at?: string | null;
+  notes?: RadarNotes | null;
+  sparkline?: Array<{ date: string; close_price: number }>;
   ticker: string;
   price: number | null;
   change_1d: number | null;
@@ -157,6 +190,14 @@ export interface RadarItem {
   quantity: number;
   is_watched: boolean;
   last_updated_at: string | null;
+}
+
+export interface RadarNotes {
+  thesis: string;
+  invalidation: string;
+  review_date: string | null;
+  target_price: number | null;
+  target_direction: 'above' | 'below';
 }
 
 export interface CashNegativeDayIncident {

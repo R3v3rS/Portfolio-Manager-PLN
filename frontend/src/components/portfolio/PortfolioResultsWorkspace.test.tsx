@@ -1,0 +1,34 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+import {fireEvent,render,screen,waitFor,within} from '@testing-library/react';
+import {MemoryRouter} from 'react-router-dom';
+import PortfolioResults from './PortfolioResultsWorkspace';
+import {actualResultsApi,type ActualResults} from '../../api_actual_results';
+import {chartsApi} from '../../api_charts';
+import {reviewApi} from '../../api_investment_review';
+vi.mock('../../api_actual_results',()=>({actualResultsApi:{portfolio:vi.fn()}}));
+vi.mock('../../api_charts',()=>({chartsApi:{attribution:vi.fn(),benchmark:vi.fn()}}));
+vi.mock('../../api_investment_review',()=>({reviewApi:{events:vi.fn(),instrument:vi.fn()},eventName:{BUY:'Zakup',SELL:'Sprzedaż'}}));
+vi.mock('../charts/ChartKit',()=>({TrendChart:({series}:{series:{name:string}[]})=><div>{series.map(s=>s.name).join(' · ')}</div>}));
+const data={from:'2026-09-01',to:'2026-09-30',opening_value:100,closing_value:110,profit:10,net_deposits:0,deposits:0,withdrawals:0,dividends:0,interest:0,recorded_commissions:0,realized_profit:0,modeled_interest:0,dietz_percent:10,xirr_percent:null,transaction_count:1,internal_transfer_amount:0,status:'ok',warnings:[],portfolio_names:['Test'],reconciliation:{consistent:true,cash_difference:0,positions_mismatch:[]},months:[{date:'2026-09-30',opening_value:100,closing_value:110,net_deposits:0,profit:10,return_percent:10,partial_month:false,complete:true}]} as unknown as ActualResults;
+beforeEach(()=>{vi.clearAllMocks();vi.mocked(actualResultsApi.portfolio).mockResolvedValue(data);vi.mocked(chartsApi.attribution).mockResolvedValue({items:[],status:'ok',from:data.from,to:data.to});vi.mocked(chartsApi.benchmark).mockResolvedValue({items:[{date:'2026-09',value:5}]});vi.mocked(reviewApi.events).mockResolvedValue({items:[],count:0,truncated:false});});
+it('uses one custom interval for results, attribution and events',async()=>{
+ render(<MemoryRouter><PortfolioResults portfolioId={1} history={[]} benchmark="" onBenchmark={vi.fn()} dailyProfit={[]}/></MemoryRouter>);
+ await screen.findByRole('heading',{name:'Co faktycznie wypracował kapitał?'});
+ fireEvent.change(screen.getByLabelText('Okres wyników'),{target:{value:'custom'}});
+ fireEvent.change(screen.getByLabelText('Od'),{target:{value:'2026-09-01'}});
+ fireEvent.change(screen.getByLabelText('Do'),{target:{value:'2026-09-30'}});
+ await waitFor(()=>expect(actualResultsApi.portfolio).toHaveBeenLastCalledWith(1,'2026-09-01','2026-09-30'));
+ await waitFor(()=>expect(chartsApi.attribution).toHaveBeenLastCalledWith(1,'2026-09-01','2026-09-30'));
+ expect(reviewApi.events).toHaveBeenLastCalledWith(1,'2026-09-01','2026-09-30');
+ expect(screen.getAllByRole('heading',{name:'Wyniki miesiąc po miesiącu'})).toHaveLength(1);
+ const monthly=screen.getByRole('heading',{name:'Wyniki miesiąc po miesiącu'}).closest('section')!;
+ fireEvent.click(within(monthly).getByRole('button',{name:'Tabela'}));
+ expect(within(monthly).getByRole('table')).toHaveTextContent('10,00');
+});
+it('shows benchmark series also on the percent chart',async()=>{
+ render(<MemoryRouter><PortfolioResults portfolioId={1} history={[]} benchmark="VT" onBenchmark={vi.fn()} dailyProfit={[]}/></MemoryRouter>);
+ await screen.findByRole('heading',{name:'Co faktycznie wypracował kapitał?'});
+ fireEvent.click(screen.getByRole('button',{name:'Stopa zwrotu %'}));
+ expect(screen.getByText('Zwrot portfela · Cały świat VT')).toBeInTheDocument();
+ expect(chartsApi.benchmark).toHaveBeenCalled();
+});

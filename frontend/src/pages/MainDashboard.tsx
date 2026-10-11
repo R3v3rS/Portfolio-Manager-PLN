@@ -1,4 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import WealthHistory from '../components/charts/WealthHistory';
+import GoalsSummary from '../components/goals/GoalsSummary';
+import DashboardActions from '../components/dashboard/DashboardActions';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   dashboardApi,
   EMPTY_GLOBAL_SUMMARY,
@@ -7,14 +10,36 @@ import {
 } from '../api_dashboard';
 import { portfolioApi } from '../api';
 import { extractErrorMessageFromUnknown } from '../http/response';
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { Link } from 'react-router-dom';
-import { TrendingUp, CreditCard, ArrowRight, Briefcase, Landmark, PiggyBank } from 'lucide-react';
+import {
+  Activity,
+  ArrowDownRight,
+  ArrowUpRight,
+  BriefcaseBusiness,
+  CalendarDays,
+  ChevronRight,
+  CircleDollarSign,
+  Landmark,
+  Layers3,
+  PiggyBank,
+  Sparkles,
+  WalletCards,
+} from 'lucide-react';
 import { cn } from '../lib/utils';
 import Card from '../components/ui/Card';
 import type { Holding } from '../types';
 
-const MainDashboard: React.FC = () => {
+const moneyFormatter = new Intl.NumberFormat('pl-PL', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const formatMoney = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '—' : `${moneyFormatter.format(value)} PLN`;
+const headlineMoney = (value: number | null | undefined) => formatMoney(value).replace(' PLN', ' zł');
+const formatPercent = (value: number) => `${value.toLocaleString('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+
+const FinancialOverview: React.FC = () => {
   const [data, setData] = useState<GlobalSummary>(EMPTY_GLOBAL_SUMMARY);
   const [dividendsData, setDividendsData] = useState<CurrentMonthDividends | null>(null);
   const [allHoldings, setAllHoldings] = useState<Holding[]>([]);
@@ -26,20 +51,21 @@ const MainDashboard: React.FC = () => {
       try {
         const [summary, allPortfolios, dividends] = await Promise.all([
           dashboardApi.getGlobalSummary(),
-          portfolioApi.list(),
+          portfolioApi.list().catch(() => ({ portfolios: [] })),
           dashboardApi.getCurrentMonthDividends().catch(() => null),
         ]);
         const holdingsPerPortfolio = await Promise.all(
           allPortfolios.portfolios
-            .filter(p => ['STANDARD', 'IKE'].includes(p.account_type))
-            .map(p => portfolioApi.getHoldings(p.id))
+            .filter((portfolio) => ['STANDARD', 'IKE'].includes(portfolio.account_type))
+            .map((portfolio) => portfolioApi.getHoldings(portfolio.id).catch(() => [])),
         );
-        const flattenedHoldings = holdingsPerPortfolio
-          .flat()
-          .filter(h => h.quantity >= 0.000001 && (h.current_value ?? 0) >= 1);
         setData(summary);
         setDividendsData(dividends);
-        setAllHoldings(flattenedHoldings);
+        setAllHoldings(
+          holdingsPerPortfolio
+            .flat()
+            .filter((holding) => holding.quantity >= 0.000001 && (holding.current_value ?? 0) >= 1),
+        );
         setError(null);
       } catch (err) {
         console.error(err);
@@ -54,26 +80,69 @@ const MainDashboard: React.FC = () => {
     fetchData();
   }, []);
 
-  if (loading) return <div className="space-y-6 p-4"><div className="h-8 w-56 animate-pulse rounded bg-gray-200" /><div className="grid grid-cols-1 gap-6 md:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-gray-200" />)}</div></div>;
-  if (error) return <div className="p-12 text-center text-red-600">{error}</div>;
+  const allocation = useMemo(() => [
+    { name: 'Akcje i ETF-y', shortName: 'Akcje / ETF', value: data.assets_breakdown.stocks, color: '#3B82F6' },
+    { name: 'PPK', shortName: 'PPK', value: data.assets_breakdown.ppk, color: '#A855F7' },
+    { name: 'Konta oszczędnościowe', shortName: 'Oszczędności', value: data.assets_breakdown.savings, color: '#6366F1' },
+    { name: 'Obligacje', shortName: 'Obligacje', value: data.assets_breakdown.bonds, color: '#F59E0B' },
+    { name: 'Gotówka inwestycyjna', shortName: 'Gotówka inwest.', value: data.assets_breakdown.invest_cash, color: '#14B8A6' },
+    { name: 'Gotówka budżetowa', shortName: 'Gotówka budżet.', value: data.assets_breakdown.budget_cash, color: '#10B981' },
+  ].filter((item) => item.value > 0), [data.assets_breakdown]);
 
-  const chartData = [
-    { name: 'Gotówka (Budżet)', value: data.assets_breakdown.budget_cash, color: '#10B981' }, // emerald-500
-    { name: 'Gotówka (Inw.)', value: data.assets_breakdown.invest_cash, color: '#14B8A6' }, // teal-500
-    { name: 'Konta Oszcz.', value: data.assets_breakdown.savings, color: '#6366F1' }, // indigo-500
-    { name: 'Obligacje', value: data.assets_breakdown.bonds, color: '#F59E0B' }, // amber-500
-    { name: 'Akcje / ETF', value: data.assets_breakdown.stocks, color: '#3B82F6' }, // blue-500
-    { name: 'PPK', value: data.assets_breakdown.ppk, color: '#A855F7' }, // purple-500
-  ].filter(item => item.value > 0);
+  if (loading) {
+    return (
+      <div className="page-stack">
+        <div className="h-10 w-72 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />
+        <div className="h-72 animate-pulse rounded-[2rem] bg-gray-200 dark:bg-gray-800" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-36 animate-pulse rounded-2xl bg-gray-200 dark:bg-gray-800" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  const netWorthShortTermOnly = data.total_assets - data.liabilities_breakdown.short_term;
-  const netWorthAllLiabilities = data.total_assets - (data.liabilities_breakdown.short_term + data.liabilities_breakdown.long_term);
-  const holdingsWithDailyChange = allHoldings.filter((h) => h.change_1d_percent !== undefined && h.change_1d_percent !== 0);
+  if (error) {
+    return (
+      <Card className="mx-auto max-w-xl p-10 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300">
+          <Activity className="h-6 w-6" />
+        </div>
+        <h1 className="text-xl font-bold text-gray-950 dark:text-white">Nie udało się załadować pulpitu</h1>
+        <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p>
+      </Card>
+    );
+  }
+
+  const totalLiabilities = data.liabilities_breakdown.short_term + data.liabilities_breakdown.long_term;
+  const netWorth = data.total_assets == null ? null : data.total_assets - totalLiabilities;
+  const liquidAssets = data.assets_breakdown.budget_cash + data.assets_breakdown.invest_cash + data.assets_breakdown.savings;
+  const allShortTermLiabilities = data.all_short_term_liabilities ?? data.liabilities_breakdown.short_term;
+  const shortTermCoverage = allShortTermLiabilities > 0
+    ? liquidAssets / allShortTermLiabilities
+    : null;
+  const largestAllocation = allocation.reduce<(typeof allocation)[number] | null>(
+    (largest, item) => (!largest || item.value > largest.value ? item : largest),
+    null,
+  );
+
+  const holdingsWithDailyChange = allHoldings.filter(
+    (holding) => holding.change_1d_percent !== undefined && holding.change_1d_percent !== 0,
+  );
   const hasDailyChangeData = holdingsWithDailyChange.length > 0;
+  const trackedDailyValue = holdingsWithDailyChange.reduce((sum, holding) => sum + (holding.current_value ?? 0), 0);
+  const estimatedDailyPnl = holdingsWithDailyChange.reduce(
+    (sum, holding) => sum + ((holding.current_value ?? 0) * (holding.change_1d_percent ?? 0)) / 100,
+    0,
+  );
+  const estimatedDailyPercent = trackedDailyValue > 0 ? (estimatedDailyPnl / trackedDailyValue) * 100 : 0;
   const topGainers = [...holdingsWithDailyChange]
+    .filter((holding) => (holding.change_1d_percent ?? 0) > 0)
     .sort((a, b) => (b.change_1d_percent ?? 0) - (a.change_1d_percent ?? 0))
     .slice(0, 3);
   const topLosers = [...holdingsWithDailyChange]
+    .filter((holding) => (holding.change_1d_percent ?? 0) < 0)
     .sort((a, b) => (a.change_1d_percent ?? 0) - (b.change_1d_percent ?? 0))
     .slice(0, 3);
   const hasNoDividendsThisMonth = dividendsData !== null
@@ -84,259 +153,120 @@ const MainDashboard: React.FC = () => {
     ? Math.min(100, ((dividendsData?.received_this_month ?? 0) / totalDividendTarget) * 100)
     : 0;
 
-  const renderMovers = (holdings: Holding[], colorClass: 'text-green-600' | 'text-red-600', icon: string) => {
-    return holdings.map((holding) => (
-      <div key={`${holding.portfolio_id}-${holding.ticker}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/80">
-        <div className="text-xs">{icon}</div>
-        <div className="min-w-0">
-          <div className="font-mono font-bold text-gray-900 truncate">{holding.ticker}</div>
-          <div className={cn('text-sm font-semibold', colorClass)}>
-            {(holding.change_1d_percent ?? 0) > 0 ? '+' : ''}
-            {(holding.change_1d_percent ?? 0).toFixed(2)}%
+  const renderMovers = (holdings: Holding[], direction: 'up' | 'down') => {
+    if (holdings.length === 0) {
+      return <p className="rounded-xl border border-dashed border-gray-200 px-4 py-5 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">Brak pozycji w tej grupie</p>;
+    }
+    return holdings.map((holding) => {
+      const change = holding.change_1d_percent ?? 0;
+      const isUp = direction === 'up';
+      return (
+        <div key={`${holding.portfolio_id}-${holding.ticker}`} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/70">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
+              isUp ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300',
+            )}>
+              {isUp ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate font-mono text-sm font-bold text-gray-950 dark:text-white">{holding.ticker}</p>
+              <p className="truncate text-xs text-gray-500 dark:text-gray-400">{formatMoney(holding.current_value)}</p>
+            </div>
           </div>
+          <span className={cn('rounded-lg px-2 py-1 text-sm font-bold tabular-nums', isUp ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300')}>
+            {change > 0 ? '+' : ''}{change.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+          </span>
         </div>
-        <div className="text-sm text-gray-500 text-right dark:text-gray-300">
-          {(holding.current_value ?? 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
-        </div>
-      </div>
-    ));
+      );
+    });
   };
 
+  const navigationCards = [
+    { to: '/portfolios', title: 'Zarządzaj Portfelami', description: 'Akcje, ETF-y, obligacje i IKE', icon: BriefcaseBusiness, accent: 'blue' },
+    { to: '/budget', title: 'Budżet i oszczędności', description: 'Konta, koperty i wolne środki', icon: PiggyBank, accent: 'violet' },
+    { to: '/loans', title: 'Kredyty i zobowiązania', description: 'Raty, nadpłaty i harmonogramy', icon: Landmark, accent: 'amber' },
+  ] as const;
+
   return (
-    <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      
-      {/* Header */}
-      <div className="mb-8 rounded-3xl border border-blue-100/70 bg-gradient-to-r from-white to-blue-50/70 p-6 shadow-sm dark:border-blue-900/50 dark:from-gray-900 dark:to-blue-950/40">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">Portfolio Command Center</p>
-        <h1 className="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">Pulpit Dowódcy</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-300">Globalny przegląd Twojego majątku</p>
-      </div>
-
-      {/* Top Row: Big Numbers */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Assets */}
-        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow bg-gradient-to-b from-white to-green-50/40 dark:from-gray-900 dark:to-green-950/30">
-          <div className="flex items-center space-x-3 mb-2">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <TrendingUp className="h-6 w-6 text-green-600" />
-            </div>
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Aktywa</h3>
-          </div>
-          <div>
-            <p className="text-3xl font-bold text-gray-900">{data.total_assets.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN</p>
-            <p className="text-xs text-gray-400 mt-1">Gotówka + Inwestycje</p>
-          </div>
-        </Card>
-
-        {/* Liabilities */}
-        <Card variant="default" className="p-6 flex flex-col justify-between hover:shadow-md transition-shadow bg-gradient-to-b from-white to-red-50/30 dark:from-gray-900 dark:to-red-950/20">
-          <div className="flex items-center space-x-3 mb-2">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <CreditCard className="h-6 w-6 text-red-600" />
-            </div>
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Zobowiązania</h3>
-          </div>
-          <div>
-            <p className="text-3xl font-bold text-gray-900">{data.total_liabilities.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN</p>
-            <div className="mt-2 space-y-1">
-              <p className="text-xs text-gray-500">
-                Krótkoterminowe (pożyczka gotówkowa, raty 0%):{' '}
-                <span className="font-semibold text-gray-700">
-                  {data.liabilities_breakdown.short_term.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
-                </span>
-              </p>
-              <p className="text-xs text-gray-500">
-                Długoterminowe (kredyt hipoteczny):{' '}
-                <span className="font-semibold text-gray-700">
-                  {data.liabilities_breakdown.long_term.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
-                </span>
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        {/* Net Worth - The Main Card */}
-        <div className={cn(
-          "bg-white rounded-2xl shadow-lg border-2 p-6 flex flex-col justify-between transform hover:-translate-y-1 transition-all duration-200 relative overflow-hidden bg-gradient-to-b",
-          netWorthShortTermOnly >= 0 ? "border-green-100 ring-4 ring-green-50/50" : "border-red-100 ring-4 ring-red-50/50"
-        )}>
-          <div className={cn("absolute top-0 right-0 w-32 h-32 rounded-full -mr-16 -mt-16 opacity-10", netWorthShortTermOnly >= 0 ? "bg-green-500" : "bg-red-500")}></div>
-          
-          <div className="flex items-center space-x-3 mb-2 relative z-10">
-            <div className={cn("p-2 rounded-lg", netWorthShortTermOnly >= 0 ? "bg-green-100" : "bg-red-100")}>
-              <Landmark className={cn("h-6 w-6", netWorthShortTermOnly >= 0 ? "text-green-700" : "text-red-700")} />
-            </div>
-            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Majątek Netto (krótkoterminowe)</h3>
-          </div>
-          <div className="relative z-10">
-            <p className={cn("text-4xl font-extrabold tracking-tight", netWorthShortTermOnly >= 0 ? "text-green-700" : "text-red-700")}>
-              {netWorthShortTermOnly.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xl font-normal text-gray-500">PLN</span>
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Aktywa - zobowiązania krótkoterminowe</p>
-            <p className="text-xs text-gray-500 mt-2">
-              Z krótkoterminowymi + długoterminowymi: {' '}
-              <span className="font-semibold text-gray-700">
-                {netWorthAllLiabilities.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
-              </span>
-            </p>
+    <div className="page-stack">
+      <section className="app-hero rounded-2xl p-5 md:p-6" aria-label="Najważniejsze kwoty">
+        <div className="grid gap-6 lg:grid-cols-[1fr_1.5fr] lg:items-center">
+          <div><p className="text-sm font-semibold text-teal-200">Majątek netto</p>{data.valuation_status && data.valuation_status !== 'ok' && <p className="mt-2 text-xs text-amber-200">{data.valuation_status === 'incomplete' ? 'Niepełna wycena — brakuje notowań' : 'Wycena orientacyjna — część cen jest nieaktualna'}</p>}<p className={cn('mt-2 text-3xl font-bold tracking-tight tabular-nums',netWorth>=0 ? 'text-white' : 'text-rose-300')}>{headlineMoney(netWorth)}</p><p className="mt-3 text-xs leading-5 text-slate-300">Aktywa: {headlineMoney(data.total_assets)}<br/>Zobowiązania uwzględnione: {headlineMoney(totalLiabilities)}</p>{!!data.excluded_liabilities?.length && <p className="mt-2 text-xs text-amber-200">Pominięto kredyty: {data.excluded_liabilities.map(loan => loan.name).join(', ')} · {headlineMoney(data.excluded_liabilities.reduce((sum, loan) => sum + loan.estimated_balance, 0))}</p>}</div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-300">Do zaplanowania</p><p className="mt-2 text-lg font-bold tabular-nums text-white">{headlineMoney(data.quick_stats.free_pool)}</p><p className="mt-2 text-xs leading-5 text-slate-400">W tym oczekiwane wpływy: {headlineMoney(data.quick_stats.expected_income ?? 0)}</p></div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-300">Płynne środki</p><p className="mt-2 text-lg font-bold tabular-nums text-white">{headlineMoney(liquidAssets)}</p><p className="mt-2 text-xs leading-5 text-slate-400">Gotówka i oszczędności. Część może być już przypisana do planu.</p></div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-300">Najbliższa rata</p><p className="mt-2 text-lg font-bold tabular-nums text-white">{data.quick_stats.next_loan_installment>0 ? headlineMoney(data.quick_stats.next_loan_installment) : 'Brak rat'}</p><p className="mt-2 text-xs leading-5 text-slate-400">{data.quick_stats.next_loan_date ? new Date(data.quick_stats.next_loan_date+'T12:00:00').toLocaleDateString('pl-PL') : 'Brak nadchodzącego terminu'}</p></div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Middle Row: Visualization & Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart */}
-        <Card variant="default" className="lg:col-span-2 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Struktura Aktywów</h3>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={80}
-                  outerRadius={110}
-                  paddingAngle={5}
-                  dataKey="value"
-                  stroke="none"
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  formatter={(value: number) => `${value.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} PLN`}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                />
-                <Legend verticalAlign="bottom" height={36} iconType="circle"/>
-              </PieChart>
-            </ResponsiveContainer>
+      <DashboardActions />
+      {data.valuation_notes?.length ? <details className="dc-analysis"><summary>Założenia i aktualność wyceny ({data.valuation_notes.length})</summary><ul className="space-y-2 p-4 text-sm text-slate-300">{data.valuation_notes.map(note => <li key={note}>{note}</li>)}</ul></details> : null}
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.55fr_0.85fr]">
+        <Card className="overflow-hidden p-0">
+          <div className="flex flex-col gap-2 border-b border-gray-100 px-6 py-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-600 dark:text-blue-300">Rozkład majątku</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white">Struktura Aktywów</h2></div>
+            {largestAllocation && <p className="text-sm text-gray-500 dark:text-gray-400">Największa część: <span className="font-semibold text-gray-900 dark:text-gray-200">{largestAllocation.shortName}</span></p>}
+          </div>
+          <div className="grid gap-4 p-5 md:grid-cols-[minmax(260px,0.9fr)_1.1fr] md:p-6">
+            <div className="relative h-[280px] min-h-[280px] w-full min-w-0">
+              {allocation.length > 0 ? <><ResponsiveContainer width="100%" height={280} minWidth={240}><PieChart><Pie data={allocation} cx="50%" cy="50%" innerRadius={82} outerRadius={112} paddingAngle={3} dataKey="value" stroke="none">{allocation.map((entry) => <Cell key={entry.name} fill={entry.color} />)}</Pie><Tooltip formatter={(value: number) => formatMoney(value)} contentStyle={{ borderRadius: '14px', border: '1px solid rgba(148, 163, 184, .25)', boxShadow: '0 12px 30px -12px rgba(15, 23, 42, .35)' }} /></PieChart></ResponsiveContainer><div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center"><span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Łącznie</span><span className="mt-1 max-w-32 text-xl font-extrabold text-gray-950 dark:text-white">{formatMoney(data.total_assets)}</span></div></> : <div className="flex h-full items-center justify-center text-sm text-gray-500">Brak aktywów do pokazania</div>}
+            </div>
+            <div className="flex flex-col justify-center space-y-4">
+              {allocation.map((item) => {
+                const share = data.total_assets > 0 ? (item.value / data.total_assets) * 100 : 0;
+                return <div key={item.name}><div className="mb-1.5 flex items-center justify-between gap-4 text-sm"><div className="flex min-w-0 items-center gap-2"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} /><span className="truncate font-medium text-gray-700 dark:text-gray-200">{item.name}</span></div><div className="shrink-0 text-right"><span className="font-bold text-gray-950 dark:text-white">{formatPercent(share)}</span><span className="ml-2 hidden text-gray-500 dark:text-gray-400 sm:inline">{formatMoney(item.value)}</span></div></div><div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800"><div className="h-full rounded-full" style={{ width: `${Math.max(share, 1)}%`, backgroundColor: item.color }} /></div></div>;
+              })}
+            </div>
           </div>
         </Card>
 
-        {/* Quick Stats Panel */}
-        <Card variant="default" className="p-6 flex flex-col justify-center space-y-8">
-           <div>
-              <h4 className="text-sm font-medium text-gray-500 uppercase mb-2">Dostępne Środki (Budżet)</h4>
-              <div className="flex items-baseline space-x-2">
-                <span className="text-2xl font-bold text-gray-900">{data.quick_stats.free_pool.toLocaleString('pl-PL', { minimumFractionDigits: 2 })}</span>
-                <span className="text-sm text-gray-500">PLN</span>
-              </div>
-           </div>
-
-           <div className="border-t border-gray-100 pt-6">
-              <h4 className="text-sm font-medium text-gray-500 uppercase mb-2">Najbliższa Rata (Kredyt)</h4>
-              {data.quick_stats.next_loan_installment > 0 ? (
-                <div>
-                   <div className="flex items-baseline space-x-2">
-                    <span className="text-2xl font-bold text-red-600">{data.quick_stats.next_loan_installment.toLocaleString('pl-PL', { minimumFractionDigits: 2 })}</span>
-                    <span className="text-sm text-gray-500">PLN</span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Termin: {data.quick_stats.next_loan_date ? new Date(data.quick_stats.next_loan_date).toLocaleDateString('pl-PL') : 'Nieznany'}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-green-600 font-medium">Brak nadchodzących rat</p>
-              )}
-           </div>
-
-           {dividendsData && (
-             <div className="border-t border-gray-100 pt-6">
-                <h4 className="text-sm font-medium text-gray-500 uppercase mb-2">Dywidendy — {dividendsData.month_label}</h4>
-                {hasNoDividendsThisMonth ? (
-                  <p className="text-sm text-gray-500">Brak dywidend w tym miesiącu</p>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-green-600 font-semibold">
-                      Otrzymane: {dividendsData.received_this_month.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
-                    </p>
-                    {dividendsData.expected_this_month > 0 && (
-                      <p className="text-gray-500">
-                        Oczekiwane: {dividendsData.expected_this_month.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN
-                      </p>
-                    )}
-                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500 transition-all" style={{ width: `${dividendProgress}%` }} />
-                    </div>
-                    {dividendsData.top_payers.length > 0 && (
-                      <div className="space-y-1">
-                        {dividendsData.top_payers.slice(0, 3).map((payer) => (
-                          <div key={`${payer.ticker}-${payer.date}`} className="text-sm text-gray-700">
-                            💰 {payer.ticker} {payer.amount.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN{' '}
-                            {payer.date ? new Date(payer.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' }) : ''}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-             </div>
-           )}
-        </Card>
-      </div>
-
-      <Card variant="default" className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Dzisiejsze ruchy</h3>
-        {hasDailyChangeData ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Gainers</h4>
-              <div className="space-y-1">{renderMovers(topGainers, 'text-green-600', '🟢')}</div>
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Top 3 Losers</h4>
-              <div className="space-y-1">{renderMovers(topLosers, 'text-red-600', '🔴')}</div>
-            </div>
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-gray-100 px-6 py-5 dark:border-gray-800"><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-300">Najbliższe sprawy</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white">Na radarze</h2></div>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            <div className="p-5"><div className="flex items-start gap-3"><div className="rounded-xl bg-blue-50 p-2.5 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"><WalletCards className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Do zaplanowania (budżet)</p><p className="mt-1 text-xl font-bold text-gray-950 dark:text-white">{formatMoney(data.quick_stats.free_pool)}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">W tym oczekiwane wpływy: {formatMoney(data.quick_stats.expected_income ?? 0)}</p></div></div></div>
+            <div className="p-5"><div className="flex items-start gap-3"><div className="rounded-xl bg-amber-50 p-2.5 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300"><CalendarDays className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Najbliższa rata (kredyt)</p>{data.quick_stats.next_loan_installment > 0 ? <><p className="mt-1 text-xl font-bold text-gray-950 dark:text-white">{formatMoney(data.quick_stats.next_loan_installment)}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Termin: {data.quick_stats.next_loan_date ? new Date(data.quick_stats.next_loan_date).toLocaleDateString('pl-PL') : 'Nieznany'}</p></> : <p className="mt-2 text-sm font-semibold text-emerald-600 dark:text-emerald-300">Brak nadchodzących rat</p>}</div></div></div>
+            {dividendsData && <div className="p-5"><div className="flex items-start gap-3"><div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"><CircleDollarSign className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Dywidendy — {dividendsData.month_label}</p>{hasNoDividendsThisMonth ? <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Brak dywidend w tym miesiącu</p> : <div className="mt-2 space-y-2"><p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Otrzymane: {formatMoney(dividendsData.received_this_month)}</p>{dividendsData.expected_this_month > 0 && <p className="text-xs text-gray-500 dark:text-gray-400">Oczekiwane: {formatMoney(dividendsData.expected_this_month)}</p>}<div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${dividendProgress}%` }} /></div>{dividendsData.top_payers.slice(0, 2).map((payer) => <p key={`${payer.ticker}-${payer.date}`} className="text-xs text-gray-600 dark:text-gray-300">💰 {payer.ticker} {formatMoney(payer.amount)} {payer.date ? `· ${new Date(payer.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })}` : ''}</p>)}</div>}</div></div></div>}
+            <div className="p-5"><div className="flex items-start gap-3"><div className="rounded-xl bg-violet-50 p-2.5 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300"><Sparkles className="h-5 w-5" /></div><div><p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Sygnał finansowy</p><p className="mt-1 text-sm leading-5 text-gray-700 dark:text-gray-200">{shortTermCoverage === null ? 'Brak zobowiązań krótkoterminowych — płynność wygląda bezpiecznie.' : shortTermCoverage >= 2 ? `Płynne środki pokrywają krótkoterminowe zobowiązania ${shortTermCoverage.toLocaleString('pl-PL', { maximumFractionDigits: 1 })}×.` : 'Płynne środki są niskie względem zobowiązań krótkoterminowych.'}</p></div></div></div>
           </div>
-        ) : (
-          <p className="text-sm text-gray-500">Brak danych zmian dziennych</p>
-        )}
+        </Card>
+      </section>
+
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-col gap-2 border-b border-gray-100 px-6 py-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-600 dark:text-emerald-300">Zmiany na rynku</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white">Dzisiejsze ruchy</h2></div>{hasDailyChangeData && <p className="text-sm text-gray-500 dark:text-gray-400">{holdingsWithDailyChange.length} pozycji · Szacunkowo {formatMoney(estimatedDailyPnl)} ({formatPercent(estimatedDailyPercent)})</p>}</div>
+        {hasDailyChangeData ? <div className="grid gap-6 p-5 md:grid-cols-2 md:p-6"><div><div className="mb-2 flex items-center gap-2 px-3"><ArrowUpRight className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold text-gray-700 dark:text-gray-200">Najmocniejsze pozycje</h3></div><div className="space-y-1">{renderMovers(topGainers, 'up')}</div></div><div><div className="mb-2 flex items-center gap-2 px-3"><ArrowDownRight className="h-4 w-4 text-rose-600" /><h3 className="text-sm font-bold text-gray-700 dark:text-gray-200">Najsłabsze pozycje</h3></div><div className="space-y-1">{renderMovers(topLosers, 'down')}</div></div></div> : <p className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak danych zmian dziennych</p>}
       </Card>
 
-      {/* Bottom Row: Navigation Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Portfolios */}
-        <Link to="/portfolios" className="group p-6 hover:border-blue-200 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 dark:bg-gray-900 dark:border-gray-800 dark:hover:border-blue-700/60">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-100 transition-colors">
-              <Briefcase className="h-8 w-8" />
-            </div>
-            <ArrowRight className="h-5 w-5 text-gray-300 group-hover:text-blue-500 transform group-hover:translate-x-1 transition-all" />
-          </div>
-          <h3 className="text-xl font-bold text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300">Zarządzaj Portfelami</h3>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">Akcje, Obligacje, IKE/IKZE</p>
-        </Link>
-
-        {/* Loans */}
-        <Link to="/loans" className="group p-6 hover:border-amber-200 transition-all duration-200 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 dark:bg-gray-900 dark:border-gray-800 dark:hover:border-amber-700/60">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-100 transition-colors">
-              <Landmark className="h-8 w-8" />
-            </div>
-            <ArrowRight className="h-5 w-5 text-gray-300 group-hover:text-amber-500 transform group-hover:translate-x-1 transition-all" />
-          </div>
-          <h3 className="text-xl font-bold text-gray-900 transition-colors group-hover:text-amber-600 dark:text-gray-100 dark:group-hover:text-amber-300">Zarządzaj Kredytami</h3>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">Hipoteki, Gotówkowe, Nadpłaty</p>
-        </Link>
-
-        {/* Budget */}
-        <Link to="/budget" className="group rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg dark:border-gray-800 dark:bg-gray-900 dark:hover:border-indigo-700/60">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-100 transition-colors">
-              <PiggyBank className="h-8 w-8" />
-            </div>
-            <ArrowRight className="h-5 w-5 text-gray-300 group-hover:text-indigo-500 transform group-hover:translate-x-1 transition-all" />
-          </div>
-          <h3 className="text-xl font-bold text-gray-900 transition-colors group-hover:text-indigo-600 dark:text-gray-100 dark:group-hover:text-indigo-300">Zarządzaj Budżetem</h3>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">Konta, Koperty, Wydatki</p>
-        </Link>
-
-      </div>
+      <section>
+        <div className="mb-4 flex items-center gap-2"><Layers3 className="h-5 w-5 text-blue-600 dark:text-blue-300" /><h2 className="text-lg font-bold text-gray-950 dark:text-white">Przejdź do szczegółów</h2></div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {navigationCards.map((item) => {
+            const Icon = item.icon;
+            const colorClasses = { blue: 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white dark:bg-blue-950/40 dark:text-blue-300', violet: 'bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white dark:bg-violet-950/40 dark:text-violet-300', amber: 'bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white dark:bg-amber-950/40 dark:text-amber-300' }[item.accent];
+            return <Link key={item.to} to={item.to} className="group flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg dark:border-gray-800 dark:bg-gray-900 dark:hover:border-blue-800"><div className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl transition-colors', colorClasses)}><Icon className="h-6 w-6" /></div><div className="min-w-0 flex-1"><h3 className="font-bold text-gray-950 dark:text-white">{item.title}</h3><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{item.description}</p></div><ChevronRight className="h-5 w-5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-1 group-hover:text-blue-500" /></Link>;
+          })}
+        </div>
+      </section>
+      <GoalsSummary />
+      <WealthHistory />
     </div>
   );
+};
+
+const MainDashboard: React.FC = () => {
+  return <div className="page-stack">
+    <header className="page-heading flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+      <p className="page-eyebrow">Twoje finanse</p>
+      <h1 className="mt-1 text-3xl font-bold tracking-tight text-gray-950 dark:text-white">Centrum finansów</h1>
+      <p className="dc-help">Wiesz, co wymaga uwagi. Wybierz sprawę i wykonaj następny krok.</p>
+      </div>
+      <Link className="dc-button" to="/reports/monthly"><CalendarDays size={16}/>Raport miesięczny</Link>
+    </header>
+    <FinancialOverview />
+  </div>;
 };
 
 export default MainDashboard;

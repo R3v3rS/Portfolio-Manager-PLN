@@ -1,0 +1,19 @@
+import {useCallback,useEffect,useState} from 'react';
+import {backupsApi,type BackupItem} from '../../api_backups';
+import {extractErrorMessageFromUnknown} from '../../http/response';
+import {ImportDialog} from '../../components/budget/imports/ImportUi';
+import '../../components/budget/budgetWorkspace.css';
+
+export default function AdminBackups(){
+ const [items,setItems]=useState<BackupItem[]>([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[selected,setSelected]=useState<BackupItem|null>(null),[confirmation,setConfirmation]=useState('');
+ const reload=useCallback(async()=>{const d=await backupsApi.get();setItems(d.items);},[]);
+ useEffect(()=>{void reload().catch(e=>setError(extractErrorMessageFromUnknown(e))).finally(()=>setLoading(false));},[reload]);
+ const create=async()=>{setBusy(true);setError('');try{const r=await backupsApi.create();await reload();setNotice('Kopia zapisana: '+r.name);}catch(e){setError(extractErrorMessageFromUnknown(e));}finally{setBusy(false);}};
+ const restore=async()=>{if(!selected)return;setBusy(true);setError('');try{const r=await backupsApi.restore(selected.name,confirmation);setSelected(null);setNotice('Baza przywrócona. Poprzednie dane zachowano w '+r.rescue_copy+'. Odśwież pozostałe otwarte widoki.');await reload();}catch(e){setError(extractErrorMessageFromUnknown(e));}finally{setBusy(false);}};
+ const names:Record<string,string>={manual:'Ręczna',daily:'Codzienna',update:'Przed aktualizacją',before:'Zabezpieczenie',other:'Pozostała kopia'};
+ return <div className="page-stack"><div className="page-heading"><p className="page-eyebrow">Twoje dane lokalne</p><h1>Kopie bezpieczeństwa</h1><p>Kopia przed uruchomieniem nowej wersji oraz codziennie przy pierwszym użyciu aplikacji. Zachowujemy 14 codziennych i 10 kopii aktualizacji. Kopii ręcznych i sprzed przywrócenia nie usuwamy automatycznie.</p></div>
+ <section className="chart-panel"><div className="chart-heading"><div><h2>Ostatnia kopia</h2><strong>{items[0]?new Date(items[0].created_at).toLocaleString('pl-PL'):'Brak kopii'}</strong><p>{items[0]?.name}</p></div><button className="budget-button-primary" disabled={busy||loading} onClick={()=>void create()}>Utwórz kopię teraz</button></div>{notice&&<p role="status">{notice}</p>}{error&&<p role="alert">{error}</p>}{loading&&<p>Ładowanie kopii…</p>}
+ <div className="chart-table-wrap"><table className="chart-table"><thead><tr><th>Utworzono</th><th>Rodzaj</th><th>Plik</th><th>Rozmiar</th><th>Przywracanie</th></tr></thead><tbody>{items.map(i=><tr key={i.name}><td>{new Date(i.created_at).toLocaleString('pl-PL')}</td><td>{names[i.kind]??i.kind}</td><td>{i.name}</td><td>{(i.size/1024/1024).toLocaleString('pl-PL',{maximumFractionDigits:2})} MB</td><td><button disabled={busy} onClick={()=>{setSelected(i);setConfirmation('');setError('');}}>Przywróć</button></td></tr>)}</tbody></table></div></section>
+ {selected&&<ImportDialog title="Przywrócenie bazy danych" busy={busy} onClose={()=>setSelected(null)}><p>Przywrócisz stan całej aplikacji z <strong>{new Date(selected.created_at).toLocaleString('pl-PL')}</strong>: {selected.name}. Późniejsze wpisy znikną z bieżącej bazy. Przed operacją zapisujemy osobną kopię obecnych danych, do której możesz wrócić.</p><p>Kopie obejmują bazę. Zdjęcia paragonów pozostają w lokalnym folderze i nie są przywracane z pliku bazy.</p>{error&&<p role="alert">{error}</p>}<label>Wpisz PRZYWRÓĆ<input aria-label="Potwierdzenie przywrócenia" value={confirmation} onChange={e=>setConfirmation(e.target.value)} autoComplete="off"/></label><div className="budget-form-actions"><button disabled={busy} onClick={()=>setSelected(null)}>Anuluj</button><button className="budget-button-primary" disabled={busy||confirmation!=='PRZYWRÓĆ'} onClick={()=>void restore()}>Przywróć całą bazę</button></div></ImportDialog>}
+ </div>;
+}

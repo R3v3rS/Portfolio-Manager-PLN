@@ -104,13 +104,16 @@ class ClearSubportfolioTestCase(unittest.TestCase):
         self.assertEqual(body['code'], 'INVALID_ACTION')
         self.assertEqual(body['message'], 'Najpierw zarchiwizuj sub-portfele.')
 
-    def test_clear_parent_without_active_children_keeps_existing_behavior(self):
+    def test_clear_parent_with_legacy_archived_child_keeps_existing_behavior(self):
         parent_id = self._create_parent()
         child_id = self._create_child(parent_id)
         self._insert_position_data(parent_id, child_id)
 
-        archive_response = self.client.post(f'/api/portfolio/{child_id}/archive')
-        self.assertEqual(archive_response.status_code, 200, archive_response.get_json())
+        # Legacy archives predate frozen reports and custody transfers.
+        with self.app.app_context():
+            db = get_db()
+            db.execute('UPDATE portfolios SET is_archived=1 WHERE id=?',(child_id,))
+            db.commit()
 
         clear_response = self.client.post(f'/api/portfolio/{parent_id}/clear')
         self.assertEqual(clear_response.status_code, 200, clear_response.get_json())

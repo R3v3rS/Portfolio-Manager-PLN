@@ -44,51 +44,44 @@ class PortfolioCoreService:
         db = get_db()
         current_year = date.today().year
         limits = {2026: {'IKE': 28260.0, 'IKZE': 11304.0}}
-        year_limits = limits.get(current_year, limits[2026])
-        ike_limit = year_limits['IKE']
-        ikze_limit = year_limits['IKZE']
+        year_limits = limits.get(current_year, {})
 
-        ike_deposited = 0.0
-        portfolios = db.execute(
-            "SELECT id FROM portfolios WHERE upper(name) LIKE '%IKE%' AND upper(name) NOT LIKE '%IKZE%'"
-        ).fetchall()
-        for p in portfolios:
-            res = db.execute("""
-                SELECT SUM(total_value) as total
-                FROM transactions
-                WHERE portfolio_id = ?
-                AND type = 'DEPOSIT'
-                AND date >= ?
-            """, (p['id'], f"{current_year}-01-01")).fetchone()
-            if res and res['total']:
-                ike_deposited += float(res['total'])
-
-        ikze_deposited = 0.0
-        portfolios = db.execute("SELECT id FROM portfolios WHERE upper(name) LIKE '%IKZE%'").fetchall()
-        for p in portfolios:
-            res = db.execute("""
-                SELECT SUM(total_value) as total
-                FROM transactions
-                WHERE portfolio_id = ?
-                AND type = 'DEPOSIT'
-                AND date >= ?
-            """, (p['id'], f"{current_year}-01-01")).fetchone()
-            if res and res['total']:
-                ikze_deposited += float(res['total'])
-
-        return {
-            "year": current_year,
-            "IKE": {
-                "deposited": ike_deposited,
-                "limit": ike_limit,
-                "percentage": round((ike_deposited / ike_limit * 100), 2) if ike_limit > 0 else 0.0
-            },
-            "IKZE": {
-                "deposited": ikze_deposited,
-                "limit": ikze_limit,
-                "percentage": round((ikze_deposited / ikze_limit * 100), 2) if ikze_limit > 0 else 0.0
-            }
-        }
+        accounts = {r['id']: dict(r) for r in db.execute('SELECT id,account_type,parent_portfolio_id FROM portfolios')}
+        def tax_account(owner):
+            seen = set()
+            while owner in accounts and owner not in seen:
+                seen.add(owner)
+                item = accounts[owner]
+                if item['parent_portfolio_id']:
+                    owner = item['parent_portfolio_id']
+                else:
+                    return owner, str(item['account_type']).upper()
+            return None, None
+        deposited = {'IKE': 0.0, 'IKZE': 0.0}
+        rows = [dict(r) for r in db.execute("SELECT * FROM transactions WHERE type IN ('DEPOSIT','WITHDRAW')")]
+        withdrawals = {}
+        for row in rows:
+            if row['type'] == 'WITHDRAW' and row['transfer_id']:
+                withdrawals.setdefault(row['transfer_id'], []).append(row)
+        for row in rows:
+            if row['type'] != 'DEPOSIT' or not f'{current_year}-01-01' <= str(row['date'])[:10] < f'{current_year+1}-01-01':
+                continue
+            root, kind = tax_account(row['sub_portfolio_id'] or row['portfolio_id'])
+            if kind not in deposited:
+                continue
+            # Moving already contributed cash between strategies of the same
+            # account is not another contribution to its annual allowance.
+            paired = withdrawals.get(row['transfer_id'], [])
+            if len(paired) == 1:
+                other = paired[0]
+                other_root, _ = tax_account(other['sub_portfolio_id'] or other['portfolio_id'])
+                if other_root == root and str(other['date'])[:10] == str(row['date'])[:10] and abs(float(other['total_value'])-float(row['total_value'])) < .005:
+                    continue
+            deposited[kind] += float(row['total_value'])
+        return {'year': current_year, **{
+            kind: {'deposited': round(deposited[kind], 2), 'limit': year_limits.get(kind),
+                   'percentage': round(deposited[kind] / year_limits[kind] * 100, 2) if year_limits.get(kind) else None}
+            for kind in ('IKE', 'IKZE')}}
 
     @staticmethod
     def create_portfolio(name, initial_cash=0.0, account_type='STANDARD', created_at=None, parent_portfolio_id=None):
@@ -176,6 +169,8 @@ class PortfolioCoreService:
 
     @staticmethod
     def clear_portfolio_data(portfolio_id: int) -> dict[str, Any]:
+        from budget_transfer_service import assert_unlinked_transactions
+
         db = get_db()
         portfolio = db.execute(
             'SELECT id, name, account_type, parent_portfolio_id FROM portfolios WHERE id = ?',
@@ -186,6 +181,10 @@ class PortfolioCoreService:
 
         if portfolio['parent_portfolio_id']:
             raise ValueError('Czyszczenie sub-portfela nie jest dozwolone. Przenieś transakcje ręcznie.')
+
+        assert_unlinked_transactions(db, [row['id'] for row in db.execute(
+            'SELECT id FROM transactions WHERE portfolio_id = ?', (portfolio_id,)
+        ).fetchall()])
 
         active_children = db.execute(
             '''
@@ -227,17 +226,8 @@ class PortfolioCoreService:
 
     @staticmethod
     def archive_portfolio(portfolio_id):
-        db = get_db()
-        try:
-            db.execute(
-                'UPDATE portfolios SET is_archived = 1, archived_at = ? WHERE id = ?',
-                (datetime.utcnow().replace(microsecond=0).isoformat(), portfolio_id),
-            )
-            db.commit()
-            return True
-        except Exception as e:
-            db.rollback()
-            raise e
+        from strategy_archive_service import archive
+        return archive(portfolio_id)
 
     @staticmethod
     def delete_portfolio(portfolio_id):

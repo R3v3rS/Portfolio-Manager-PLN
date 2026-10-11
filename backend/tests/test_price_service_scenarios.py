@@ -46,6 +46,42 @@ class PriceServiceScenarioTestCase(unittest.TestCase):
         self.assertEqual(prices, {"AAPL": 101.25})
         dl.assert_called_once()
 
+    def test_cached_only_returns_stale_price_without_network_request(self):
+        def load_stale_cache(_tickers):
+            PriceService._price_cache["AAPL"] = 98.75
+            PriceService._price_cache_updated_at["AAPL"] = "2024-01-01T12:00:00"
+
+        with patch.object(PriceService, "_load_price_cache_from_db", side_effect=load_stale_cache), patch.object(
+            PriceService, "_download_with_retry"
+        ) as download:
+            prices = PriceService.get_prices(["AAPL"], cached_only=True)
+
+        self.assertEqual(prices, {"AAPL": 98.75})
+        download.assert_not_called()
+
+    def test_cached_only_quotes_return_stale_quote_without_network_request(self):
+        stale_quote = {
+            "price": 98.75,
+            "change_1d": 1.2,
+            "change_7d": 2.3,
+            "change_1m": None,
+            "change_1y": None,
+            "prev_close": 97.58,
+            "price_7d_ago": 96.53,
+        }
+
+        def load_stale_quotes(_tickers, level):
+            PriceService._quotes_cache[level]["AAPL"] = stale_quote
+            PriceService._quotes_cache_updated_at[level]["AAPL"] = "2024-01-01T12:00:00"
+
+        with patch.object(PriceService, "_load_quotes_cache_from_db", side_effect=load_stale_quotes), patch.object(
+            PriceService, "_download_with_retry"
+        ) as download:
+            quotes = PriceService.get_quotes_lite(["AAPL"], cached_only=True)
+
+        self.assertEqual(quotes["AAPL"], stale_quote)
+        download.assert_not_called()
+
     def test_scenario_retry_then_success(self):
         side_effects = [
             TimeoutError("network timeout"),

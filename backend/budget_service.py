@@ -221,148 +221,20 @@ class BudgetService:
         db.commit()
 
     @staticmethod
-    def transfer_to_investment(budget_account_id, portfolio_id, amount, envelope_id=None, description="Transfer to Investments", date=None):
-        """
-        Transfers money from Budget (Account/Envelope) to Investment (Portfolio).
-        Executes in a SINGLE transaction to ensure atomicity.
-        """
-        db = BudgetService.get_db()
-        transaction_date = date if date else date_cls.today()
-        
-        # Get names for descriptions
-        account = db.execute("SELECT name, balance FROM budget_accounts WHERE id = ?", (budget_account_id,)).fetchone()
-        portfolio = db.execute("SELECT name FROM portfolios WHERE id = ?", (portfolio_id,)).fetchone()
-        
-        if not account:
-            raise ValueError("Budget Account not found")
-        if not portfolio:
-            raise ValueError("Investment Portfolio not found")
-            
-        account_name = account['name']
-        portfolio_name = portfolio['name']
-
-        try:
-            # --- STEP A: BUDGET SIDE ---
-            
-            if envelope_id:
-                # Deduct from Envelope
-                envelope = db.execute("SELECT balance, account_id, name FROM envelopes WHERE id = ?", (envelope_id,)).fetchone()
-                if not envelope:
-                    raise ValueError("Envelope not found")
-                if envelope['account_id'] != budget_account_id:
-                    raise ValueError("Envelope does not belong to the specified account")
-                
-                # Check envelope balance (Optional strict mode, but good practice)
-                # if envelope['balance'] < amount: raise ValueError("Insufficient funds in envelope")
-
-                db.execute("UPDATE envelopes SET balance = balance - ? WHERE id = ?", (amount, envelope_id))
-                source_desc = f"Transfer to Investment ({portfolio_name}) from Envelope: {envelope['name']}"
-            else:
-                # Deduct from Free Pool
-                free_pool = BudgetService.get_free_pool(budget_account_id)
-                if free_pool < amount:
-                    raise ValueError(f"Insufficient free pool. Available: {free_pool}, Requested: {amount}")
-                source_desc = f"Transfer to Investment ({portfolio_name}) from Free Pool"
-
-            # Deduct from Account Balance
-            if account['balance'] < amount:
-                 raise ValueError(f"Insufficient funds in account. Available: {account['balance']}")
-
-            db.execute("UPDATE budget_accounts SET balance = balance - ? WHERE id = ?", (amount, budget_account_id))
-            
-            # Record Budget Transaction
-            db.execute("""
-                INSERT INTO budget_transactions (type, amount, account_id, envelope_id, description, date)
-                VALUES ('EXPENSE', ?, ?, ?, ?, ?)
-            """, (amount, budget_account_id, envelope_id, source_desc, transaction_date))
-
-
-            # --- STEP B: INVESTMENT SIDE ---
-            
-            # Update Portfolio Cash
-            db.execute(
-                'UPDATE portfolios SET current_cash = current_cash + ?, total_deposits = total_deposits + ? WHERE id = ?',
-                (amount, amount, portfolio_id)
-            )
-            
-            # Record Portfolio Transaction
-            db.execute(
-                '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, 'CASH', 'DEPOSIT', 1, amount, amount, transaction_date)
-            )
-
-            # Commit everything
-            db.commit()
-            
-        except Exception as e:
-            db.rollback()
-            raise e
+    def transfer_to_investment(budget_account_id, portfolio_id, amount, envelope_id=None,
+                               description="Transfer do inwestycji", date=None,
+                               sub_portfolio_id=None, request_id=None):
+        from budget_transfer_service import transfer_investment_cash
+        return transfer_investment_cash(budget_account_id, portfolio_id, amount, 'OUT',
+                                        description, date, envelope_id, sub_portfolio_id, request_id)
 
     @staticmethod
-    def withdraw_from_investment(portfolio_id, budget_account_id, amount, description="Wypłata z portfela inwestycyjnego", date=None):
-        """
-        Transfers money from Investment (Portfolio) to Budget (Account).
-        Executes in a SINGLE transaction to ensure atomicity.
-        """
-        db = BudgetService.get_db()
-        transaction_date = date if date else date_cls.today()
-        
-        # Get portfolio and account details
-        portfolio = db.execute("SELECT name, current_cash FROM portfolios WHERE id = ?", (portfolio_id,)).fetchone()
-        account = db.execute("SELECT name FROM budget_accounts WHERE id = ?", (budget_account_id,)).fetchone()
-        
-        if not portfolio:
-            raise ValueError("Investment Portfolio not found")
-        if not account:
-            raise ValueError("Budget Account not found")
-            
-        portfolio_name = portfolio['name']
-        account_name = account['name']
-        
-        if portfolio['current_cash'] < amount:
-            raise ValueError(f"Insufficient funds in portfolio. Available: {portfolio['current_cash']}")
-
-        try:
-            # --- STEP A: INVESTMENT SIDE ---
-            
-            # Deduct from Portfolio Cash
-            db.execute(
-                'UPDATE portfolios SET current_cash = current_cash - ? WHERE id = ?',
-                (amount, portfolio_id)
-            )
-            
-            # Record Portfolio Transaction (WITHDRAW)
-            db.execute(
-                '''INSERT INTO transactions 
-                   (portfolio_id, ticker, type, quantity, price, total_value, date) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (portfolio_id, 'CASH', 'WITHDRAW', 1, amount, amount, transaction_date)
-            )
-
-            # --- STEP B: BUDGET SIDE ---
-            
-            # Add to Budget Account Balance
-            db.execute(
-                "UPDATE budget_accounts SET balance = balance + ? WHERE id = ?",
-                (amount, budget_account_id)
-            )
-            
-            # Record Budget Transaction (INCOME)
-            # envelope_id is NULL, so it goes to Free Pool
-            full_description = f"{description} (From: {portfolio_name})"
-            db.execute("""
-                INSERT INTO budget_transactions (type, amount, account_id, description, date)
-                VALUES ('INCOME', ?, ?, ?, ?)
-            """, (amount, budget_account_id, full_description, transaction_date))
-            
-            # Commit everything
-            db.commit()
-            
-        except Exception as e:
-            db.rollback()
-            raise e
+    def withdraw_from_investment(portfolio_id, budget_account_id, amount,
+                                 description="Wypłata z portfela inwestycyjnego", date=None,
+                                 sub_portfolio_id=None, request_id=None):
+        from budget_transfer_service import transfer_investment_cash
+        return transfer_investment_cash(budget_account_id, portfolio_id, amount, 'IN',
+                                        description, date, None, sub_portfolio_id, request_id)
 
     @staticmethod
     def borrow_from_envelope(source_envelope_id, amount, reason, due_date=None):

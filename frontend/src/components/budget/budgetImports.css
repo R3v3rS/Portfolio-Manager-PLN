@@ -1,0 +1,90 @@
+.bi-page { min-width:0; }
+.bi-page h2 { font-size:1.1rem; font-weight:700; }
+.bi-page h3 { font-size:.95rem; font-weight:650; }
+.bi-page fieldset { border:0; padding:0; min-width:0; }
+.bi-page label,.bi-page input,.bi-page select,.bi-page textarea { min-width:0; }
+.bi-page input[type=checkbox] { width:1rem; height:1rem; accent-color:var(--accent); flex-shrink:0; }
+.bi-check { display:flex!important; flex-direction:row!important; align-items:center; gap:.6rem; font-size:.8rem; color:var(--muted); }
+.bi-tabs { overflow-x:auto; flex-wrap:nowrap; padding-bottom:.5rem; }
+.bi-tabs button { white-space:nowrap; flex-shrink:0; }
+.bi-page .br-toolbar { flex-wrap:wrap; }
+.bi-empty { text-align:center; color:var(--muted); padding:2.5rem 1rem; font-size:.85rem; line-height:1.8; }
+.bi-empty svg { margin:0 auto 1rem; color:var(--accent); }
+.bi-empty h3 { color:var(--ink); margin-bottom:.5rem; }
+.bi-empty p { max-width:40rem; margin:auto; }
+.bi-bulk { display:flex; align-items:end; flex-wrap:wrap; gap:1rem; padding:1rem; margin:1rem 0; background:var(--surface-muted); border-radius:.8rem; }
+.bi-bulk>label:not(.bi-check) { min-width:12rem; flex:1; }
+.bi-pending-list { margin:1rem 0; }
+.bi-pending-list article { display:flex; align-items:center; flex-wrap:wrap; gap:.8rem; padding:1rem 0; border-top:1px solid var(--line); }
+.bi-pending-text { flex:1; min-width:12rem; }
+.bi-pending-text strong { font-size:.9rem; }
+.bi-pending-text p,.bi-pending-text small { display:block; color:var(--muted); font-size:.73rem; margin-top:.25rem; overflow-wrap:anywhere; }
+.bi-pending-list article>b { font-size:.95rem; white-space:nowrap; }
+.bi-pending-actions { display:flex; align-items:center; gap:.3rem; flex-wrap:wrap; }
+.bi-pending-actions label { width:10rem; }
+.bi-file { display:flex; align-items:center; text-align:center; gap:.65rem; padding:1.7rem; border:1px dashed color-mix(in srgb,var(--accent) 55%,var(--line)); border-radius:1rem; background:color-mix(in srgb,var(--accent) 5%,var(--surface)); margin:1.2rem 0; }
+.bi-file svg { color:var(--accent); }
+.bi-page .bi-file { flex-direction:column; }
+.bi-file strong { font-size:.95rem; }
+.bi-file span { color:var(--muted); font-size:.75rem; }
+.bi-file input { max-width:100%; width:21rem; margin-top:.5rem; }
+.bi-file input::file-selector-button { background:var(--surface-muted); border:1px solid var(--line); color:var(--ink); border-radius:.5rem; padding:.45rem .7rem; margin-right:.6rem; }
+.bi-mapping { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.9rem; margin:1rem 0; }
+.bi-preview-meta { display:flex; flex-wrap:wrap; gap:1rem; font-size:.8rem; color:var(--muted); }
+.bi-preview { margin:1rem 0; }
+.bi-preview summary { cursor:pointer; font-size:.85rem; }
+.bi-table-wrap { position:relative; width:100%; overflow:auto; margin:1rem 0; }
+.bi-table-wrap table { width:100%; border-collapse:collapse; font-size:.8rem; }
+.bi-table-wrap th,.bi-table-wrap td { padding:.85rem .6rem; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.bi-table-wrap th { color:var(--muted); font-size:.7rem; font-weight:500; }
+.bi-preview table { min-width:700px; }
+.bi-bank-table { min-width:780px; }
+.bi-bank-table td:first-child { min-width:14rem; max-width:25rem; }
+.bi-bank-table td:nth-child(2) { white-space:nowrap; font-weight:650; }
+.bi-bank-table td:nth-child(3),.bi-bank-table td:nth-child(4) { width:13rem; min-width:12rem; }
+.bi-bank-table td label+label { margin-top:.45rem; }
+.bi-bank-table small { display:block; color:var(--muted); font-size:.7rem; line-height:1.6; margin-top:.3rem; overflow-wrap:anywhere; }
+.bi-bank-table .is-skipped { background:color-mix(in srgb,var(--surface-muted) 50%,var(--surface)); }
+.bi-error,.bi-bank-table .bi-error { color:#f28d9c; }
+.bi-page .bi-delete-receipt { color:#f28d9c; border-color:color-mix(in srgb,#f28d9c 40%,var(--line)); }
+.bi-warning-text,.bi-bank-table .bi-warning-text { color:#fcd898; }
+.bi-positive { color:var(--accent); }
+.bi-review-title { display:flex; flex-wrap:wrap; align-items:center; gap:.7rem; margin-top:1rem; }
+.bi-review-title>span { color:var(--muted); font-size:.8rem; flex:1; }
+.bi-balance-preview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; margin:1rem 0; padding:1rem; background:var(--surface-muted); border-radius:.8rem; }
+.bi-balance-preview span { display:block; color:var(--muted); font-size:.75rem; margin-bottom:.4rem; }
+.bi-balance-preview b { display:block; font-size:1.2rem; letter-spacing:-.02em; overflow-wrap:anywhere; }
+.bi-commit { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:1rem; padding-top:1rem; border-top:1px solid var(--line); }
+.bi-commit p { font-size:.8rem; color:var(--muted); flex:1; }
+.bi-completed { display:flex; align-items:flex-start; gap:1rem; padding:1.5rem 0; color:var(--accent); }
+.bi-completed p { color:var(--muted); font-size:.85rem; line-height:1.8; margin-top:.3rem; }
+.bi-rule-list article { display:flex; align-items:center; gap:1rem; padding:1rem 0; border-top:1px solid var(--line); }
+.bi-rule-list { margin-top:1rem; }
+.bi-rule-list article>svg { color:var(--accent); flex-shrink:0; }
+.bi-rule-list article>div { flex:1; min-width:0; }
+.bi-rule-list strong { font-size:.9rem; }
+.bi-rule-list p { font-size:.8rem; color:var(--muted); line-height:1.7; margin-top:.3rem; overflow-wrap:anywhere; }
+.bi-rule-list p b { color:var(--ink); }
+.bi-rule-list small { color:var(--muted); font-size:.7rem; }
+.bi-rule-list .is-paused { opacity:.7; }
+.bi-document-list>button { display:flex; align-items:center; gap:.8rem; width:100%; text-align:left; padding:1rem 0; border-bottom:1px solid var(--line); }
+.bi-document-list>button>span { flex:1; min-width:0; overflow-wrap:anywhere; font-size:.85rem; }
+.bi-document-list small { display:block; color:var(--muted); font-size:.72rem; margin-top:.3rem; }
+.bi-document-list button:hover { color:var(--accent); }
+.bi-receipt-review { display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.6fr); gap:1.5rem; margin-top:1.2rem; align-items:start; }
+.bi-receipt-image { min-width:0; border:1px solid var(--line); border-radius:.9rem; padding:.8rem; background:var(--surface-muted); }
+.bi-receipt-image img { display:block; width:100%; max-height:48rem; object-fit:contain; background:#fff; border-radius:.5rem; }
+.bi-receipt-image>p { font-size:.72rem; color:var(--muted); overflow-wrap:anywhere; margin:.75rem 0; }
+.bi-receipt-image summary { cursor:pointer; font-size:.8rem; }
+.bi-receipt-image textarea { width:100%; min-height:16rem; background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:.5rem; padding:.75rem; margin:.7rem 0; font-size:.8rem; }
+.bi-match { background:var(--surface-muted); padding:1rem; border-radius:.8rem; margin:1rem 0; }
+.bi-match h3 { margin:0; }
+.bi-match .br-toolbar { margin-bottom:.8rem; }
+.bi-products { margin:1rem 0; }
+.bi-product { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(5rem,.65fr) auto; gap:.55rem; align-items:end; border-top:1px solid var(--line); padding:1rem 0; }
+.bi-product label { font-size:.68rem; }
+.bi-page button:disabled { opacity:.55; cursor:not-allowed; }
+.bi-page button:focus-visible,.bi-page summary:focus-visible,.bi-page a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:1150px) { .bi-mapping { grid-template-columns:1fr 1fr; } .bi-receipt-review { grid-template-columns:1fr; } .bi-receipt-image img { max-height:27rem; } .bi-pending-actions { width:100%; margin-left:1.8rem; } .bi-pending-actions label { flex:1; } }
+@media(max-width:700px) { .bi-stats { grid-template-columns:1fr 1fr; } .bi-mapping,.bi-balance-preview { grid-template-columns:1fr; } .bi-rule-list article { flex-wrap:wrap; } .bi-rule-list article>div { min-width:70%; } .bi-rule-list article>button { margin-left:2.2rem; } .bi-product { grid-template-columns:1fr 1fr; } .bi-product label:first-child { grid-column:1/-1; } .bi-product button { grid-column:2; justify-self:end; } .bi-product label:nth-child(3) { grid-column:1; } .bi-bulk>label { width:100%; } .bi-pending-actions { margin-left:0; } .bi-file { padding:1.2rem .8rem; } }
+.bi-rules + .bi-rules { margin-top: 1rem; }

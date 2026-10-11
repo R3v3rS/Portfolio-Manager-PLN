@@ -3,7 +3,7 @@ import { ANALYTICS_ENDPOINTS, createApiClient } from './apiConfig';
 const analyticsHttp = createApiClient('/analytics');
 
 export interface MaxDrawdownMetric {
-  value: number;
+  value: number | null;
   start_date?: string;
   end_date?: string;
   recovery_date?: string | null;
@@ -11,20 +11,43 @@ export interface MaxDrawdownMetric {
 }
 
 export interface AnalyticsSummaryPayload {
+  cached?: boolean;
+  period?: string;
   performance?: {
+    data_status?: 'ok' | 'no_holdings' | 'insufficient_history' | 'missing_prices';
+    observed_from?: string | null;
+    observed_to?: string | null;
+    requested_from?: string | null;
+    data_points?: number;
+    risk_free_rate?: number;
+    drawdown_series?: { date: string; value: number }[];
     sharpe_ratio?: number | null;
     max_drawdown?: number | MaxDrawdownMetric | null;
+    volatility_annualized?: number | null;
+    total_return_pct?: number | null;
+    best_day?: { date?: string; return?: number | null };
+    worst_day?: { date?: string; return?: number | null };
   };
   risk?: {
+    data_status?: 'ok' | 'no_holdings' | 'insufficient_history' | 'missing_prices';
     var_1d?: number | null;
     var_1d_percent?: number | null;
     var_1d_pct?: number | null;
+    var_1d_pln?: number | null;
+    cvar_1d_pct?: number | null;
+    cvar_1d_pln?: number | null;
+    data_points?: number | null;
+    portfolio_value?: number | null;
+    period_used?: string | null;
   };
   correlation?: {
     recharts_data?: Array<Record<string, string | number | null>>;
   };
   diversification?: {
     score?: number | null;
+    rating?: string | null;
+    recommendation?: string | null;
+    top_concentration_warning?: string | null;
     by_sector?: Array<{
       sector?: string | null;
       value?: number | null;
@@ -72,11 +95,12 @@ const normalizeSummaryPayload = (payload?: AnalyticsSummaryApiPayload): Analytic
 };
 
 export const analyticsApi = {
-  getSummary: async (portfolioId: number, subPortfolioId?: number): Promise<AnalyticsSummaryPayload> => {
+  getSummary: async (portfolioId: number, subPortfolioId?: number, period = '1y'): Promise<AnalyticsSummaryPayload> => {
     const response = await analyticsHttp.get<AnalyticsSummaryApiPayload>(ANALYTICS_ENDPOINTS.summary, {
       params: {
         portfolio_id: portfolioId,
         sub_portfolio_id: subPortfolioId,
+        period,
       },
     });
 

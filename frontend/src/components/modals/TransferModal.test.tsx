@@ -25,6 +25,7 @@ vi.mock('../../api_budget', async () => {
     ...actual,
     budgetApi: {
       withdrawFromPortfolio: vi.fn(),
+      transferToPortfolio: vi.fn(),
     },
   };
 });
@@ -52,6 +53,7 @@ describe('TransferModal', () => {
     mockedPortfolioApi.transferCash.mockResolvedValue({ job_id: 'job-1' } as never);
     mockedPortfolioApi.getJobStatus.mockResolvedValue({ status: 'done' } as never);
     mockedBudgetApi.withdrawFromPortfolio.mockResolvedValue({} as never);
+    mockedBudgetApi.transferToPortfolio.mockResolvedValue({} as never);
   });
 
   it('submits DEPOSIT transaction', async () => {
@@ -73,7 +75,32 @@ describe('TransferModal', () => {
     await user.type(screen.getByRole('spinbutton'), '250');
     await user.click(screen.getByRole('button', { name: 'Wypłać' }));
 
-    expect(mockedBudgetApi.withdrawFromPortfolio).toHaveBeenCalledWith(10, 5, 250, 'Wypłata z portfela inwestycyjnego', expect.any(String));
+    expect(mockedBudgetApi.withdrawFromPortfolio).toHaveBeenCalledWith(10, 5, 250, 'Wypłata z portfela inwestycyjnego', expect.any(String), null, expect.any(String));
+  });
+
+  it('links a deposit from the budget to the selected child account', async () => {
+    const user = userEvent.setup();
+    render(<TransferModal {...baseProps} />);
+    await user.selectOptions(screen.getAllByRole('combobox')[0], '11');
+    await user.selectOptions(screen.getByLabelText('Z konta budżetowego'), '5');
+    await user.type(screen.getByRole('spinbutton'), '125');
+    await user.click(screen.getByRole('button', { name: 'Wpłać' }));
+    expect(mockedBudgetApi.transferToPortfolio).toHaveBeenCalledWith(
+      5, 10, 125, null, 'Transfer do portfela inwestycyjnego', expect.any(String), 11, expect.any(String),
+    );
+    expect(mockedPortfolioApi.deposit).not.toHaveBeenCalled();
+  });
+
+  it('reuses the transfer identifier after a network failure', async () => {
+    const user = userEvent.setup();
+    mockedBudgetApi.transferToPortfolio.mockRejectedValueOnce(new Error('Brak połączenia'));
+    render(<TransferModal {...baseProps} />);
+    await user.selectOptions(screen.getByLabelText('Z konta budżetowego'), '5');
+    await user.type(screen.getByRole('spinbutton'), '125');
+    await user.click(screen.getByRole('button', { name: 'Wpłać' }));
+    expect(await screen.findByText('Brak połączenia')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Wpłać' }));
+    expect(mockedBudgetApi.transferToPortfolio.mock.calls[0][7]).toBe(mockedBudgetApi.transferToPortfolio.mock.calls[1][7]);
   });
 
   it('shows validation error for invalid internal transfer amount and does not call API', async () => {

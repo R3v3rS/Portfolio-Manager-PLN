@@ -1,6 +1,10 @@
+import AccountOverview from '../components/portfolio/AccountOverview';
+import InstrumentHistory from '../components/portfolio/InstrumentHistory';
+import StrategyComparison from '../components/portfolio/StrategyComparison';
+import {extractErrorMessageFromUnknown} from '../http/response';
 import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, RefreshCw, HelpCircle, Trash2, ShieldAlert, Wrench, ChevronDown, Archive } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, Trash2, ShieldAlert, Wrench, ChevronDown, Archive } from 'lucide-react';
 import {
   portfolioApi,
   normalizeXtbImportError,
@@ -10,7 +14,7 @@ import {
   type XtbImportConflict,
 } from '../api';
 import { budgetApi, BudgetAccount } from '../api_budget';
-import { Portfolio, Holding, Transaction, PortfolioValue, Bond, ClosedPosition, ClosedPositionCycle, EquityAllocation } from '../types';
+import { Portfolio, Holding, Transaction, PortfolioValue, ClosedPosition, ClosedPositionCycle, EquityAllocation } from '../types';
 import TransferModal from '../components/modals/TransferModal';
 import TransactionModal from '../components/modals/TransactionModal';
 import SellModal from '../components/modals/SellModal';
@@ -19,18 +23,20 @@ import { cn } from '../lib/utils';
 import { PPKSummary, PPKTransaction as PPKTx } from '../services/ppkCalculator';
 import { symbolMapApi, MappingCurrency } from '../api_symbol_map';
 import ImportStagingModal from '../components/modals/ImportStagingModal';
-import { createStagingSession, deleteSession, type ImportMode } from '../api_import_staging';
-import type { BookResult, StagingSession } from '../types/importStaging';
+import { createStagingSession, deleteSession, getSession, listSessions, type ImportMode } from '../api_import_staging';
+import type { BookResult, ImportSessionListItem, StagingSession } from '../types/importStaging';
 import PortfolioAIChat from '../components/ai/PortfolioAIChat';
+import PortfolioResearch, { PortfolioSummary } from '../components/portfolio/PortfolioResearch';
+import AssetTransfer from '../components/portfolio/AssetTransfer';
+import GoalsSummary from '../components/goals/GoalsSummary';
+import BondWorkspace from '../components/portfolio/bonds/BondWorkspace';
 
 
 const PortfolioAnalytics = lazy(() => import('../components/PortfolioAnalytics'));
 const PriceHistoryChart = lazy(() => import('../components/PriceHistoryChart'));
 const DividendBarChart = lazy(() => import('../components/DividendBarChart'));
 const PortfolioHistoryChart = lazy(() => import('../components/PortfolioHistoryChart'));
-const PortfolioProfitChart = lazy(() => import('../components/PortfolioProfitChart'));
-const PerformanceHeatmap = lazy(() => import('../components/portfolio/PerformanceHeatmap'));
-const Profit30dMatrix = lazy(() => import('../components/portfolio/Profit30dMatrix'));
+const PortfolioResults = lazy(() => import('../components/portfolio/PortfolioResults'));
 const AnalyticsDashboard = lazy(() => import('../components/analytics/AnalyticsDashboard'));
 
 const createMissingSymbolDrafts = (symbols: string[]) =>
@@ -39,76 +45,19 @@ const createMissingSymbolDrafts = (symbols: string[]) =>
     return acc;
   }, {});
 
-const formatHoldingQuantity = (value: number) => parseFloat(Number(value).toFixed(4)).toString();
-
 const formatHoldingMoney = (value?: number | null, currency = 'PLN') =>
-  typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)} ${currency}` : '-';
+  typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
+    : '-';
 
-const formatHoldingPercent = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) ? `${Number(value.toFixed(2))}%` : '-';
 
-const holdingResultTone = (value?: number | null) =>
-  (value ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400';
-
-const HoldingTags = ({ holding }: { holding: Holding }) => {
-  const tags = [
-    holding.sector && holding.sector !== 'Unknown'
-      ? {
-          label: holding.sector,
-          className: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-100 dark:border-blue-800/50',
-        }
-      : null,
-    holding.industry && holding.industry !== 'Unknown'
-      ? {
-          label: holding.industry,
-          className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700',
-        }
-      : null,
-  ].filter(Boolean) as Array<{ label: string; className: string }>;
-
-  if (tags.length === 0) return null;
-
-  return (
-    <div className="mt-2 flex min-w-0 flex-wrap gap-1">
-      {tags.map((tag) => (
-        <span
-          key={tag.label}
-          title={tag.label}
-          className={cn(
-            'inline-flex max-w-[170px] items-center truncate rounded border px-2 py-0.5 text-[10px] font-semibold',
-            tag.className
-          )}
-        >
-          {tag.label}
-        </span>
-      ))}
-    </div>
-  );
-};
-
-const HoldingFxHint = ({ holding }: { holding: Holding }) => {
-  if (!holding.auto_fx_fees) return null;
-
-  return (
-    <div className="group relative">
-      <HelpCircle className="h-3 w-3 cursor-help text-gray-400 dark:text-gray-500" />
-      <div className="absolute bottom-full right-0 z-20 mb-2 hidden w-56 rounded border border-gray-700 bg-gray-900 p-2 text-left text-xs text-white shadow-lg group-hover:block">
-        Zysk netto ("na rękę") uwzględniający szacowaną prowizję 0.5% przy sprzedaży.
-        {holding.fx_rate_used && (
-          <div className="mt-1 text-gray-300">
-            Kurs FX: {holding.fx_rate_used.toFixed(4)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] }: {
+export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [], initialSessionId }: {
   portfolioId: number, 
   onSuccess: () => void,
   subPortfolios?: Portfolio[]
+  initialSessionId?: string | null
 }) {
+  const openedSession = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [missingSymbols, setMissingSymbols] = useState<string[]>([]);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -118,6 +67,23 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
   const [selectedSubPortfolioId, setSelectedSubPortfolioId] = useState<string>('');
   const [importMode, setImportMode] = useState<ImportMode>('staging');
   const [stagingSession, setStagingSession] = useState<StagingSession | null>(null);
+  const [savedSessions, setSavedSessions] = useState<ImportSessionListItem[]>([]);
+  const [importNotice, setImportNotice] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const reloadSessions = useCallback(async () => {
+    try { setSavedSessions(await listSessions(portfolioId)); }
+    catch { setImportNotice('Nie udało się odczytać zapisanych sesji importu.'); }
+  }, [portfolioId]);
+  useEffect(() => { void reloadSessions(); }, [reloadSessions]);
+  useEffect(() => {
+    const sessionId = initialSessionId;
+    const item = savedSessions.find(session => session.session_id === sessionId);
+    if (!item || openedSession.current === sessionId) return;
+    let active = true;
+    void getSession(item.session_id).then(session => { if (active) { openedSession.current = sessionId || null; setStagingSession(session); } })
+      .catch(() => { if (active) { openedSession.current = sessionId || null; setImportNotice('Nie udało się wznowić sesji importu. Wybierz ją z listy zapisanych importów.'); } });
+    return () => { active = false; };
+  }, [initialSessionId, savedSessions]);
 
   const openMissingSymbolsModal = (symbols: string[], file: File) => {
     setMissingSymbols(symbols);
@@ -126,6 +92,8 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
   };
 
   const importFile = async (file: File, confirmedHashes?: string[]) => {
+    setUploading(true);
+    setImportNotice('');
     try {
       const subId = selectedSubPortfolioId ? parseInt(selectedSubPortfolioId) : undefined;
       if (importMode === 'staging' && !confirmedHashes) {
@@ -137,6 +105,12 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
       }
 
       const result = await portfolioApi.importXtbCsv(portfolioId, file, confirmedHashes, subId);
+
+      if (result.session && result.status === 'warning') {
+        setStagingSession(result.session);
+        void reloadSessions();
+        return;
+      }
 
       if (result.missingSymbols.length > 0) {
         openMissingSymbolsModal(result.missingSymbols, file);
@@ -150,14 +124,15 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
       }
 
       if (!result.ok) {
-        alert('Import failed: ' + (result.message ?? 'Unknown error'));
+        alert('Nie udało się zaimportować pliku: ' + (result.message ?? 'Nieznany błąd'));
         return;
       }
 
-      alert('Import successful!');
+      setImportNotice(['Import zakończony.', ...(result.session?.warnings ?? [])].join(' '));
       onSuccess();
       setConflicts([]);
       setPendingFile(null);
+      void reloadSessions();
     } catch (err: unknown) {
       const result = normalizeXtbImportError(err);
 
@@ -166,14 +141,16 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
         return;
       }
 
-      alert('Import failed: ' + (result.message ?? 'Unknown error'));
+      alert('Nie udało się zaimportować pliku: ' + (result.message ?? 'Nieznany błąd'));
+    } finally {
+      setUploading(false);
     }
   };
 
   const handleStagingBook = (result: BookResult) => {
-    setStagingSession(null);
-    alert(`Import zaksięgowany. Zaksięgowano: ${result.booked}, tylko historia: ${result.booked_tx_only}.`);
+    setImportNotice(`Zaksięgowano: ${result.booked}. Pozostałe wiersze i szczegóły są w podsumowaniu sesji.`);
     onSuccess();
+    void reloadSessions();
   };
 
   const handleStagingCancel = async () => {
@@ -182,9 +159,10 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
       await deleteSession(stagingSession.session_id);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Nie udało się usunąć sesji stagingowej.');
-    } finally {
-      setStagingSession(null);
+      return;
     }
+    setStagingSession(null);
+    void reloadSessions();
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -207,7 +185,7 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
     for (const symbol of missingSymbols) {
       const draft = mappingDrafts[symbol];
       if (!draft || !draft.ticker.trim()) {
-        alert(`Provide ticker for ${symbol}`);
+        alert(`Podaj ticker dla ${symbol}`);
         return;
       }
     }
@@ -239,7 +217,7 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
           <p className="mb-1 font-medium text-gray-700">Tryb importu:</p>
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
@@ -281,13 +259,25 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
         <button
           className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
           onClick={() => fileInput.current?.click()}
+          disabled={uploading}
         >
-          Import XTB CSV
+          {uploading ? 'Wczytywanie…' : 'Import XTB CSV / XLSX'}
         </button>
       </div>
+      <p className="mt-2 text-xs text-slate-400">Wgraj oryginalny XLSX lub CSV. Z Excela odczytujemy wyłącznie Cash Operations. Podgląd pozwala sprawdzić tickery, duplikaty i przypisanie do strategii przed księgowaniem.</p>
+      {importNotice && <p role="status" className="mt-2 text-sm text-slate-400">{importNotice}</p>}
+      {savedSessions.length > 0 && <details className="mt-3 rounded-xl border border-slate-700 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-teal-300">Niedokończone importy ({savedSessions.length})</summary>
+        <div className="mt-3 space-y-2">{savedSessions.map(item => <div key={item.session_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-800 p-3 text-sm">
+          <span className="text-slate-300">{item.source_file ?? 'Zapisana sesja'} · {new Date(item.created_at).toLocaleDateString('pl-PL')} · {item.summary.pending} oczekujących</span>
+          <button type="button" className="font-medium text-teal-300" onClick={() => {
+            void getSession(item.session_id).then(setStagingSession).catch(() => setImportNotice('Nie udało się wznowić sesji importu.'));
+          }}>Wznów import</button>
+        </div>)}</div>
+      </details>}
       <input
         type="file"
-        accept=".csv"
+        accept=".csv,.xlsx"
         ref={fileInput}
         style={{ display: 'none' }}
         onChange={handleFileChange}
@@ -309,7 +299,7 @@ export function ImportXtbCsvButton({ portfolioId, onSuccess, subPortfolios = [] 
           session={stagingSession}
           subPortfolios={subPortfolios.filter((item) => !item.is_archived).map((item) => ({ id: item.id, name: item.name }))}
           onBook={handleStagingBook}
-          onCloseAfterBooking={() => setStagingSession(null)}
+          onCloseAfterBooking={() => { setStagingSession(null); void reloadSessions(); }}
           onCancel={() => {
             void handleStagingCancel();
           }}
@@ -435,20 +425,24 @@ const formatSellDate = (value?: string | null) => {
   return parsed.toLocaleDateString('pl-PL');
 };
 
-type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'ppk' | 'ppk_history' | 'ai';
+type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_history' | 'history' | 'bonds' | 'savings' | 'closed' | 'closed_cycles' | 'results' | 'strategies' | 'ppk' | 'ppk_history' | 'ai';
 
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [bonds, setBonds] = useState<Bond[]>([]);
+
   const [ppkTransactions, setPpkTransactions] = useState<PPKTx[]>([]);
   const [ppkSummary, setPpkSummary] = useState<PPKSummary | null>(null);
-  const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string } | null>(null);
+  const [ppkCurrentPrice, setPpkCurrentPrice] = useState<{ price: number; date: string; source?: string } | null>(null);
+  const [ppkRefreshWarning, setPpkRefreshWarning] = useState<string | null>(null);
+  const ppkAutoChecked = useRef<string | null>(null);
   const [ppkPerformance, setPpkPerformance] = useState<PPKPerformanceResponse | null>(null);
   const [valueData, setValueData] = useState<PortfolioValue & { live_interest?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('holdings');
+  const [historyInstrument,setHistoryInstrument]=useState<string|null>(null);
+  const [analysisView, setAnalysisView] = useState<'structure' | 'risk' | 'income'>('structure');
   
   // Modals state
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -458,6 +452,8 @@ const PortfolioDetails: React.FC = () => {
 
   // History state
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [priceCurrency, setPriceCurrency] = useState<string | null>(null);
+  const priceHistoryRef = useRef<HTMLDivElement>(null);
   const [historyData, setHistoryData] = useState<{ date: string; close_price: number }[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -506,104 +502,67 @@ const PortfolioDetails: React.FC = () => {
   const [txFilterType, setTxFilterType] = useState<string>('all');
   const [txFilterSubPortfolio, setTxFilterSubPortfolio] = useState<string>('all');
 
+  const loadGeneration = useRef(0);
+  const loadedId = useRef<string>();
+  const [sectionErrors, setSectionErrors] = useState<string[]>([]);
+  const [sectionsLoading, setSectionsLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const fetchData = useCallback(async () => {
     if (!id) return;
-    const portfolioId = parseInt(id, 10);
-    if (Number.isNaN(portfolioId)) return;
-    setLoading(true);
+    const portfolioId = Number(id);
+    if (!Number.isInteger(portfolioId)) return;
+    const generation = ++loadGeneration.current;
+    const current = () => loadGeneration.current === generation;
+    setLoading(true); setLoadError(''); setSectionErrors([]);
+    setSectionsLoading(true);
     try {
-      const [pRes, hRes, vRes, mRes, tRes, cRes, ccRes, bAccRes, aRes, configRes] = await Promise.all([
-        portfolioApi.listNormalized({ tree: 0 }),
-        portfolioApi.getHoldings(portfolioId),
-        portfolioApi.getValue(portfolioId),
-        portfolioApi.getMonthlyDividends(portfolioId),
-        portfolioApi.getTransactions(portfolioId),
-        portfolioApi.getClosedPositions(portfolioId),
-        portfolioApi.getClosedPositionCycles(portfolioId),
-        budgetApi.getSummary(),
-        portfolioApi.getEquityAllocation(portfolioId),
-        portfolioApi.config()
+      const [pRes, vRes] = await Promise.all([
+        portfolioApi.listNormalized({ tree: 0 }), portfolioApi.getValue(portfolioId),
       ]);
-      
-      const found = pRes.find((p: Portfolio) => p.id === portfolioId) ?? null;
-      setAllPortfolios(pRes);
-      setPortfolio(found || null);
-      setHoldings(hRes ?? []);
-      setValueData(vRes);
-      setMonthlyDividends(mRes ?? []);
-      setPortfolioTransactions(tRes ?? []);
-      setClosedPositions(cRes.positions ?? []);
-      setTotalClosedProfit(cRes.total_historical_profit ?? 0);
-      setClosedPositionCycles(ccRes.positions || []);
-      setTotalClosedCyclesProfit(ccRes.total_historical_profit || 0);
-      setBudgetAccounts(bAccRes.accounts || []);
-      setEquityAllocation(aRes ?? []);
-      setSubportfoliosAllowedTypes(configRes.subportfolios_allowed_types || []);
-
-      if (found?.account_type === 'BONDS') {
-        const bRes = await portfolioApi.getBonds(portfolioId);
-        setBonds(bRes ?? []);
-      } else {
-        setBonds([]);
+      if (!current()) return;
+      const found = pRes.find(p => p.id === portfolioId) ?? null;
+      setAllPortfolios(pRes); setPortfolio(found); setValueData(vRes);
+      setHoldings([]); setMonthlyDividends([]); setPortfolioTransactions([]);
+      setClosedPositions([]); setTotalClosedProfit(0); setClosedPositionCycles([]); setTotalClosedCyclesProfit(0);
+      setBudgetAccounts([]); setEquityAllocation([]); setPortfolioHistory([]);
+      setPortfolioProfitHistory([]); setPortfolioProfit30dHistory([]); setPortfolioValue30dHistory([]);
+      setPpkTransactions([]); setPpkSummary(null); setPpkCurrentPrice(null); setPpkPerformance(null);
+      if (loadedId.current !== id && found) {
+        setActiveTab(found.account_type === 'BONDS' ? 'bonds' : found.account_type === 'SAVINGS' ? 'savings' : found.account_type === 'PPK' ? 'ppk' : 'holdings');
+        loadedId.current = id;
       }
-      
-      if (found?.account_type === 'SAVINGS') {
-        const histRes = await portfolioApi.getMonthlyHistory(portfolioId);
-        setPortfolioHistory(histRes ?? []);
-      } else {
-        setPortfolioHistory([]);
-      }
-      if (found?.account_type === 'PPK') {
-        const [ppkRes, perfRes] = await Promise.all([
-          portfolioApi.getPpkTransactions(portfolioId),
-          portfolioApi.getPpkPerformance(portfolioId)
-        ]);
-        setPpkTransactions(ppkRes.transactions ?? []);
-        setPpkSummary(ppkRes.summary ?? null);
-        setPpkCurrentPrice(ppkRes.currentPrice ?? null);
-        setPpkPerformance(perfRes);
-      } else {
-        setPpkTransactions([]);
-        setPpkSummary(null);
-        setPpkCurrentPrice(null);
-        setPpkPerformance(null);
-      }
-      
-      // Only set active tab if it's the first load (to preserve tab on refresh)
-      // Actually, standard behavior is fine, but let's just ensure we don't overwrite user selection if we were to re-fetch periodically
-      if (found) {
-        setActiveTab((currentTab) => {
-          if (currentTab !== 'holdings') return currentTab;
-          if (found.account_type === 'BONDS') return 'bonds';
-          if (found.account_type === 'SAVINGS') return 'savings';
-          if (found.account_type === 'PPK') return 'ppk';
-          return currentTab;
-        });
-      }
-
-      // Fetch histories for standard portfolios
-      if (found?.account_type !== 'BONDS' && found?.account_type !== 'SAVINGS') {
-        const [histRes, profitRes, profit30dRes, value30dRes] = await Promise.all([
-          portfolioApi.getMonthlyHistory(portfolioId),
-          portfolioApi.getProfitHistory(portfolioId),
-          portfolioApi.getProfitHistory(portfolioId, 30),
-          portfolioApi.getValueHistory(portfolioId, 30),
-        ]);
-        setPortfolioHistory(histRes ?? []);
-        
-        setPortfolioProfitHistory(profitRes ?? []);
-        setPortfolioProfit30dHistory(profit30dRes ?? []);
-        setPortfolioValue30dHistory(value30dRes ?? []);
-      } else {
-        setPortfolioProfitHistory([]);
-        setPortfolioProfit30dHistory([]);
-        setPortfolioValue30dHistory([]);
-      }
-
-    } catch (err) {
-      console.error(err);
-    } finally {
       setLoading(false);
+      const load = async <T,>(label: string, request: Promise<T>, apply: (data: T) => void) => {
+        try { const data = await request; if (current()) apply(data); }
+        catch { if (current()) setSectionErrors(errors => [...errors, label]); }
+      };
+      const equity = found && ['STANDARD','IKE','IKZE'].includes(found.account_type);
+      const requests = [
+        load('Historia transakcji', portfolioApi.getTransactions(portfolioId), data => setPortfolioTransactions(data ?? [])),
+        load('Konta budżetowe', budgetApi.getSummary(), data => setBudgetAccounts(data.accounts ?? [])),
+        load('Ustawienia podportfeli', portfolioApi.config(), data => setSubportfoliosAllowedTypes(data.subportfolios_allowed_types ?? [])),
+      ];
+      if (equity) requests.push(
+        load('Otwarte pozycje', portfolioApi.getHoldings(portfolioId), data => setHoldings(data ?? [])),
+        load('Dywidendy', portfolioApi.getMonthlyDividends(portfolioId), data => setMonthlyDividends(data ?? [])),
+        load('Zamknięte pozycje', portfolioApi.getClosedPositions(portfolioId), data => { setClosedPositions(data.positions ?? []); setTotalClosedProfit(data.total_historical_profit ?? 0); }),
+        load('Historia cykli pozycji', portfolioApi.getClosedPositionCycles(portfolioId), data => { setClosedPositionCycles(data.positions ?? []); setTotalClosedCyclesProfit(data.total_historical_profit ?? 0); }),
+        load('Struktura inwestycji', portfolioApi.getEquityAllocation(portfolioId), data => setEquityAllocation(data ?? [])),
+        load('Historia wartości', portfolioApi.getMonthlyHistory(portfolioId), data => setPortfolioHistory(data ?? [])),
+        load('Historia wyników', portfolioApi.getProfitHistory(portfolioId), data => setPortfolioProfitHistory(data ?? [])),
+        load('Wynik ostatnich 30 dni', portfolioApi.getProfitHistory(portfolioId, 30), data => setPortfolioProfit30dHistory(data ?? [])),
+        load('Wartość ostatnich 30 dni', portfolioApi.getValueHistory(portfolioId, 30), data => setPortfolioValue30dHistory(data ?? [])),
+      );
+      if (found?.account_type === 'SAVINGS') requests.push(load('Historia oszczędności', portfolioApi.getMonthlyHistory(portfolioId), data => setPortfolioHistory(data ?? [])));
+      if (found?.account_type === 'PPK') requests.push(
+        load('Wpłaty i wycena PPK', portfolioApi.getPpkTransactions(portfolioId), data => { setPpkTransactions(data.transactions ?? []); setPpkSummary(data.summary ?? null); setPpkCurrentPrice(data.currentPrice ?? null); }),
+        load('Historia wyników PPK', portfolioApi.getPpkPerformance(portfolioId), setPpkPerformance),
+      );
+      await Promise.all(requests);
+    } catch {
+      if (current()) setLoadError('Nie udało się wczytać danych portfela. Spróbuj ponownie.');
+    } finally {
+      if (current()) { setLoading(false); setSectionsLoading(false); }
     }
   }, [id]);
 
@@ -727,6 +686,28 @@ const PortfolioDetails: React.FC = () => {
     }
   };
 
+  const refreshPpkPrices = useCallback(async (force = true) => {
+    if (!id) return;
+    setRefreshingPrices(true); setPpkRefreshWarning(null);
+    try {
+      const result = await portfolioApi.refreshPpkPrice(Number(id), force);
+      if (loadedId.current !== id) return;
+      setPpkRefreshWarning(result.warning);
+      if (result.changed || force) await fetchData();
+    } catch {
+      if (loadedId.current === id) setPpkRefreshWarning('Nie udało się sprawdzić wyceny PPK. Zachowano ostatnią zapisaną cenę.');
+    } finally {
+      if (loadedId.current === id) setRefreshingPrices(false);
+    }
+  }, [id, fetchData]);
+
+  useEffect(() => {
+    if (portfolio?.account_type === 'PPK' && id && portfolio.id === Number(id) && ppkAutoChecked.current !== id) {
+      ppkAutoChecked.current = id;
+      void refreshPpkPrices(false);
+    }
+  }, [portfolio, id, refreshPpkPrices]);
+
   const refreshStockPrices = async () => {
     if (!id || !(portfolio?.account_type === 'STANDARD' || portfolio?.account_type === 'IKE')) return;
     const portfolioId = parseInt(id, 10);
@@ -837,10 +818,14 @@ const PortfolioDetails: React.FC = () => {
   const fetchHistory = async (ticker: string) => {
     setHistoryLoading(true);
     setSelectedTicker(ticker);
+    setHistoryData([]);
+    setLastUpdated(null);
+    setPriceCurrency(null);
     try {
       const response = await portfolioApi.getPriceHistory(ticker);
       setHistoryData(response.history ?? []);
       setLastUpdated(response.last_updated ?? null);
+      setPriceCurrency(response.currency ?? null);
     } catch (err) {
       console.error('Failed to fetch history', err);
     } finally {
@@ -849,8 +834,12 @@ const PortfolioDetails: React.FC = () => {
   };
 
   useEffect(() => {
+    if (selectedTicker) priceHistoryRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, [selectedTicker]);
+
+  useEffect(() => {
     // Fetch history separately when tab changes or initially
-    if (activeTab === 'value_history' && id) {
+    if ((activeTab === 'value_history' || activeTab === 'results') && id) {
       const portfolioId = parseInt(id, 10);
       if (Number.isNaN(portfolioId)) return;
 
@@ -872,6 +861,7 @@ const PortfolioDetails: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+    return () => { loadGeneration.current += 1; };
   }, [fetchData]);
 
 
@@ -892,22 +882,24 @@ const PortfolioDetails: React.FC = () => {
   };
 
   const tabLabels: Record<string, string> = {
-    holdings: 'Aktywa',
-    analytics: 'Analiza',
-    analytics_dashboard: 'Analytics',
+    strategies:'Strategie i archiwum',
+    holdings: 'Przegląd i pozycje',
+    analytics: 'Analiza portfela',
+    analytics_dashboard: 'Ryzyko',
     results: 'Wyniki',
-    value_history: 'Wartość Historyczna',
-    history: 'Historia Transakcji',
+    value_history: 'Historia wartości',
+    history: 'Transakcje',
     bonds: 'Obligacje',
     savings: 'Oszczędności',
-    closed: 'Zamknięte Pozycje',
-    closed_cycles: 'Zamknięte Pozycje (cykle)',
+    closed: 'Sprzedaże i cykle',
+    closed_cycles: 'Cykle pozycji',
     ppk: 'PPK',
     ppk_history: 'Historia wpłat',
-    ai: 'AI',
+    ai: 'Asystent',
   };
 
   if (loading) return <div className="p-4 text-center">Ładowanie szczegółów...</div>;
+  if (loadError) return <div role="alert" className="p-4">{loadError} <button onClick={fetchData}>Spróbuj ponownie</button></div>;
   if (!portfolio || !valueData) return <div className="p-4 text-center">Nie znaleziono portfela</div>;
 
   const subPortfolios = allPortfolios.filter((p) => p.parent_portfolio_id === portfolio.id);
@@ -928,42 +920,17 @@ const PortfolioDetails: React.FC = () => {
   const uniqueTxTickers = Array.from(new Set(portfolioTransactions.map(t => t.ticker).filter(t => t && t !== 'CASH'))).sort();
 
   const isParent = subPortfolios.length > 0;
+  const isEquity = ['STANDARD', 'IKE', 'IKZE'].includes(portfolio.account_type);
   const isChild = !!portfolio.parent_portfolio_id;
 
   const visibleTabs: ActiveTab[] =
-    portfolio.account_type === 'SAVINGS'
+    portfolio.is_archived && isEquity ? ['holdings', 'results', 'history', 'closed'] : portfolio.account_type === 'SAVINGS'
       ? ['savings', 'history', 'ai']
       : portfolio.account_type === 'BONDS'
         ? ['bonds', 'history', 'ai']
         : portfolio.account_type === 'PPK'
           ? ['ppk', 'ppk_history', 'ai']
-          : ['holdings', 'analytics', 'analytics_dashboard', 'results', 'value_history', 'history', 'closed', 'closed_cycles', 'ai'];
-
-  const renderHoldingActions = (holding: Holding) => (
-    <div className="flex flex-wrap justify-end gap-2 md:flex-col md:items-end xl:flex-row">
-      <button
-        onClick={(event) => {
-          event.stopPropagation();
-          initiateSell(holding);
-        }}
-        className="rounded-md bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-      >
-        Sprzedaj
-      </button>
-      {(portfolio.account_type === 'IKE' || portfolio.account_type === 'STANDARD') && (
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            closePositionAtLastPrice(holding);
-          }}
-          className="rounded-md bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-600 transition-colors hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:hover:bg-orange-900/40"
-          title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
-        >
-          Zamknij
-        </button>
-      )}
-    </div>
-  );
+          : ['holdings', 'results', 'analytics', 'strategies', 'history', 'closed', 'ai'];
 
   const toggleTxSelection = (id: number) => {
     setSelectedTxIds(prev => 
@@ -980,41 +947,28 @@ const PortfolioDetails: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="portfolio-research-page space-y-6">
+      {historyInstrument&&<InstrumentHistory portfolioId={portfolio.id} ticker={historyInstrument} onClose={()=>setHistoryInstrument(null)}/>}
+      {sectionsLoading && <p role="status" className="text-sm text-slate-400">Uzupełnianie historii i pozostałych sekcji…</p>}
+      {sectionErrors.length > 0 && <div role="alert" className="rounded-xl border border-amber-700 p-4 text-sm text-amber-200">Nie udało się wczytać: {sectionErrors.join(', ')}. Dane tych sekcji są niedostępne. <button className="underline" onClick={fetchData}>Spróbuj ponownie</button></div>}
+      {valueData.valuation_status && valueData.valuation_status !== 'ok' && <div role="status" className="rounded-xl border border-amber-700 p-4 text-sm text-amber-200"><strong>{valueData.valuation_status === 'incomplete' ? 'Niepełna wycena' : 'Wycena orientacyjna — nieaktualne notowania'}</strong>{valueData.valuation_warnings?.map(note => <p key={note}>{note}</p>)}{valueData.valuation_status === 'incomplete' && <p>Suma dostępnych wycen i gotówki: {valueData.available_value?.toLocaleString('pl-PL', {style:'currency',currency:'PLN'})}. Pełny wynik pozostaje niewyliczony.</p>}</div>}
       {portfolio && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Link
-            to={`/admin/portfolio/${portfolio.id}`}
-            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            Admin: narzędzia portfela
-          </Link>
-          <Link
-            to="/admin/consistency-audit"
-            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            Admin: audyt spójności
-          </Link>
-          <Link
-            to="/admin/price-history-audit"
-            className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            Admin: audyt cen
-          </Link>
-
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
           {isChild && !portfolio.is_archived && (
             <button
               type="button"
               onClick={async () => {
-                if (window.confirm('Czy na pewno chcesz zarchiwizować ten sub-portfel?')) {
-                  await portfolioApi.archive(portfolio.id);
-                  fetchData();
+                if (window.confirm('Archiwizować strategię? Wszystkie akcje i gotówka wrócą do głównego portfela. Historia i wynik zostaną zachowane na dzień archiwizacji.')) {
+                  try {
+                    await portfolioApi.archive(portfolio.id);
+                    await fetchData();
+                  } catch (error) { window.alert(extractErrorMessageFromUnknown(error)); }
                 }
               }}
-              className="inline-flex items-center gap-2 rounded border border-gray-300 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <Archive className="h-4 w-4" />
-              Archiwizuj
+              Archiwizuj i przenieś środki
             </button>
           )}
 
@@ -1022,12 +976,24 @@ const PortfolioDetails: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsCreatingSubPortfolio(true)}
-              className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
             >
               <Plus className="h-4 w-4" />
               Dodaj sub-portfel
             </button>
           )}
+
+          <details className="group relative">
+            <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
+              <Wrench className="h-4 w-4" />
+              Narzędzia
+            </summary>
+            <div className="absolute right-0 z-30 mt-2 grid w-64 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              <Link to={`/admin/portfolio/${portfolio.id}`} className="rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Narzędzia portfela</Link>
+              <Link to="/admin/consistency-audit" className="rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Audyt spójności</Link>
+              <Link to="/admin/price-history-audit" className="rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Audyt historii cen</Link>
+            </div>
+          </details>
         </div>
       )}
 
@@ -1081,13 +1047,13 @@ const PortfolioDetails: React.FC = () => {
       <div className="flex flex-wrap items-center gap-3">
         <Link
           to="/portfolios"
-          className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800"
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>Wróć do inwestycji</span>
         </Link>
         <div className="flex items-center space-x-2">
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
             {portfolio.name}
             {portfolio.is_archived && <span className="ml-2 text-sm text-gray-400">(Zarchiwizowany)</span>}
           </h1>
@@ -1099,10 +1065,10 @@ const PortfolioDetails: React.FC = () => {
             portfolio.account_type === 'PPK' ? "bg-purple-100 text-purple-800" :
             "bg-gray-100 text-gray-800"
           )}>
-            {portfolio.account_type}
+            {portfolio.account_type === 'BONDS' ? 'Obligacje' : portfolio.account_type === 'SAVINGS' ? 'Oszczędności' : portfolio.account_type}
           </span>
           {isChild && (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-400 dark:text-slate-500">
               Część portfela: <Link to={`/portfolio/${portfolio.parent_portfolio_id}`} className="hover:underline"># {portfolio.parent_portfolio_id}</Link>
             </span>
           )}
@@ -1110,221 +1076,48 @@ const PortfolioDetails: React.FC = () => {
       </div>
 
       {/* Breakdown (if parent) */}
-      {isParent && valueData.breakdown && valueData.breakdown.length > 0 && (
-        <div className="bg-white shadow rounded-lg p-5 border border-blue-100">
-          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center gap-2">
+      {!isEquity && isParent && valueData.breakdown && valueData.breakdown.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
             <ChevronDown className="h-5 w-5 text-blue-500" />
-            Podział Portfela (Sub-portfele)
+            Podział portfela
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {valueData.breakdown.map((item) => (
               <Link 
                 key={item.id} 
                 to={`/portfolio/${item.id}`}
-                className="p-4 border border-gray-100 rounded-md hover:bg-gray-50 transition-colors"
+                className="rounded-lg border border-gray-200 p-4 transition-colors hover:border-blue-200 hover:bg-blue-50/50 dark:border-slate-700 dark:hover:border-blue-800 dark:hover:bg-blue-950/20"
               >
                 <div className="flex justify-between items-start">
-                  <span className="text-sm font-semibold text-gray-700 truncate mr-2">{item.name}</span>
-                  <span className="text-xs font-bold text-blue-600">{item.share_pct}%</span>
+                  <span className="mr-2 truncate text-sm font-semibold text-gray-700 dark:text-slate-200">{item.name === 'IKE (Own)' ? 'Część główna IKE' : item.name}</span>
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{item.share_pct.toLocaleString('pl-PL', { maximumFractionDigits: 2 })}%</span>
                 </div>
-                <div className="mt-2 text-lg font-bold text-gray-900">{item.value.toFixed(2)} PLN</div>
+                <div className="mt-2 text-lg font-bold text-gray-900 dark:text-slate-100">{formatHoldingMoney(item.value)}</div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(Math.max(item.share_pct, 0), 100)}%` }} />
+                </div>
               </Link>
             ))}
           </div>
         </div>
       )}
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-6">
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-blue-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Wartość Całkowita</dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{valueData.portfolio_value.toFixed(2)} PLN</dd>
-        </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-gray-400">
-          <dt className="text-sm font-medium text-gray-500 truncate">
-            {portfolio.account_type === 'SAVINGS' ? 'Obecne Saldo' : 'Gotówka'}
-          </dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{valueData.cash_value.toFixed(2)} PLN</dd>
-          {portfolio.account_type === 'SAVINGS' && valueData.live_interest && valueData.live_interest > 0 ? (
-            <dd className="text-xs text-emerald-600 font-medium">w tym {valueData.live_interest.toFixed(2)} PLN odsetek</dd>
-          ) : null}
-        </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-green-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Zysk/Strata</dt>
-          <dd className={cn("mt-1 text-2xl font-semibold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
-            {valueData.total_result.toFixed(2)} PLN
-          </dd>
-          {(portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS') && (
-            <div className="mt-3 space-y-1 text-xs text-gray-500">
-              <div className="flex items-center justify-between">
-                <span>Zamknięte pozycje</span>
-                <span className={cn("font-medium", totalClosedProfit >= 0 ? "text-green-600" : "text-red-600")}>{totalClosedProfit.toFixed(2)} PLN</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Otwarte pozycje</span>
-                <span className={cn("font-medium", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>{(valueData.open_positions_result || 0).toFixed(2)} PLN</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Dywidendy</span>
-                <span className="font-medium text-blue-600">{valueData.total_dividends.toFixed(2)} PLN</span>
-              </div>
-              {(valueData.total_interest || 0) !== 0 && (
-                <div className="flex items-center justify-between">
-                  <span>Odsetki / free funds interest</span>
-                  <span className="font-medium text-emerald-600">{(valueData.total_interest || 0).toFixed(2)} PLN</span>
-                </div>
-              )}
-            </div>
-          )}
-          
-          <div className="mt-2 flex justify-between items-end text-sm border-t pt-2">
-            <div className="flex flex-col">
-              <span className="text-xs text-gray-400 uppercase tracking-wide">Prosty</span>
-              <span className={cn("font-bold", valueData.total_result >= 0 ? "text-green-600" : "text-red-600")}>
-                {valueData.total_result_percent.toFixed(2)}%
-              </span>
-            </div>
-            
-            {valueData.xirr_percent !== undefined && (
-              <div className="flex flex-col items-end">
-                <div className="flex items-center gap-1 group relative cursor-help">
-                  <span className="text-xs text-gray-400 uppercase tracking-wide">XIRR</span>
-                  <HelpCircle className="w-3 h-3 text-gray-400" />
-                  <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-48 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-10">
-                    Roczna, zannualizowana stopa zwrotu (XIRR)
-                  </div>
-                </div>
-                <span className={cn("font-bold", (valueData.xirr_percent || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-                  {(valueData.xirr_percent || 0).toFixed(2)}%
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-emerald-500">
-          <dt className="text-sm font-medium text-gray-500 truncate">Otwarte pozycje</dt>
-          <dd className={cn("mt-1 text-2xl font-semibold", (valueData.open_positions_result || 0) >= 0 ? "text-green-600" : "text-red-600")}>
-            {(valueData.open_positions_result || 0).toFixed(2)} PLN
-          </dd>
-          <dd className="mt-2 text-xs text-gray-400 mb-3">Aktualny zysk/strata niezrealizowanych pozycji.</dd>
-          
-          {(valueData.change_1d !== undefined || valueData.change_7d !== undefined) && (
-            <div className="pt-3 border-t border-gray-100 space-y-2">
-              {valueData.change_1d !== undefined && (
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">Zmiana 1D:</span>
-                  <div className={cn("font-medium flex items-center gap-1", valueData.change_1d >= 0 ? "text-green-600" : "text-red-600")}>
-                    <span>{valueData.change_1d >= 0 ? '+' : ''}{valueData.change_1d.toFixed(2)} PLN</span>
-                    <span className="text-[10px] opacity-80">({valueData.change_1d_percent?.toFixed(2)}%)</span>
-                  </div>
-                </div>
-              )}
-              {valueData.change_7d !== undefined && (
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">Zmiana 7D:</span>
-                  <div className={cn("font-medium flex items-center gap-1", valueData.change_7d >= 0 ? "text-green-600" : "text-red-600")}>
-                    <span>{valueData.change_7d >= 0 ? '+' : ''}{valueData.change_7d.toFixed(2)} PLN</span>
-                    <span className="text-[10px] opacity-80">({valueData.change_7d_percent?.toFixed(2)}%)</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        {portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' ? (
-          <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
-            <dt className="text-sm font-medium text-gray-500 truncate">Dywidendy</dt>
-            <dd className="mt-1 text-2xl font-semibold text-blue-600">
-              {valueData.total_dividends.toFixed(2)} PLN
-            </dd>
-          </div>
-        ) : (
-          <div className="bg-white overflow-hidden shadow rounded-lg p-5 border-t-4 border-indigo-500">
-            <dt className="text-sm font-medium text-gray-500 truncate">
-              {portfolio.account_type === 'SAVINGS' ? 'Oprocentowanie' : 'Kapitał'}
-            </dt>
-            <dd className="mt-1 text-2xl font-semibold text-indigo-600">
-              {portfolio.account_type === 'SAVINGS' ? `${portfolio.savings_rate}%` : `${(valueData.holdings_value || 0).toFixed(2)} PLN`}
-            </dd>
-          </div>
-        )}
-        <div className="bg-white overflow-hidden shadow rounded-lg p-4 border-t-4 border-amber-500 flex flex-col justify-center gap-2">
-            {portfolio.account_type !== 'PPK' && (
-                <>
-                    <button
-                        onClick={() => setIsTransferModalOpen(true)}
-                        className="w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                        <RefreshCw className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
-                        Transfer
-                    </button>
-                    <button
-                        onClick={() => setIsTransactionModalOpen(true)}
-                        className="w-full inline-flex items-center justify-center px-3 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                        <Plus className="-ml-1 mr-2 h-4 w-4" />
-                        Nowa Operacja
-                    </button>
-                    
-                    {(portfolio.account_type === 'STANDARD' || portfolio.account_type === 'IKE') && (
-                        <div className="flex flex-col gap-2">
-                            <button
-                                onClick={refreshStockPrices}
-                                disabled={refreshingPrices}
-                                className="w-full inline-flex items-center justify-center px-3 py-2 border border-indigo-200 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                <RefreshCw className={cn('mr-2 h-4 w-4', refreshingPrices && 'animate-spin')} />
-                                {refreshingPrices ? 'Odświeżanie...' : 'Odśwież ceny z giełdy'}
-                            </button>
-                            {latestPriceUpdate && (
-                                <div className="text-center text-[10px] text-gray-500 flex items-center justify-center gap-1">
-                                    <RefreshCw className="w-3 h-3" />
-                                    <span>Ostatnia aktualizacja: {formatPriceUpdateTimestamp(latestPriceUpdate.toISOString())}</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </>
-            )}
-        </div>
-      </div>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="portfolio-diagnostics-heading">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      {isEquity && <>
+        {portfolio.is_archived && <p role="status" className="budget-feedback">Archiwum strategii — wynik i wykresy zatrzymane na dzień archiwizacji. Akcje i gotówka przeniesione do głównego portfela. Poniższe kwoty przedstawiają stan przy zamknięciu, nie dodatkowe środki.</p>}
+        {(activeTab!=='results'||portfolio.is_archived)&&<PortfolioSummary value={valueData} closedProfit={totalClosedProfit} />}
+        {!portfolio.is_archived && <div className="pr-actions">
+          <small>{latestPriceUpdate ? 'Notowania: ' + formatPriceUpdateTimestamp(latestPriceUpdate.toISOString()) : 'Brak daty aktualizacji notowań'}</small>
           <div>
-            <h2 id="portfolio-diagnostics-heading" className="font-semibold text-slate-900">Diagnostyka portfela</h2>
-            <p className="text-sm text-slate-500">Sprawdź spójność danych lub uruchom kontrolowane narzędzia naprawcze.</p>
+            <button className="pr-button" onClick={refreshStockPrices} disabled={refreshingPrices}><RefreshCw size={15} />{refreshingPrices ? 'Odświeżanie…' : 'Odśwież ceny z giełdy'}</button>
+            <AssetTransfer parentId={portfolio.parent_portfolio_id||portfolio.id} onSaved={fetchData}/>
+            <button className="pr-button" onClick={() => setIsTransferModalOpen(true)}>Transfer</button>
+            <Link className="pr-button" to={`/journal?portfolio=${portfolio.id}`}>Dziennik decyzji</Link>
+            <button className="pr-button pr-primary" onClick={() => setIsTransactionModalOpen(true)}><Plus size={16} />Nowa Operacja</button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={runAudit}
-              disabled={auditLoading}
-              className="inline-flex items-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <ShieldAlert className="mr-2 h-4 w-4" />
-              {auditLoading ? 'Sprawdzanie…' : 'Sprawdź spójność'}
-            </button>
-            <button
-              type="button"
-              onClick={runPriceHistoryAudit}
-              disabled={priceAuditLoading}
-              className="inline-flex items-center rounded-md border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Wrench className="mr-2 h-4 w-4" />
-              {priceAuditLoading ? 'Audytowanie…' : 'Audyt cen'}
-            </button>
-            <button
-              type="button"
-              onClick={runRebuild}
-              disabled={rebuildLoading}
-              className="inline-flex items-center rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {rebuildLoading ? 'Naprawianie…' : 'Odtwórz z transakcji'}
-            </button>
-          </div>
-        </div>
-      </section>
+        </div>}
+      </>}
+      {['PPK', 'SAVINGS'].includes(portfolio.account_type) && <AccountOverview portfolio={portfolio} value={valueData} summary={ppkSummary} transactions={ppkTransactions} price={ppkCurrentPrice} onRefresh={portfolio.account_type === 'PPK' ? () => { void refreshPpkPrices(); } : undefined} refreshing={refreshingPrices} refreshWarning={ppkRefreshWarning}/>}
+      {portfolio.account_type === 'SAVINGS' && <div className="pr-actions"><p className="text-sm text-slate-400">Wpłaty i wypłaty zmieniają saldo, odsetki pokazują wynik oszczędzania.</p><div><button className="pr-button" onClick={() => setIsTransferModalOpen(true)}>Transfer</button><button className="pr-button pr-primary" onClick={() => setIsTransactionModalOpen(true)}><Plus size={16}/>Nowa operacja</button></div></div>}
 
       {auditResult && (
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -1444,335 +1237,65 @@ const PortfolioDetails: React.FC = () => {
       )}
 
       {/* Navigation & Actions */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="flex flex-col justify-between space-y-4 border-b border-gray-200 px-6 py-4 md:flex-row md:items-center md:space-y-0">
-          {/* Left: View Tabs */}
-          <div className="w-full overflow-x-auto pb-1 md:w-auto md:pb-0">
-            <nav className="inline-flex min-w-max items-center gap-2">
+      <div className="pr-navigation overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-gray-200 px-4 py-4 dark:border-slate-800 md:px-6">
+          <select
+            value={activeTab==='closed_cycles'?'closed':activeTab}
+            onChange={(event) => setActiveTab(event.target.value as ActiveTab)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 md:hidden"
+            aria-label="Wybierz sekcję portfela"
+          >
+            {visibleTabs.map((tab) => <option key={tab} value={tab}>{tabLabels[tab] || tab}</option>)}
+          </select>
+          <nav className="hidden flex-wrap items-center gap-2 md:flex">
             {visibleTabs.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
+                aria-current={(activeTab === tab || (tab==='closed'&&activeTab==='closed_cycles')) ? "page" : undefined}
                 className={cn(
-                  activeTab === tab
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+                  (activeTab === tab || (tab==='closed'&&activeTab==='closed_cycles'))
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                   'px-3 py-2 font-medium text-sm rounded-md transition-colors whitespace-nowrap'
                 )}
               >
                 {tabLabels[tab] || tab}
               </button>
             ))}
-            </nav>
-          </div>
+          </nav>
         </div>
 
-        <div className="p-6">
-          {activeTab === 'analytics' && (
-            <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} equityAllocation={equityAllocation} />
-          )}
+        <div className="p-4 md:p-6">
+          {activeTab === 'analytics' && <div className="space-y-5">
+            <nav className="chart-toolbar" aria-label="Obszar analizy">{([['structure', 'Struktura'], ['risk', 'Ryzyko'], ['income', 'Dywidendy']] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={analysisView === key} onClick={() => setAnalysisView(key)}>{label}</button>)}</nav>
+            {analysisView === 'risk' && <AnalyticsDashboard portfolioId={portfolio.parent_portfolio_id ?? portfolio.id} subPortfolioId={portfolio.parent_portfolio_id ? portfolio.id : undefined} />}
+            {analysisView === 'structure' && <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} equityAllocation={equityAllocation} />}
+            {analysisView === 'income' && <DividendBarChart data={monthlyDividends} />}
+          </div>}
 
-          {activeTab === 'analytics_dashboard' && (
-            <AnalyticsDashboard portfolioId={portfolio.id} />
-          )}
-
-          {activeTab === 'results' && (
-            <div className="space-y-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Macierz Wyników (MoM)</h3>
-              <PerformanceHeatmap portfolioId={portfolio.id} />
-              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                <PortfolioProfitChart
-                  data={portfolioProfit30dHistory}
-                  title="Zmiana zysku - ostatnie 30 dni (PLN)"
-                />
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (30D vs pierwszy dzień)</h4>
-                <Profit30dMatrix data={portfolioProfit30dHistory} rowLabel="% zmiany zysku" />
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="text-base font-medium text-gray-900">Macierz zmiany zysku % (Dzień do Dnia)</h4>
-                <Profit30dMatrix data={portfolioProfit30dHistory} rowLabel="% zmiany zysku" mode="day_over_day" />
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="text-base font-medium text-gray-900">Macierz zmiany wartości portfela % (30D vs pierwszy dzień)</h4>
-                <Profit30dMatrix data={portfolioValue30dHistory} rowLabel="% zmiany wartości" />
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="text-base font-medium text-gray-900">Macierz zmiany wartości portfela % (Dzień do Dnia)</h4>
-                <Profit30dMatrix data={portfolioValue30dHistory} rowLabel="% zmiany wartości" mode="day_over_day" />
-              </div>
-            </div>
-          )}
+          {(activeTab === 'results' || activeTab === 'value_history') && (portfolio.is_archived ? <PortfolioHistoryChart data={portfolioHistory} title="Historia wartości — zatrzymana przy archiwizacji" /> : <PortfolioResults key={portfolio.id} portfolioId={portfolio.id} history={portfolioHistory} benchmark={selectedBenchmark} onBenchmark={setSelectedBenchmark} dailyProfit={portfolioProfit30dHistory} />)}
 
           {activeTab === 'ai' && <PortfolioAIChat portfolioId={portfolio.id} />}
+          {activeTab === 'strategies' && <StrategyComparison portfolioId={portfolio.id}/>}
+          {(activeTab==='closed'||activeTab==='closed_cycles')&&<div className="chart-toolbar" aria-label="Sposób analizy sprzedaży"><button aria-pressed={activeTab==='closed'} onClick={()=>setActiveTab('closed')}>Według spółki</button><button aria-pressed={activeTab==='closed_cycles'} onClick={()=>setActiveTab('closed_cycles')}>Według cyklu posiadania</button><p className="chart-note">Sprzedaże obejmują także częściowo sprzedane pozycje. Cykl trwa od pierwszego zakupu lub przeniesienia do wyjścia z danej pozycji.</p></div>}
 
+          {activeTab === 'holdings' && !portfolio.is_archived && <GoalsSummary portfolioId={portfolio.id} />}
           {activeTab === 'holdings' && (
             <div className="space-y-6">
-              <div className="hidden overflow-hidden rounded-xl border border-gray-200 shadow-sm dark:border-gray-800 md:block">
-                <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-800">
-                  <thead className="bg-gray-50/80 backdrop-blur-sm dark:bg-gray-900/80">
-                    <tr>
-                      <th className="w-[30%] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Aktywo</th>
-                      <th className="w-[13%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Pozycja</th>
-                      <th className="w-[18%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Cena</th>
-                      <th className="w-[13%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wartość</th>
-                      <th className="w-[16%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wynik</th>
-                      <th className="w-[10%] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">Akcje</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800/50 dark:bg-gray-950">
-                    {holdings.map((h) => (
-                      <tr
-                        key={h.ticker}
-                        className={cn("cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50", selectedTicker === h.ticker && "bg-blue-50/50 dark:bg-blue-900/20")}
-                        onClick={() => fetchHistory(h.ticker)}
-                      >
-                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900 dark:text-gray-100">
-                          <div className="min-w-0">
-                            <div className="break-words font-bold leading-snug">{h.company_name || h.ticker}</div>
-                            <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{h.ticker}</div>
-                            <HoldingTags holding={h} />
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
-                          <div className="font-semibold text-gray-800 dark:text-gray-200">{formatHoldingQuantity(h.quantity)}</div>
-                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            waga {formatHoldingPercent(h.weight_percent)}
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
-                          <div className="font-semibold text-gray-800 dark:text-gray-200">
-                            {formatHoldingMoney(h.current_price, h.currency || 'PLN')}
-                          </div>
-                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            śr. {formatHoldingMoney(h.average_buy_price)}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            BE {formatHoldingMoney(h.break_even_sell_price_pln)}
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm font-semibold text-gray-900 tabular-nums dark:text-gray-100">
-                          {formatHoldingMoney(h.current_value)}
-                        </td>
-                        <td className="px-3 py-4 align-top text-right text-sm tabular-nums">
-                          <div className={cn('flex items-center justify-end gap-1 font-bold', holdingResultTone(h.profit_loss))}>
-                            {formatHoldingMoney(h.profit_loss)}
-                            <HoldingFxHint holding={h} />
-                          </div>
-                          <div className={cn('mt-1 text-xs font-semibold', holdingResultTone(h.realized_profit))}>
-                            zreal. {formatHoldingMoney(h.realized_profit)}
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 align-top text-sm font-medium">
-                          {renderHoldingActions(h)}
-                        </td>
-                      </tr>
-                    ))}
-                    {holdings.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak aktywów w tym portfelu.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="space-y-3 md:hidden">
-                {holdings.map((h) => (
-                  <div
-                    key={h.ticker}
-                    className={cn(
-                      "cursor-pointer rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:hover:bg-gray-900/50",
-                      selectedTicker === h.ticker && "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-900/20"
-                    )}
-                    onClick={() => fetchHistory(h.ticker)}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="break-words text-sm font-bold leading-snug text-gray-900 dark:text-gray-100">{h.company_name || h.ticker}</div>
-                        <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{h.ticker}</div>
-                        <HoldingTags holding={h} />
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-sm font-bold text-gray-900 tabular-nums dark:text-gray-100">{formatHoldingMoney(h.current_value)}</div>
-                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">waga {formatHoldingPercent(h.weight_percent)}</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 text-sm dark:border-gray-800">
-                      <div>
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Pozycja</div>
-                        <div className="mt-1 font-semibold text-gray-800 tabular-nums dark:text-gray-200">{formatHoldingQuantity(h.quantity)}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Cena</div>
-                        <div className="mt-1 font-semibold text-gray-800 tabular-nums dark:text-gray-200">
-                          {formatHoldingMoney(h.current_price, h.currency || 'PLN')}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Śr. / BE</div>
-                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">
-                          {formatHoldingMoney(h.average_buy_price)} / {formatHoldingMoney(h.break_even_sell_price_pln)}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Wynik</div>
-                        <div className={cn('mt-1 flex items-center justify-end gap-1 font-bold tabular-nums', holdingResultTone(h.profit_loss))}>
-                          {formatHoldingMoney(h.profit_loss)}
-                          <HoldingFxHint holding={h} />
-                        </div>
-                        <div className={cn('mt-0.5 text-xs font-semibold tabular-nums', holdingResultTone(h.realized_profit))}>
-                          zreal. {formatHoldingMoney(h.realized_profit)}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                      {renderHoldingActions(h)}
-                    </div>
-                  </div>
-                ))}
-
-                {holdings.length === 0 && (
-                  <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center text-sm text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
-                    Brak aktywów w tym portfelu.
-                  </div>
-                )}
-              </div>
-
-              <div className="hidden">
-                <table className="min-w-[980px] w-full divide-y divide-gray-200 dark:divide-gray-800">
-                  <thead className="bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
-                    <tr>
-                      <th className="min-w-[220px] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Symbol</th>
-                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Ilość</th>
-                      <th className="min-w-[110px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Śr. Cena</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Obecna Cena</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Wartość</th>
-                      <th className="min-w-[120px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Zysk/Strata</th>
-                      <th className="min-w-[130px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">PnL zrealizowany</th>
-                      <th className="min-w-[140px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Cena BE</th>
-                      <th className="min-w-[90px] px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Waga</th>
-                      <th className="min-w-[130px] px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 bg-gray-100/50 dark:bg-gray-800/50 border-l border-gray-200 dark:border-gray-800">Akcje</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-gray-950 divide-y divide-gray-100 dark:divide-gray-800/50">
-                    {holdings.map((h) => (
-                      <tr 
-                        key={h.ticker} 
-                        className={cn("cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50", selectedTicker === h.ticker && "bg-blue-50/50 dark:bg-blue-900/20")}
-                        onClick={() => fetchHistory(h.ticker)}
-                      >
-                        <td className="px-4 py-4 align-top text-sm font-medium text-gray-900 dark:text-gray-100">
-                          <div className="min-w-[220px]">
-                            <div className="font-bold leading-snug break-words whitespace-normal">{h.company_name || h.ticker}</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 break-all sm:break-normal">{h.ticker}</div>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {h.sector && h.sector !== 'Unknown' && (
-                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 whitespace-normal break-words border border-blue-100 dark:border-blue-800/50">
-                                  {h.sector}
-                                </span>
-                              )}
-                              {h.industry && h.industry !== 'Unknown' && (
-                                <span className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 whitespace-normal break-words border border-gray-200 dark:border-gray-700">
-                                  {h.industry}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right font-medium text-gray-700 dark:text-gray-300 tabular-nums">
-                          {parseFloat(Number(h.quantity).toFixed(4))}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">{h.average_buy_price.toFixed(2)} PLN</td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 tabular-nums">
-                          {h.current_price ? `${h.current_price.toFixed(2)} ${h.currency || 'PLN'}` : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right font-medium text-gray-900 dark:text-gray-100 tabular-nums">
-                          {h.current_value ? `${h.current_value.toFixed(2)} PLN` : '-'}
-                        </td>
-                        <td className={cn(
-                          "px-4 py-4 text-sm text-right font-bold tabular-nums",
-                          (h.profit_loss || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                          <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-                              {h.profit_loss ? `${h.profit_loss.toFixed(2)} PLN` : '-'}
-                              {h.auto_fx_fees && (
-                                  <div className="group relative">
-                                      <HelpCircle className="w-3 h-3 text-gray-400 dark:text-gray-500 cursor-help" />
-                                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-56 p-2 bg-gray-900 text-white text-xs rounded shadow-lg z-20 text-left border border-gray-700">
-                                          Zysk netto ("na rękę") uwzględniający szacowaną prowizję 0.5% przy sprzedaży.
-                                          {h.fx_rate_used && (
-                                              <div className="mt-1 text-gray-300">
-                                                  Kurs FX: {h.fx_rate_used.toFixed(4)}
-                                              </div>
-                                          )}
-                                      </div>
-                                  </div>
-                              )}
-                          </div>
-                        </td>
-                        <td className={cn(
-                          "px-3 py-4 text-sm text-right font-bold whitespace-nowrap tabular-nums",
-                          (h.realized_profit || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                          {typeof h.realized_profit === 'number' ? `${h.realized_profit.toFixed(2)} PLN` : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 whitespace-nowrap tabular-nums">
-                          {typeof h.break_even_sell_price_pln === 'number'
-                            ? `${h.break_even_sell_price_pln.toFixed(2)} PLN`
-                            : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400 font-medium tabular-nums">
-                          {h.weight_percent ? `${h.weight_percent}%` : '-'}
-                        </td>
-                        <td className="px-3 py-4 text-sm text-center font-medium bg-gray-50/30 dark:bg-gray-900/30 border-l border-gray-100/50 dark:border-gray-800/50">
-                          <div className="flex flex-wrap justify-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                initiateSell(h);
-                              }}
-                              className="rounded-md bg-red-50 dark:bg-red-900/20 px-2.5 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40"
-                            >
-                              Sprzedaj
-                            </button>
-                            {(portfolio.account_type === 'IKE' || portfolio.account_type === 'STANDARD') && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  closePositionAtLastPrice(h);
-                                }}
-                                className="rounded-md bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 transition-colors hover:bg-orange-100 dark:hover:bg-orange-900/40"
-                                title="Sprzedaje całą pozycję po ostatniej zaktualizowanej cenie"
-                              >
-                                Zamknij
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {holdings.length === 0 && (
-                      <tr>
-                        <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Brak aktywów w tym portfelu.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
+              {!portfolio.is_archived && <PortfolioResearch key={portfolio.id}
+                holdings={holdings} value={valueData} onRefresh={fetchData}
+                onInstrument={setHistoryInstrument}
+                history={portfolioHistory} profitHistory={portfolioProfitHistory}
+                dailyHistory={portfolioValue30dHistory} dailyProfit={portfolioProfit30dHistory}
+                onHistory={fetchHistory} onSell={initiateSell} onClose={closePositionAtLastPrice}
+                onRisk={() => { setAnalysisView('risk'); setActiveTab('analytics'); }} onResults={() => setActiveTab('results')} />}
+              {portfolio.is_archived && <p>Historia strategii znajduje się w zakładce „Transakcje”, a zapisany wynik i wykresy w zakładce „Wyniki”.</p>}
               {/* History Chart Section */}
               {selectedTicker && (
-                <div className="mt-8 border-t pt-8">
+                <div ref={priceHistoryRef} className="pr-panel mt-8 border-t p-5">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">Historia Wyników: {selectedTicker}</h3>
+                    <h3 className="text-lg font-medium text-gray-900">Historia ceny: {selectedTicker}</h3>
                     {lastUpdated && (
                       <span className="text-xs text-gray-500">Ostatnia aktualizacja: {lastUpdated}</span>
                     )}
@@ -1781,67 +1304,11 @@ const PortfolioDetails: React.FC = () => {
                     {historyLoading ? (
                       <div className="h-64 flex items-center justify-center">Ładowanie historii...</div>
                     ) : historyData.length > 0 ? (
-                      <PriceHistoryChart ticker={selectedTicker} data={historyData} />
+                      <PriceHistoryChart ticker={selectedTicker} data={historyData} currency={priceCurrency} />
                     ) : (
                       <div className="h-64 flex items-center justify-center text-gray-500">Brak danych historycznych.</div>
                     )}
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'value_history' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium text-gray-900">Historia Wartości Portfela</h3>
-                <div className="flex items-center space-x-2">
-                  <label htmlFor="benchmark" className="text-sm text-gray-700">Benchmark:</label>
-                  <select
-                    id="benchmark"
-                    value={selectedBenchmark}
-                    onChange={(e) => setSelectedBenchmark(e.target.value)}
-                    className="block w-48 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                  >
-                    <option value="">Brak</option>
-                    <option value="__INFLATION__">Inflacja (PL)</option>
-                    <option value="^GSPC">S&P 500 (^GSPC)</option>
-                    <option value="ETFBW20TR.WA">WIG20 TR (BETA ETF)</option>
-                    <option value="ETFBM40TR.WA">mWIG40 TR (BETA ETF)</option>
-                    <option value="SPOL.L">MSCI Poland</option>
-                    <option value="VT">Cały Świat (VT)</option>
-                    <option value="EEM">Rynki Wschodzące (EEM)</option>
-                    <option value="^STOXX">Europa STOXX 600 (^STOXX)</option>
-                  </select>
-                </div>
-              </div>
-              {portfolioHistory.length > 0 ? (
-                <div className="space-y-8">
-                    <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                      <PortfolioHistoryChart 
-                        data={portfolioHistory} 
-                        benchmarkName={
-                          selectedBenchmark === '__INFLATION__' ? 'Inflacja (PL)' :
-                          selectedBenchmark === '^GSPC' ? 'S&P 500' :
-                          selectedBenchmark === 'ETFBW20TR.WA' ? 'WIG20 TR' :
-                          selectedBenchmark === 'ETFBM40TR.WA' ? 'mWIG40 TR' :
-                          selectedBenchmark === 'SPOL.L' ? 'MSCI Poland' :
-                          selectedBenchmark === 'VT' ? 'Cały Świat' :
-                          selectedBenchmark === 'EEM' ? 'Rynki Wschodzące' :
-                          selectedBenchmark === '^STOXX' ? 'Europa STOXX 600' :
-                          'Benchmark'
-                        }
-                      />
-                    </div>
-                    
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Historia Zysku/Straty</h3>
-                    <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                      <PortfolioProfitChart data={portfolioProfitHistory} />
-                    </div>
-                </div>
-              ) : (
-                <div className="h-64 flex items-center justify-center text-gray-500">
-                  Zbyt mało danych do wyświetlenia historii.
                 </div>
               )}
             </div>
@@ -1962,6 +1429,7 @@ const PortfolioDetails: React.FC = () => {
                       <input 
                         type="checkbox" 
                         className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
+                        disabled={portfolio.is_archived}
                         checked={selectedTxIds.length === filteredPortfolioTransactions.length && filteredPortfolioTransactions.length > 0}
                         onChange={toggleAllVisibleTx}
                       />
@@ -1988,6 +1456,7 @@ const PortfolioDetails: React.FC = () => {
                         <input 
                           type="checkbox" 
                           className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-blue-600"
+                          disabled={portfolio.is_archived}
                           checked={selectedTxIds.includes(t.id)}
                           onChange={() => toggleTxSelection(t.id)}
                         />
@@ -2005,11 +1474,11 @@ const PortfolioDetails: React.FC = () => {
                           t.type === 'INTEREST' ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50" :
                           "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800/50"
                         )}>
-                          {t.type}
+                          {t.type==='ASSET_IN'?'Przeniesienie do':t.type==='ASSET_OUT'?'Przeniesienie z':t.type}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {t.ticker === 'CASH' ? '-' : t.ticker}
+                        {t.ticker === 'CASH' ? '-' : <button className="pr-text-button" onClick={()=>setHistoryInstrument(t.ticker)}>{t.ticker}</button>}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-gray-300 tabular-nums">
                         {parseFloat(Number(t.quantity).toFixed(4))}
@@ -2054,62 +1523,10 @@ const PortfolioDetails: React.FC = () => {
             </div>
           )}
 
-          {activeTab === 'bonds' && (
-            <div className="space-y-8">
-              <div className="overflow-x-auto lg:overflow-x-visible">
-                <table className="w-full table-fixed divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nazwa Obligacji</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Zakupu</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Kapitał</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Oprocentowanie</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Naliczone</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wartość Całkowita</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {bonds.map((b) => (
-                      <tr key={b.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{b.name}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{b.purchase_date}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{b.principal.toFixed(2)} PLN</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">{b.interest_rate}%</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-emerald-600 font-medium">+{b.accrued_interest.toFixed(2)} PLN</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-gray-900">{b.total_value.toFixed(2)} PLN</td>
-                      </tr>
-                    ))}
-                    {bonds.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">Brak obligacji.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {activeTab === 'bonds' && <BondWorkspace pid={portfolio.id} accounts={budgetAccounts} cashRevision={valueData.cash_value} onChanged={fetchData} onTransfer={() => setIsTransferModalOpen(true)}/>}
 
           {activeTab === 'savings' && (
             <div className="space-y-8">
-              <div className="bg-emerald-50 p-8 rounded-2xl border border-emerald-100 text-center max-w-2xl mx-auto shadow-sm">
-                <p className="text-emerald-600 font-semibold uppercase tracking-widest text-sm mb-2">Całkowite Oszczędności</p>
-                <h2 className="text-5xl font-bold text-emerald-900 mb-4">
-                  {valueData.portfolio_value.toFixed(2)} <span className="text-2xl font-normal text-emerald-700">PLN</span>
-                </h2>
-                <div className="flex justify-center items-center space-x-6 text-emerald-700">
-                   <div className="flex flex-col">
-                      <span className="text-xs uppercase font-medium">Oprocentowanie</span>
-                      <span className="text-lg font-bold">{portfolio.savings_rate}%</span>
-                   </div>
-                   <div className="w-px h-8 bg-emerald-200"></div>
-                   <div className="flex flex-col">
-                      <span className="text-xs uppercase font-medium">Naliczone Odsetki</span>
-                      <span className="text-lg font-bold">+{valueData.live_interest?.toFixed(2)} PLN</span>
-                   </div>
-                </div>
-              </div>
-
               {/* Monthly History Chart */}
               {portfolioHistory.length > 0 && (
                 <div className="mt-8 border-t pt-8">
@@ -2125,38 +1542,6 @@ const PortfolioDetails: React.FC = () => {
 
           {activeTab === 'ppk' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Liczba jednostek</p>
-                  <p className="text-2xl font-bold text-purple-900">{(ppkSummary?.totalUnits ?? 0).toFixed(4)}</p>
-                </div>
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Średnia cena zakupu</p>
-                  <p className="text-2xl font-bold text-purple-900">{(ppkSummary?.averagePrice ?? 0).toFixed(2)} PLN</p>
-                </div>
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Aktualna cena jednostki</p>
-                  <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice ? `${ppkCurrentPrice.price.toFixed(2)} PLN` : '-'}</p>
-                </div>
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Ostatnia aktualizacja ceny</p>
-                  <p className="text-2xl font-bold text-purple-900">{ppkCurrentPrice?.date || '-'}</p>
-                </div>
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Wartość możliwa do wypłaty (po podatku)</p>
-                  <p className="text-2xl font-bold text-purple-900">{ppkSummary ? `${ppkSummary.totalNetValue.toFixed(2)} PLN` : '-'}</p>
-                </div>
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                  <p className="text-sm text-purple-700">Stopa zwrotu (fundusz)</p>
-                  <p className={cn(
-                    "text-2xl font-bold",
-                    (ppkPerformance?.return_pct ?? 0) >= 0 ? "text-green-700" : "text-red-700"
-                  )}>
-                    {ppkPerformance ? `${ppkPerformance.return_pct.toFixed(2)}%` : '-'}
-                  </p>
-                </div>
-              </div>
-
               {/* PPK Performance Chart */}
               {ppkPerformance && ppkPerformance.chart.length > 0 && (
                 <div className="mt-8 border-t pt-8 space-y-8">
@@ -2164,6 +1549,9 @@ const PortfolioDetails: React.FC = () => {
                     <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Wykres wartości portfela</h3>
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                       <PortfolioHistoryChart 
+                        valueName="Jednostki funduszu brutto"
+                        netValueName="Szacunkowa kwota zwrotu"
+                        contributionsName="Wpłaty pracownika i pracodawcy"
                         data={ppkPerformance.chart.map(p => ({
                           date: p.week,
                           label: p.week,
@@ -2179,6 +1567,7 @@ const PortfolioDetails: React.FC = () => {
                     <h3 className="text-lg font-medium text-gray-900 mb-6 text-center">Wykres wyceny jednostki funduszu</h3>
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
                       <PortfolioHistoryChart 
+                        valueName="Cena jednostki PPK"
                         data={ppkPerformance.chart.map(p => ({
                           date: p.week,
                           label: p.week,
@@ -2397,22 +1786,48 @@ const PortfolioDetails: React.FC = () => {
               For now, I'll add it to the Analytics tab if the portfolio type supports it. 
               Actually, the prompt didn't specify where to put it, but Analytics is a good place.
           */}
-          {activeTab === 'analytics' && portfolio.account_type !== 'SAVINGS' && portfolio.account_type !== 'BONDS' && (
-             <div className="mt-8 border-t pt-8">
-                <h3 className="text-lg font-medium text-gray-900 mb-6">Miesięczne Dywidendy</h3>
-                <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                  {monthlyDividends.length > 0 ? (
-                    <DividendBarChart data={monthlyDividends} />
-                  ) : (
-                    <div className="h-64 flex items-center justify-center text-gray-500 italic">
-                      Brak zarejestrowanych dywidend.
-                    </div>
-                  )}
-                </div>
-              </div>
-          )}
+
         </div>
       </div>
+
+      <details className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div>
+            <h2 id="portfolio-diagnostics-heading" className="font-semibold text-slate-900 dark:text-slate-100">Diagnostyka portfela</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Narzędzia kontroli i naprawy danych.</p>
+          </div>
+          <ChevronDown className="h-5 w-5 text-slate-400 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={runAudit}
+              disabled={auditLoading}
+              className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <ShieldAlert className="mr-2 h-4 w-4" />
+              {auditLoading ? 'Sprawdzanie…' : 'Sprawdź spójność'}
+            </button>
+            <button
+              type="button"
+              onClick={runPriceHistoryAudit}
+              disabled={priceAuditLoading}
+              className="inline-flex items-center rounded-lg border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+            >
+              <Wrench className="mr-2 h-4 w-4" />
+              {priceAuditLoading ? 'Audytowanie…' : 'Audyt cen'}
+            </button>
+            <button
+              type="button"
+              onClick={runRebuild}
+              disabled={rebuildLoading}
+              className="inline-flex items-center rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {rebuildLoading ? 'Naprawianie…' : 'Odtwórz z transakcji'}
+            </button>
+        </div>
+      </details>
 
       {/* Modals */}
       <TransferModal
@@ -2425,7 +1840,7 @@ const PortfolioDetails: React.FC = () => {
         subPortfolios={subPortfolios}
       />
 
-      <TransactionModal
+      {portfolio.account_type !== 'BONDS' && <TransactionModal
         isOpen={isTransactionModalOpen}
         onClose={() => setIsTransactionModalOpen(false)}
         onSuccess={fetchData}
@@ -2434,7 +1849,7 @@ const PortfolioDetails: React.FC = () => {
         holdings={holdings}
         dividendTickers={dividendTickers}
         subPortfolios={subPortfolios}
-      />
+      />}
 
       <SellModal
         isOpen={isSellModalOpen}

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from flask import request
 
@@ -9,6 +9,68 @@ from database import get_db
 from portfolio_service import PortfolioService
 from price_service import PriceService
 from routes_portfolio_base import portfolio_bp
+
+
+@portfolio_bp.get('/<int:portfolio_id>/instrument-history')
+def instrument_history(portfolio_id):
+    from investment_review_service import instrument
+    return success_response(instrument(portfolio_id,request.args.get('ticker')))
+
+
+@portfolio_bp.get('/<int:portfolio_id>/strategy-comparison')
+def strategy_comparison(portfolio_id):
+    from investment_review_service import strategies
+    return success_response(strategies(portfolio_id))
+
+
+@portfolio_bp.get('/<int:portfolio_id>/events')
+def portfolio_events(portfolio_id):
+    from investment_review_service import events
+    from datetime import date
+    try:
+        start=date.fromisoformat(request.args.get('from','2000-01-01')).isoformat()
+        end=date.fromisoformat(request.args.get('to',date.today().isoformat())).isoformat()
+        if start>end or end>date.today().isoformat():raise ValueError()
+    except ValueError:raise ValidationError('Podaj poprawny zakres historii.') from None
+    _,rows=events(portfolio_id)
+    rows=[r for r in rows if start<=str(r['date'])[:10]<=end]
+    from database import get_db
+    db=get_db();p=db.execute('SELECT * FROM portfolios WHERE id=?',(portfolio_id,)).fetchone()
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name='investor_journal'").fetchone():
+        ids=[portfolio_id] if p['parent_portfolio_id'] else [portfolio_id]+[r['id'] for r in db.execute('SELECT id FROM portfolios WHERE parent_portfolio_id=?',(portfolio_id,))]
+        for note in db.execute(f"SELECT * FROM investor_journal WHERE portfolio_id IN ({','.join('?' for _ in ids)}) AND entry_date BETWEEN ? AND ?",[*ids,start,end]):
+            rows.append({'id':-note['id'],'date':note['entry_date'],'type':'JOURNAL','ticker':note['ticker'],'quantity':0,'price':0,'total_value':0,'strategy_name':None,'note_title':note['title']})
+    rows.sort(key=lambda r:(r['date'],r['id']))
+    return success_response({'items':rows[-5000:],'count':len(rows),'truncated':len(rows)>5000})
+
+
+@portfolio_bp.get('/history/results/<int:portfolio_id>')
+def get_actual_results(portfolio_id):
+    from actual_results_service import analyze
+    return success_response(analyze([portfolio_id], request.args.get('from'), request.args.get('to')))
+
+
+@portfolio_bp.get('/history/attribution/<int:portfolio_id>')
+def get_attribution(portfolio_id):
+    from datetime import date
+    from portfolio_chart_service import attribution
+    try:
+        start = date.fromisoformat(request.args.get('from', date.today().replace(day=1).isoformat()))
+        end = date.fromisoformat(request.args.get('to', date.today().isoformat()))
+    except ValueError:
+        raise ValidationError('Analysis dates must use YYYY-MM-DD') from None
+    return success_response(attribution(portfolio_id, start, end))
+
+
+@portfolio_bp.get('/history/benchmark/<int:portfolio_id>')
+def benchmark_history(portfolio_id):
+    from datetime import date
+    from portfolio_chart_service import benchmark_returns
+    try:
+        start=date.fromisoformat(request.args.get('from',''))
+        end=date.fromisoformat(request.args.get('to',date.today().isoformat()))
+    except ValueError:raise ValidationError('Podaj zakres dat.') from None
+    return success_response(benchmark_returns(portfolio_id,start,end,request.args.get('ticker')))
 
 
 @portfolio_bp.route('/history/monthly/<int:portfolio_id>', methods=['GET'])
@@ -67,6 +129,39 @@ def get_stock_history(ticker):
         'SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date ASC',
         (ticker,)
     ).fetchall()
+    quote = request.args.get('quote')
+    if quote not in (None, 'PLN'):
+        raise ValidationError('Only PLN conversion is supported')
+    metadata = db.execute('SELECT currency FROM asset_metadata WHERE ticker = ?', (ticker,)).fetchone()
+    holding = db.execute('SELECT currency FROM holdings WHERE ticker = ? LIMIT 1', (ticker,)).fetchone()
+    currency = metadata['currency'] if metadata else holding['currency'] if holding else None
+    # DATE columns may be decoded as Python dates; serialize consistently with radar.
+    history = [{**dict(price), 'date': str(price['date']).split(' ')[0].split('T')[0]} for price in prices]
+    missing_fx_dates = []
+    if quote == 'PLN':
+        if not currency:
+            raise ValidationError('Instrument currency is unavailable')
+        if currency != 'PLN':
+            from portfolio_history_service import PortfolioHistoryService as History
+            from datetime import date
+            fx_ticker = f'{currency}PLN=X'
+            if history:
+                first = str(history[0]['date']).split(' ')[0].split('T')[0]
+                needs_sync = PriceService.get_tickers_requiring_history_sync([fx_ticker], date.fromisoformat(first))
+                if needs_sync:
+                    PriceService.sync_stock_history(fx_ticker, date.fromisoformat(first))
+            rates = db.execute('SELECT date, close_price FROM stock_prices WHERE ticker = ? ORDER BY date', (fx_ticker,)).fetchall()
+            index = History._build_sorted_price_index({fx_ticker: {str(row['date']).split(' ')[0]: row['close_price'] for row in rates}})
+            converted = []
+            for point in history:
+                day = History._to_date(point['date'])
+                rate = History._price_at(index, fx_ticker, day)
+                if rate > 0:
+                    converted.append({**point, 'close_price': point['close_price'] * rate})
+                else:
+                    missing_fx_dates.append(day.isoformat())
+            history = converted
+        currency = 'PLN'
     last_updated = db.execute(
         'SELECT MAX(date) as last_date FROM stock_prices WHERE ticker = ?',
         (ticker,)
@@ -74,7 +169,9 @@ def get_stock_history(ticker):
 
     return success_response({
         'ticker': ticker,
-        'history': [dict(price) for price in prices],
+        'history': history,
+        'currency': currency,
+        'missing_fx_dates': missing_fx_dates,
         'last_updated': last_updated['last_date'] if last_updated else None,
     })
 
@@ -101,7 +198,7 @@ def closed_positions(portfolio_id):
             WHERE tb.portfolio_id = t.portfolio_id
               AND tb.sub_portfolio_id = t.sub_portfolio_id
               AND tb.ticker = t.ticker
-              AND tb.type = 'BUY'
+              AND tb.type IN ('BUY','ASSET_IN')
         '''
         holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.sub_portfolio_id = t.sub_portfolio_id AND h.ticker = t.ticker'
     else:
@@ -117,7 +214,7 @@ def closed_positions(portfolio_id):
               AND tb.ticker = t.ticker
               AND tb.type = 'BUY'
         '''
-        holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker'
+        holdings_join_clause = 'h.portfolio_id = t.portfolio_id AND h.ticker = t.ticker AND h.sub_portfolio_id IS NULL'
 
     query = f'''
         SELECT t.ticker,
@@ -136,7 +233,12 @@ def closed_positions(portfolio_id):
         ORDER BY realized_profit DESC
     '''
 
-    rows = db.execute(query, where_params).fetchall()
+    rows = [dict(r) for r in db.execute(query, where_params)]
+    if portfolio['parent_portfolio_id']:
+        from asset_transfer_service import strategy_basis
+        _,profits=strategy_basis(db,actual_portfolio_id,actual_sub_portfolio_id)
+        for row in rows:
+            row['realized_profit']=sum(profits.get(r['id'],0) for r in db.execute("SELECT id FROM transactions WHERE portfolio_id=? AND sub_portfolio_id=? AND ticker=? AND type='SELL'",(actual_portfolio_id,actual_sub_portfolio_id,row['ticker'])))
 
     total = sum(row['realized_profit'] or 0 for row in rows)
     positions = [
@@ -172,7 +274,7 @@ def closed_position_cycles(portfolio_id):
         tx_query = '''SELECT id, ticker, type, quantity, total_value, realized_profit, date
            FROM transactions
            WHERE portfolio_id = ? AND sub_portfolio_id = ?
-             AND type IN ('BUY', 'SELL')'''
+             AND type IN ('BUY', 'SELL', 'ASSET_IN', 'ASSET_OUT')'''
         tx_params = (actual_portfolio_id, actual_sub_portfolio_id)
         
         company_query = '''SELECT t.ticker as ticker,
@@ -207,7 +309,12 @@ def closed_position_cycles(portfolio_id):
            GROUP BY t.ticker'''
         company_params = (actual_portfolio_id,)
 
-    tx_rows = db.execute(tx_query, tx_params).fetchall()
+    tx_rows = [dict(r) for r in db.execute(tx_query, tx_params)]
+    if portfolio['parent_portfolio_id']:
+        from asset_transfer_service import strategy_basis
+        _,profits=strategy_basis(db,actual_portfolio_id,actual_sub_portfolio_id)
+        for row in tx_rows:
+            if row['type']=='SELL':row['realized_profit']=profits.get(row['id'],row['realized_profit'])
 
     def _parse_tx_date(value):
         if not value:
@@ -235,7 +342,13 @@ def closed_position_cycles(portfolio_id):
 
         return realized_profit / average_capital / years * 100
 
-    tx_rows = sorted(tx_rows, key=lambda tx: (_parse_tx_date(tx['date']) or datetime.min, tx['id']))
+    def _event_date(tx):
+        value = _parse_tx_date(tx['date'])
+        if value and tx['type'] == 'SELL' and len(str(tx['date'])) == 10:
+            value += timedelta(hours=23, minutes=59, seconds=59)
+        return value
+
+    tx_rows = sorted(tx_rows, key=lambda tx: (_event_date(tx) or datetime.min, tx['id']))
 
     company_rows = db.execute(company_query, company_params).fetchall()
 
@@ -259,13 +372,13 @@ def closed_position_cycles(portfolio_id):
         tx_type = tx['type']
         quantity = float(tx['quantity'] or 0)
         tx_date_raw = tx['date']
-        tx_dt = _parse_tx_date(tx_date_raw)
+        tx_dt = _event_date(tx)
         state = ticker_state[ticker]
 
         if state['last_event_at'] and tx_dt:
             state['capital_time_sum'] += state['cost_basis_open'] * _seconds_between(state['last_event_at'], tx_dt)
 
-        if tx_type == 'BUY':
+        if tx_type in ('BUY','ASSET_IN'):
             if state['open_qty'] <= 1e-9:
                 state['cycle_id'] += 1
                 state['opened_at'] = tx_date_raw
@@ -280,11 +393,11 @@ def closed_position_cycles(portfolio_id):
             buy_value = float(tx['total_value'] or 0)
             state['invested_capital'] += buy_value
             state['cost_basis_open'] += buy_value
-            state['buy_count'] += 1
+            state['buy_count'] += int(tx_type=='BUY')
             state['last_event_at'] = tx_dt
             continue
 
-        if tx_type == 'SELL':
+        if tx_type in ('SELL','ASSET_OUT'):
             if state['open_qty'] <= 1e-9:
                 state['last_event_at'] = tx_dt
                 continue
@@ -295,8 +408,8 @@ def closed_position_cycles(portfolio_id):
                 state['cost_basis_open'] = max(0.0, state['cost_basis_open'] - average_cost_per_share * quantity)
 
             state['open_qty'] = max(0.0, state['open_qty'] - quantity)
-            state['realized_profit'] += float(tx['realized_profit'] or 0)
-            state['sell_count'] += 1
+            state['realized_profit'] += float(tx['realized_profit'] or 0) if tx_type=='SELL' else float(tx['total_value'])-average_cost_per_share*quantity
+            state['sell_count'] += int(tx_type=='SELL')
             state['last_event_at'] = tx_dt
 
             if state['open_qty'] <= 1e-9:

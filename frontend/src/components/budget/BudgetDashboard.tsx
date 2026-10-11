@@ -373,7 +373,12 @@ export default function BudgetDashboard() {
   const currentAccount = accounts.find(a => a.id === selectedAccountId);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 bg-gray-50 min-h-screen">
+    <div className="page-stack">
+      <div className="page-heading">
+        <p className="page-eyebrow">Codzienne finanse</p>
+        <h1>Budżet</h1>
+        <p className="mt-2 text-sm text-gray-500">Konta, wydatki i plan na każdy miesiąc.</p>
+      </div>
       {/* Account Tabs */}
       {accounts.length > 0 ? (
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 pb-2 gap-4">

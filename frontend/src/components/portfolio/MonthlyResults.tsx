@@ -1,0 +1,12 @@
+import {useState} from 'react';
+import {Bar,BarChart,CartesianGrid,Cell,ReferenceLine,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts';
+import type {ActualMonth} from '../../api_actual_results';
+import {chartColors,chartDate,chartTooltip} from '../charts/chartTheme';
+import {money,percent} from './researchModel';
+export default function MonthlyResults({months}:{months:ActualMonth[]}){
+ const [view,setView]=useState<'chart'|'map'|'table'>('chart');
+ return <section className="chart-panel"><div className="chart-heading"><div><h2>Wyniki miesiąc po miesiącu</h2><p>Jedna analiza, trzy sposoby wyświetlania. Gwiazdka oznacza niepełny miesiąc wybranego okresu.</p></div><div className="chart-toolbar">{([['chart','Wykres'],['map','Mapa'],['table','Tabela']] as const).map(([k,t])=><button key={k} aria-pressed={view===k} onClick={()=>setView(k)}>{t}</button>)}</div></div>
+ {!months.length?<p>Brak danych.</p>:view==='chart'?<ResponsiveContainer width="100%" height={260}><BarChart data={months}><CartesianGrid stroke={chartColors.grid} vertical={false}/><XAxis dataKey="date" tickFormatter={chartDate}/><YAxis tickFormatter={v=>`${v}%`}/><Tooltip contentStyle={chartTooltip} labelFormatter={v=>chartDate(String(v))} formatter={v=>[percent(v==null?null:Number(v)),'Zwrot miesiąca']}/><ReferenceLine y={0} stroke={chartColors.muted}/><Bar dataKey="return_percent" isAnimationActive={false}>{months.map(m=><Cell key={m.date} fill={(m.return_percent??0)<0?chartColors.negative:chartColors.positive} fillOpacity={m.partial_month?.5:1}/>)}</Bar></BarChart></ResponsiveContainer>:view==='map'?<div className="pr-month-map">{months.map(m=><div key={m.date} style={{borderColor:(m.return_percent??0)<0?chartColors.negative:chartColors.positive}}><span>{chartDate(m.date)}{m.partial_month?' *':''}</span><strong>{percent(m.return_percent)}</strong><small>{money(m.profit)}</small></div>)}</div>:<div className="chart-table-wrap"><table className="chart-table"><thead><tr><th>Miesiąc</th><th>Wpłaty netto</th><th>Wynik PLN</th><th>Zwrot</th><th>Wartość końcowa</th></tr></thead><tbody>{months.map(m=><tr key={m.date}><th>{chartDate(m.date)}{m.partial_month?' *':''}</th><td>{money(m.net_deposits)}</td><td>{money(m.profit)}</td><td>{percent(m.return_percent)}</td><td>{money(m.closing_value)}</td></tr>)}</tbody></table></div>}
+ <p className="chart-note">Modified Dietz uwzględnia daty wpłat, wypłat i przeniesionych akcji. „—” oznacza brak danych lub podstawy do wyliczenia; nie zastępujemy go zerem.</p>
+ </section>;
+}

@@ -10,6 +10,10 @@ interface ExtendedTransaction extends Transaction {
 }
 
 const ARCHIVED_LABEL = '(archiwalny)';
+const typeLabels: Record<string, string> = {
+  BUY: 'Kupno', SELL: 'Sprzedaż', DEPOSIT: 'Wpłata', WITHDRAW: 'Wypłata',
+  DIVIDEND: 'Dywidenda', INTEREST: 'Odsetki',
+};
 
 const formatPortfolioOptionLabel = (portfolio: FlattenedPortfolio): string => {
   const archivedSuffix = portfolio.is_archived ? ` ${ARCHIVED_LABEL}` : '';
@@ -45,7 +49,7 @@ const Transactions: React.FC = () => {
         setPortfolioTree(pRes.portfolios);
       } catch (err) {
         console.error('Failed to fetch data', err);
-        alert(err instanceof Error ? err.message : 'Failed to fetch transactions');
+        alert(err instanceof Error ? err.message : 'Nie udało się pobrać transakcji');
       } finally {
         setLoading(false);
       }
@@ -78,16 +82,20 @@ const Transactions: React.FC = () => {
     return true;
   });
 
-  if (loading) return <div className="p-4 text-center">Loading transactions...</div>;
+  if (loading) return <div className="p-4 text-center">Ładowanie transakcji...</div>;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Transaction History</h1>
+      <div className="page-heading">
+        <p className="page-eyebrow">Inwestycje</p>
+        <h1 className="text-2xl font-bold text-gray-900">Historia transakcji</h1>
+        <p className="mt-1 text-sm text-gray-600">Przeglądaj operacje ze wszystkich portfeli w jednym miejscu.</p>
+      </div>
 
       <div className="bg-white shadow rounded-lg p-4 flex flex-col sm:flex-row flex-wrap gap-4">
         <div className="flex-1 min-w-[220px]">
           <label htmlFor="portfolio" className="block text-sm font-medium text-gray-700">
-            Portfolio / Sub-portfolio
+            Portfel lub subportfel
           </label>
           <select
             id="portfolio"
@@ -95,7 +103,7 @@ const Transactions: React.FC = () => {
             onChange={(e) => setFilterPortfolio(e.target.value)}
             className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border"
           >
-            <option value="all">All Portfolios</option>
+            <option value="all">Wszystkie portfele</option>
             {flatPortfolios.map((portfolio) => (
               <option key={portfolio.id} value={portfolio.id}>
                 {formatPortfolioOptionLabel(portfolio)}
@@ -106,7 +114,7 @@ const Transactions: React.FC = () => {
 
         <div className="flex-1 min-w-[150px]">
           <label htmlFor="type" className="block text-sm font-medium text-gray-700">
-            Type
+            Typ
           </label>
           <select
             id="type"
@@ -114,18 +122,18 @@ const Transactions: React.FC = () => {
             onChange={(e) => setFilterType(e.target.value)}
             className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border"
           >
-            <option value="all">All Types</option>
-            <option value="BUY">Buy</option>
-            <option value="SELL">Sell</option>
-            <option value="DEPOSIT">Deposit</option>
-            <option value="WITHDRAW">Withdraw</option>
-            <option value="DIVIDEND">Dividend</option>
-            <option value="INTEREST">Interest</option>
+            <option value="all">Wszystkie typy</option>
+            <option value="BUY">Kupno</option>
+            <option value="SELL">Sprzedaż</option>
+            <option value="DEPOSIT">Wpłata</option>
+            <option value="WITHDRAW">Wypłata</option>
+            <option value="DIVIDEND">Dywidenda</option>
+            <option value="INTEREST">Odsetki</option>
           </select>
         </div>
         <div className="flex-1 min-w-[150px]">
           <label htmlFor="ticker" className="block text-sm font-medium text-gray-700">
-            Ticker
+            Symbol
           </label>
           <select
             id="ticker"
@@ -133,7 +141,7 @@ const Transactions: React.FC = () => {
             onChange={(e) => setFilterTicker(e.target.value)}
             className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border"
           >
-            <option value="all">All Tickers</option>
+            <option value="all">Wszystkie symbole</option>
             {uniqueTickers.map((ticker) => (
               <option key={ticker} value={ticker}>
                 {ticker}
@@ -143,7 +151,7 @@ const Transactions: React.FC = () => {
         </div>
         <div className="flex-1 min-w-[170px]">
           <label htmlFor="dateFrom" className="block text-sm font-medium text-gray-700">
-            Date from
+            Data od
           </label>
           <input
             id="dateFrom"
@@ -155,7 +163,7 @@ const Transactions: React.FC = () => {
         </div>
         <div className="flex-1 min-w-[170px]">
           <label htmlFor="dateTo" className="block text-sm font-medium text-gray-700">
-            Date to
+            Data do
           </label>
           <input
             id="dateTo"
@@ -172,21 +180,21 @@ const Transactions: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
             <thead className="bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Portfolio</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sub-portfolio</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ticker</th>
-                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Quantity</th>
-                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Price</th>
-                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Value</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Data</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Portfel</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subportfel</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Typ</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Symbol</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ilość</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Cena</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Wartość</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-950 divide-y divide-gray-100 dark:divide-gray-800/50">
               {filteredTransactions.map((transaction) => (
                 <tr key={transaction.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 tabular-nums">
-                    {new Date(transaction.date).toLocaleDateString()}
+                    {new Date(transaction.date).toLocaleDateString('pl-PL')}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
                     {transaction.portfolio_name ||
@@ -213,7 +221,7 @@ const Transactions: React.FC = () => {
                           'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800/50'
                         )}
                       >
-                        {transaction.type}
+                        {typeLabels[transaction.type] ?? transaction.type}
                       </span>
                       {transaction.transfer_id && (
                         <span title="Przelew wewnętrzny" className="text-gray-400 dark:text-gray-500">
@@ -231,7 +239,7 @@ const Transactions: React.FC = () => {
               {filteredTransactions.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                    No transactions found.
+                    Nie znaleziono transakcji dla wybranych filtrów.
                   </td>
                 </tr>
               )}

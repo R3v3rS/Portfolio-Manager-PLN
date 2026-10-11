@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,19 +12,27 @@ from flask import Blueprint, current_app, request
 
 from api.exceptions import NotFoundError, ValidationError
 from api.response import error_response, success_response
+from portfolio_scope import resolve_portfolio_scope
 from services.analytics import correlation_service, diversification_service, performance_metrics
 
 analytics_bp = Blueprint("analytics_bp", __name__)
 
-_ALLOWED_PERIODS = {"3m", "6m", "1y", "2y"}
+_ALLOWED_PERIODS = {"3mo", "6mo", "1y", "2y"}
+_PERIOD_ALIASES = {"3m": "3mo", "6m": "6mo"}
 _CACHE_TTL = timedelta(hours=4)
+_CACHE_VERSION = 4
 
 
-def _get_connection() -> sqlite3.Connection:
+@contextmanager
+def _get_connection():
     db_path = current_app.config["DATABASE"]
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def _ensure_analytics_cache_table() -> None:
@@ -37,6 +47,30 @@ def _ensure_analytics_cache_table() -> None:
                 cached_at TEXT NOT NULL,
                 PRIMARY KEY (portfolio_id, sub_portfolio_id, period)
             )
+            """
+        )
+        db.execute(
+            """
+            DELETE FROM analytics_cache
+            WHERE rowid IN (
+                SELECT rowid
+                FROM (
+                    SELECT
+                        rowid,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY portfolio_id, COALESCE(sub_portfolio_id, -1), period
+                            ORDER BY cached_at DESC
+                        ) AS duplicate_rank
+                    FROM analytics_cache
+                )
+                WHERE duplicate_rank > 1
+            )
+            """
+        )
+        db.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_analytics_cache_scope
+            ON analytics_cache (portfolio_id, COALESCE(sub_portfolio_id, -1), period)
             """
         )
         db.commit()
@@ -69,6 +103,7 @@ def _parse_int_param(name: str, required: bool) -> int | None:
 
 def _validate_period() -> str:
     period = (request.args.get("period") or "1y").strip().lower()
+    period = _PERIOD_ALIASES.get(period, period)
     if period not in _ALLOWED_PERIODS:
         raise ValidationError(
             "Unsupported period",
@@ -83,7 +118,22 @@ def _portfolio_exists(portfolio_id: int) -> bool:
     return row is not None
 
 
-def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: str) -> dict[str, Any] | None:
+def _snapshot_key(portfolio_id, sub_portfolio_id):
+    with _get_connection() as db:
+        rows = db.execute('''
+            SELECT ticker, quantity, currency, sector FROM holdings
+            WHERE portfolio_id = ? AND (? IS NULL OR sub_portfolio_id = ?) AND quantity > 0
+            ORDER BY ticker, id
+        ''', (portfolio_id, sub_portfolio_id, sub_portfolio_id)).fetchall()
+        tickers = {row['ticker'] for row in rows}
+        tickers.update(f"{row['currency'].upper()}PLN=X" for row in rows
+                       if row['currency'] and row['currency'].upper() != 'PLN')
+        prices = db.execute(f"SELECT ticker, price, updated_at FROM price_cache WHERE ticker IN ({','.join('?' for _ in tickers)}) ORDER BY ticker",
+                            tuple(tickers)).fetchall() if tickers else []
+    return hashlib.sha256(json.dumps([list(map(tuple, rows)), list(map(tuple, prices))]).encode()).hexdigest()
+
+
+def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: str, snapshot_key: str) -> dict[str, Any] | None:
     with _get_connection() as db:
         row = db.execute(
             """
@@ -92,6 +142,8 @@ def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: st
             WHERE portfolio_id = ?
               AND sub_portfolio_id IS ?
               AND period = ?
+            ORDER BY cached_at DESC
+            LIMIT 1
             """,
             (portfolio_id, sub_portfolio_id, period),
         ).fetchone()
@@ -107,19 +159,27 @@ def _load_from_cache(portfolio_id: int, sub_portfolio_id: int | None, period: st
     if now_utc - cached_at > _CACHE_TTL:
         return None
 
-    return json.loads(row["result_json"])
+    result = json.loads(row["result_json"])
+    return result if result.get('schema_version') == _CACHE_VERSION and result.get('snapshot_key') == snapshot_key else None
 
 
 def _save_cache(portfolio_id: int, sub_portfolio_id: int | None, period: str, result: dict[str, Any]) -> None:
     with _get_connection() as db:
+        # SQLite treats NULL values as distinct in a composite primary key, so
+        # an UPSERT alone would keep adding rows for a parent portfolio.
+        db.execute(
+            """
+            DELETE FROM analytics_cache
+            WHERE portfolio_id = ?
+              AND sub_portfolio_id IS ?
+              AND period = ?
+            """,
+            (portfolio_id, sub_portfolio_id, period),
+        )
         db.execute(
             """
             INSERT INTO analytics_cache (portfolio_id, sub_portfolio_id, period, result_json, cached_at)
             VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(portfolio_id, sub_portfolio_id, period)
-            DO UPDATE SET
-                result_json = excluded.result_json,
-                cached_at = excluded.cached_at
             """,
             (
                 portfolio_id,
@@ -175,7 +235,11 @@ def analytics_summary():
         if not _portfolio_exists(portfolio_id):
             raise NotFoundError("Portfolio not found", details={"portfolio_id": portfolio_id})
 
-        cached_result = _load_from_cache(portfolio_id, sub_portfolio_id, period)
+        with _get_connection() as db:
+            portfolio_id, sub_portfolio_id = resolve_portfolio_scope(db, portfolio_id, sub_portfolio_id)
+
+        snapshot_key = _snapshot_key(portfolio_id, sub_portfolio_id)
+        cached_result = _load_from_cache(portfolio_id, sub_portfolio_id, period, snapshot_key)
         if cached_result is not None:
             payload = _build_analytics_contract(cached_result)
             return success_response({
@@ -210,6 +274,7 @@ def analytics_summary():
                 app,
                 portfolio_id,
                 sub_portfolio_id,
+                period,
             )
             future_diversification = executor.submit(
                 _run_with_app_context,
@@ -220,6 +285,8 @@ def analytics_summary():
             )
 
             result = {
+                "schema_version": _CACHE_VERSION,
+                "snapshot_key": snapshot_key,
                 "performance_summary": future_performance.result(),
                 "portfolio_var": future_var.result(),
                 "correlation_risk": future_correlation.result(),

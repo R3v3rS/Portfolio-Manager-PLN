@@ -1,4 +1,6 @@
 .venv/
+.test-deps/
+.runtime-deps/
 __pycache__/
 *.db
 .env
@@ -10,6 +12,24 @@ frontend/dist/
 .DS_Store
 *.pyc
 backend/logs/backend.log
+backend/uploads/
 large_results.json
 medium_results.json
 before.json
+.local-servers.json
+
+# Local financial data, diagnostics and generated reports
+backend/backups/
+*.log
+*.db-wal
+*.db-shm
+docs/*.png
+docs/*.jpg
+docs/*.jpeg
+docs/*.json
+docs/*.jsonl
+docs/*2026*.md
+backend/maintenance/repair_ike_interest_20261004.py
+backend/scripts/*2026*.py
+scripts/desktop-launchers/
+frontend/visual-tests/

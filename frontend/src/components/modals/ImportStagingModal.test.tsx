@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ImportStagingModal from './ImportStagingModal';
 import type { StagingSession } from '../../types/importStaging';
+import { HttpError } from '../../http';
 
 const {
   assignAllMock,
@@ -11,12 +12,16 @@ const {
   assignRowMock,
   rejectRowMock,
   bookSessionMock,
+  refreshSymbolsMock,
+  createMappingMock,
 } = vi.hoisted(() => ({
   assignAllMock: vi.fn(),
   getSessionMock: vi.fn(),
   assignRowMock: vi.fn(),
   rejectRowMock: vi.fn(),
   bookSessionMock: vi.fn(),
+  refreshSymbolsMock: vi.fn(),
+  createMappingMock: vi.fn(),
 }));
 
 vi.mock('../../api_import_staging', () => ({
@@ -25,7 +30,9 @@ vi.mock('../../api_import_staging', () => ({
   assignRow: assignRowMock,
   rejectRow: rejectRowMock,
   bookSession: bookSessionMock,
+  refreshSymbols: refreshSymbolsMock,
 }));
+vi.mock('../../api_symbol_map', () => ({symbolMapApi: {create: createMappingMock}}));
 
 const createBaseSession = (): StagingSession => ({
   session_id: 'sess-1',
@@ -52,6 +59,7 @@ const createBaseSession = (): StagingSession => ({
 describe('ImportStagingModal assignAll synchronization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getSessionMock.mockResolvedValue({ ...createBaseSession(), rows: [], summary: {total: 0, pending: 0, conflicts: 0, rejected: 0, missing_symbols: []} });
     vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     assignRowMock.mockResolvedValue({});
     rejectRowMock.mockResolvedValue({});
@@ -84,6 +92,30 @@ describe('ImportStagingModal assignAll synchronization', () => {
     await waitFor(() => expect(assignAllMock).toHaveBeenCalledWith('sess-1', 2));
   };
 
+  it('saves a missing ticker in the preview and reuses the same session', async () => {
+    const session = createBaseSession();
+    session.rows[0] = {...session.rows[0], ticker:'XYZ.PL', status:'rejected', conflict_type:'missing_symbol'};
+    session.summary = {...session.summary, pending:0, rejected:1, missing_symbols:['XYZ.PL']};
+    createMappingMock.mockResolvedValue({});
+    refreshSymbolsMock.mockResolvedValue({...createBaseSession(), rows:[{...createBaseSession().rows[0], ticker:'XYZ.WA'}]});
+    renderModal({session});
+    fireEvent.change(screen.getByRole('textbox', {name:'Ticker notowań dla XYZ.PL'}), {target:{value:'xyz.wa'}});
+    fireEvent.click(screen.getByRole('button', {name:'Zapisz powiązania i odśwież'}));
+    await waitFor(() => expect(createMappingMock).toHaveBeenCalledWith({symbol_input:'XYZ.PL',ticker:'XYZ.WA',currency:'PLN'}));
+    expect(refreshSymbolsMock).toHaveBeenCalledWith('sess-1');
+    expect(await screen.findByText('XYZ.WA')).toBeInTheDocument();
+    expect(bookSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('does not allow history confirmation when a broker operation id has conflicting data', () => {
+    const session = createBaseSession();
+    session.rows[0].conflict_type = 'source_mismatch';
+    renderModal({session});
+    expect(screen.getByText('Identyfikator operacji ma inne dane — sprawdź źródło')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name:'Zatwierdź historycznie'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name:'Zaksięguj zatwierdzone'})).toBeDisabled();
+  });
+
   it('pokazuje konflikty z backendu po assignAll i pozwala je potwierdzić historycznie', async () => {
     assignAllMock.mockResolvedValue({ assigned: 1, skipped: 0 });
     getSessionMock.mockResolvedValue({
@@ -103,7 +135,7 @@ describe('ImportStagingModal assignAll synchronization', () => {
     await runAssignAll();
 
     expect(await screen.findByText('1 konfliktów')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Zatwierdź historycznie' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pomiń duplikat' })).toBeInTheDocument();
   });
 
   it('dla pełnego assigned bez konfliktów nie pokazuje akcji potwierdzania konfliktu', async () => {
@@ -124,20 +156,19 @@ describe('ImportStagingModal assignAll synchronization', () => {
     await runAssignAll();
 
     expect(await screen.findByText('0 konfliktów')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Zatwierdź historycznie' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pomiń duplikat' })).not.toBeInTheDocument();
   });
 
-  it('przy błędzie API pokazuje alert i nie zmienia rows', async () => {
-    const alertSpy = vi.spyOn(window, 'alert');
+  it('przy błędzie API pokazuje komunikat i nie zmienia rows', async () => {
     assignAllMock.mockRejectedValue(new Error('Boom'));
 
     renderModal();
     await runAssignAll();
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Boom'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Boom');
     expect(getSessionMock).not.toHaveBeenCalled();
-    expect(screen.getByText('pending')).toBeInTheDocument();
-    expect(screen.queryByText('assigned')).not.toBeInTheDocument();
+    expect(screen.getByText('Oczekuje')).toBeInTheDocument();
+    expect(screen.queryByText('Przypisano')).not.toBeInTheDocument();
   });
 
   it('po pomyślnym booking kliknięcie Zamknij wywołuje onCloseAfterBooking i nie wywołuje onCancel', async () => {
@@ -168,5 +199,58 @@ describe('ImportStagingModal assignAll synchronization', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Zamknij' }));
 
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('po częściowym księgowaniu pokazuje konflikt zwrócony przez serwer i pozwala kontynuować', async () => {
+    const updated = createBaseSession();
+    updated.rows[0].conflict_type = 'database_duplicate';
+    updated.summary.conflicts = 1;
+    bookSessionMock.mockResolvedValue({ booked: 0, booked_tx_only: 0, skipped_conflicts: 1, rejected: 0, errors: [], session: updated });
+    renderModal();
+    fireEvent.click(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' }));
+    expect(await screen.findByText('Podsumowanie księgowania')).toBeInTheDocument();
+    expect(screen.getByText('Duplikat w bazie')).toBeInTheDocument();
+    expect(screen.getByText('Oczekuje')).toBeInTheDocument();
+    expect(getSessionMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Rozwiąż pozostałe wiersze' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pomiń duplikat' }));
+    expect(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' })).toBeEnabled();
+  });
+
+  it('po przypisaniu pozwala zatwierdzić sprzedaż tylko do historii', async () => {
+    const session = createBaseSession();
+    session.rows[0] = { ...session.rows[0], type: 'SELL', status: 'assigned', conflict_type: 'insufficient_qty' };
+    renderModal({ session });
+    fireEvent.click(screen.getByRole('button', { name: 'Zatwierdź historycznie' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' }));
+    await waitFor(() => expect(bookSessionMock).toHaveBeenCalledWith('sess-1', [1]));
+  });
+
+  it('pokazuje powód wycofania księgowania bez zmiany statusów', async () => {
+    bookSessionMock.mockRejectedValue(new HttpError('Booking failed', 422, {error: {details: {row_errors: ['Brak kursu USD/PLN.']}}}));
+    renderModal();
+    fireEvent.click(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Księgowanie wycofane. Brak kursu USD/PLN.');
+    expect(screen.getByText('Oczekuje')).toBeInTheDocument();
+    expect(screen.queryByText('Podsumowanie księgowania')).not.toBeInTheDocument();
+  });
+
+  it('nie ponawia zapisu po błędzie odczytu następującym po udanym księgowaniu', async () => {
+    getSessionMock.mockRejectedValue(new Error('Read failed'));
+    renderModal();
+    fireEvent.click(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Księgowanie zapisane');
+    expect(screen.getByText('Podsumowanie księgowania')).toBeInTheDocument();
+    expect(bookSessionMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Zaksięguj zatwierdzone' })).toBeDisabled();
+  });
+
+  it('ujawnia nieobsługiwane wiersze oraz brak osobnej prowizji', () => {
+    const session = createBaseSession();
+    session.unsupported_rows = [{row_number: 2, type: 'Tax', reason: 'Nieobsługiwany typ'}];
+    session.warnings = ['Brak danych o prowizji.'];
+    renderModal({session});
+    expect(screen.getByText(/Nieobsługiwane wiersze: 1/)).toBeInTheDocument();
+    expect(screen.getByText('Brak danych o prowizji.')).toBeInTheDocument();
   });
 });

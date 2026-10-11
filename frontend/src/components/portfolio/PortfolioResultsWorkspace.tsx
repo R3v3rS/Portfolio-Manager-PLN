@@ -1,0 +1,60 @@
+import {useEffect,useMemo,useState} from 'react';
+import {Link} from 'react-router-dom';
+import {Bar,BarChart,Cell,ReferenceLine,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts';
+import type {PortfolioHistoryPoint} from '../../api';
+import {actualResultsApi,type ActualResults} from '../../api_actual_results';
+import {chartsApi,type Attribution} from '../../api_charts';
+import {eventName,reviewApi,type InvestmentEvent} from '../../api_investment_review';
+import {TrendChart} from '../charts/ChartKit';
+import {chartColors,chartTooltip} from '../charts/chartTheme';
+import ActualResultsPanel from './ActualResultsPanel';
+import MonthlyResults from './MonthlyResults';
+import InstrumentHistory from './InstrumentHistory';
+import {money,percent} from './researchModel';
+import {extractErrorMessageFromUnknown} from '../../http/response';
+import './resultsWorkspace.css';
+
+const benchmarks=[['','Bez porównania'],['__INFLATION__','Inflacja PL'],['^GSPC','S&P 500'],['ETFBW20TR.WA','WIG20 TR'],['ETFBM40TR.WA','mWIG40 TR'],['VT','Cały świat VT'],['EEM','Rynki wschodzące'],['^STOXX','STOXX 600']];
+export default function PortfolioResultsWorkspace({portfolioId,history,benchmark,onBenchmark}:{portfolioId:number;history:PortfolioHistoryPoint[];benchmark:string;onBenchmark:(v:string)=>void;dailyProfit:PortfolioHistoryPoint[]}){
+ const today=new Date().toLocaleDateString('sv-SE');
+ const [period,setPeriod]=useState('all'),[customFrom,setFrom]=useState((history[0]?.date??today.slice(0,7))+'-01'),[customTo,setTo]=useState(today);
+ const [metric,setMetric]=useState<'value'|'profit'|'return'>('value'),[data,setData]=useState<ActualResults>(),[error,setError]=useState('');
+ const [attribution,setAttribution]=useState<Attribution>(),[attributionError,setAttributionError]=useState('');
+ const [events,setEvents]=useState<InvestmentEvent[]>([]),[eventError,setEventError]=useState(''),[count,setCount]=useState(0),[showEvents,setShowEvents]=useState(true),[eventMonth,setEventMonth]=useState(''),[eventType,setEventType]=useState('ALL'),[page,setPage]=useState(0),[instrument,setInstrument]=useState<string|null>(null);
+ const [benchPoints,setBenchPoints]=useState<{date:string;value:number|null}[]>([]),[benchError,setBenchError]=useState('');
+ const cut=new Date(today+'T12:00:00');cut.setDate(1);if(period!=='all'&&period!=='custom')cut.setMonth(cut.getMonth()-(Number(period)-1));
+ const requestFrom=period==='all'?undefined:period==='custom'?customFrom:cut.toLocaleDateString('sv-SE');
+ const end=period==='custom'?customTo:today;
+ const valid=(!requestFrom||/^\d{4}-\d{2}-\d{2}$/.test(requestFrom))&&!!end&&(!requestFrom||requestFrom<=end)&&end<=today;
+ useEffect(()=>{let active=true;setData(undefined);setError('');if(!valid){setError('Podaj poprawny zakres bez przyszłych dat.');return;}actualResultsApi.portfolio(portfolioId,requestFrom,end).then(d=>{if(active)setData(d);}).catch(e=>{if(active)setError(extractErrorMessageFromUnknown(e));});return()=>{active=false;};},[portfolioId,requestFrom,end,valid]);
+ const from=data?.from??requestFrom??((history[0]?.date??today.slice(0,7))+'-01');
+ useEffect(()=>{let active=true;setAttribution(undefined);setAttributionError('');setEvents([]);setCount(0);setEventError('');setPage(0);setEventMonth('');if(!valid)return;
+  chartsApi.attribution(portfolioId,from,end).then(d=>{if(active)setAttribution(d);}).catch(e=>{if(active)setAttributionError(extractErrorMessageFromUnknown(e));});
+  reviewApi.events(portfolioId,from,end).then(d=>{if(active){setEvents(d.items);setCount(d.count);}}).catch(e=>{if(active)setEventError(extractErrorMessageFromUnknown(e));});return()=>{active=false;};},[portfolioId,from,end,valid]);
+ useEffect(()=>{let active=true;setBenchPoints([]);setBenchError('');if(!valid||!benchmark||benchmark==='__INFLATION__')return;chartsApi.benchmark(portfolioId,from,end,benchmark).then(d=>{if(active)setBenchPoints(d.items);}).catch(e=>{if(active)setBenchError(extractErrorMessageFromUnknown(e));});return()=>{active=false;};},[portfolioId,from,end,benchmark,valid]);
+ const pointBench=Object.fromEntries(benchPoints.map(p=>[p.date,p.value]));let cumulative:number|null=1,totalProfit:number|null=0;
+ const points=(data?.months??[]).map(m=>{cumulative=cumulative===null||m.return_percent===null?null:cumulative*(1+m.return_percent/100);totalProfit=totalProfit===null||m.profit===null?null:totalProfit+m.profit;
+  return {date:m.date.slice(0,7),value:metric==='return'?(cumulative===null?null:(cumulative-1)*100):metric==='profit'?totalProfit:m.closing_value,benchmark_value:pointBench[m.date.slice(0,7)]};});
+ const historyPoints=history.filter(p=>p.date>=from.slice(0,7)&&p.date<=end.slice(0,7));
+ const values=metric==='value'?points.map(p=>({...p,benchmark_value:historyPoints.find(h=>h.date===p.date)?.benchmark_value})):points;
+ const groups=useMemo(()=>{const map:Record<string,number>={};events.forEach(e=>{const m=e.date.slice(0,7);map[m]=(map[m]??0)+1;});return map;},[events]);
+ const annotations=showEvents?Object.entries(groups).filter(([m])=>values.some(v=>v.date===m)).map(([date,n])=>({date,label:`${n} zd.`})):[];
+ const visibleAnnotations=annotations.filter((a,i)=>i%Math.max(1,Math.ceil(annotations.length/8))===0||a.date===eventMonth);
+ const filtered=events.filter(e=>(!eventMonth||e.date.startsWith(eventMonth))&&(eventType==='ALL'||e.type===eventType)).slice().reverse();
+ const contributors=attribution?.items??[];
+ return <div className="space-y-5"><section className="chart-panel pr-result-toolbar"><div className="chart-heading"><div><h2>Analiza wyników i wydarzeń</h2><p>Jeden okres dla podsumowania, miesięcy, spółek i historii operacji.</p></div><label>Okres<select aria-label="Okres wyników" value={period} onChange={e=>setPeriod(e.target.value)}><option value="all">Cała historia</option><option value="3">3 miesiące</option><option value="6">6 miesięcy</option><option value="12">1 rok</option><option value="custom">Własne daty</option></select></label></div>
+ {period==='custom'&&<div className="pr-date-range"><label>Od<input type="date" max={end} value={customFrom} onChange={e=>setFrom(e.target.value)}/></label><label>Do<input type="date" min={customFrom} max={today} value={customTo} onChange={e=>setTo(e.target.value)}/></label></div>}
+ {error&&<p role="alert">{error}</p>}{!data&&!error&&<p role="status">Obliczanie wyników…</p>}
+ </section>{data&&<ActualResultsPanel portfolioId={portfolioId} provided={data} hideMonths/>}
+ <section className="chart-panel"><div className="chart-heading"><h2>Jak pracował kapitał?</h2><div className="chart-toolbar">{([['value','Wartość PLN'],['profit','Zysk / strata PLN'],['return','Stopa zwrotu %']] as const).map(([k,t])=><button key={k} aria-pressed={metric===k} onClick={()=>setMetric(k)}>{t}</button>)}<select aria-label="Benchmark wyników" value={benchmark} onChange={e=>onBenchmark(e.target.value)}>{benchmarks.map(([k,t])=><option key={k} value={k}>{t}</option>)}</select></div></div>
+ {benchError&&<p role="alert">Benchmark: {benchError}</p>}{metric==='return'&&points.some(p=>p.value===null)&&<p className="chart-alert">Brakuje pełnej podstawy do połączenia stóp zwrotu. Sprawdź miesięczną tabelę lub wybierz krótszy okres.</p>}{benchmark==='__INFLATION__'&&metric!=='value'&&<p className="chart-note">Porównanie z inflacją dostępne na wykresie wartości wpłat.</p>}
+ <TrendChart data={values} series={[{key:'value',name:metric==='return'?'Zwrot portfela':metric==='profit'?'Zysk w wybranym okresie':'Wartość portfela',area:true},...(benchmark&&metric!=='profit'&&!(benchmark==='__INFLATION__'&&metric==='return')?[{key:'benchmark_value',name:benchmarks.find(b=>b[0]===benchmark)?.[1]??benchmark,dashed:true,color:chartColors.secondary}]:[])]} unit={metric==='return'?'%':'PLN'} zero={metric!=='value'} annotations={visibleAnnotations}/>
+ <p className="chart-note">{metric==='return'?'Portfel: połączone miesięczne stopy Modified Dietz; to przybliżenie, nie dokładny TWR. Benchmark procentowy pokazuje zmianę ceny w PLN od początku tego samego okresu, bez dodatkowego doliczania dywidend.':metric==='profit'?'Zysk narasta od początku wybranego okresu. Wpłaty, wypłaty i transfery akcji są kapitałem, nie wynikiem.':'Wartość obejmuje gotówkę i wpłaty. Zmiana wartości nie jest stopą zwrotu.'}</p>
+ <label><input type="checkbox" checked={showEvents} onChange={e=>setShowEvents(e.target.checked)}/> Oznacz wydarzenia na wykresie</label>{showEvents&&<details><summary>Wybierz miesiąc wydarzeń ({Object.keys(groups).length})</summary><div className="chart-toolbar">{Object.entries(groups).map(([m,n])=><button key={m} aria-pressed={eventMonth===m} onClick={()=>{setEventMonth(eventMonth===m?'':m);setPage(0);}}>{m} · {n} zdarzeń</button>)}</div></details>}
+ </section>{data&&<MonthlyResults months={data.months}/>}
+ <section className="chart-panel"><h2>Co tworzy wynik okresu?</h2><p>Otwarte i sprzedane instrumenty, z uwzględnieniem dywidend i przeniesionych akcji.</p>{attributionError?<p role="alert">{attributionError}</p>:!attribution?<p>Ładowanie wkładu spółek…</p>:<><ResponsiveContainer width="100%" height={Math.max(220,Math.min(contributors.length,12)*30)}><BarChart layout="vertical" data={contributors.slice(0,12)}><XAxis type="number"/><YAxis type="category" dataKey="ticker" width={110}/><Tooltip contentStyle={chartTooltip} formatter={v=>money(Number(v))}/><ReferenceLine x={0}/><Bar dataKey="value" isAnimationActive={false}>{contributors.slice(0,12).map(i=><Cell key={i.ticker} fill={i.value<0?chartColors.negative:chartColors.positive}/>)}</Bar></BarChart></ResponsiveContainer><details><summary>Wszystkie instrumenty ({contributors.length})</summary><div className="chart-table-wrap"><table className="chart-table"><thead><tr><th>Instrument</th><th>Wkład PLN</th><th>Dywidendy</th><th>Historia</th></tr></thead><tbody>{contributors.map(i=><tr key={i.ticker}><th>{i.ticker}</th><td>{money(i.value)}</td><td>{money(i.dividends)}</td><td><button onClick={()=>setInstrument(i.ticker)}>Operacje</button></td></tr>)}</tbody></table></div></details>{!!attribution.missing_tickers?.length&&<p className="chart-alert">Brakuje wyceny: {attribution.missing_tickers.join(', ')}.</p>}</>}
+ <p className="chart-note">Odsetki wolnej gotówki nie są przypisane do spółek. Kwoty w wybranym okresie mogą różnić się od wyniku sprzedaży aktywów kupionych wcześniej.</p></section>
+ <section className="chart-panel"><div className="chart-heading"><div><h2>Oś wydarzeń</h2><p>{count} operacji w okresie{events.length<count?` · pokazano ostatnie ${events.length}`:''}. Kliknij instrument, aby zobaczyć całą jego historię.</p></div><div className="chart-toolbar"><select aria-label="Typ wydarzenia" value={eventType} onChange={e=>{setEventType(e.target.value);setPage(0);}}><option value="ALL">Wszystkie operacje</option>{Object.entries(eventName).map(([k,t])=><option key={k} value={k}>{t}</option>)}</select><button onClick={()=>{setEventMonth('');setEventType('ALL');setPage(0);}}>Wyczyść filtry</button><Link to={`/journal?portfolio=${portfolioId}`}>Dziennik decyzji</Link></div></div>
+ {eventError&&<p role="alert">{eventError}</p>}<div className="chart-table-wrap"><table className="chart-table"><thead><tr><th>Data</th><th>Operacja</th><th>Instrument</th><th>Kwota</th><th>Strategia</th></tr></thead><tbody>{filtered.slice(page*25,page*25+25).map(e=><tr key={e.id}><td>{e.date.slice(0,10)}</td><td>{eventName[e.type]??e.type}{e.note_title&&<small>{e.note_title}</small>}</td><td>{e.ticker&&e.ticker!=='CASH'?<button onClick={()=>setInstrument(e.ticker!)}>{e.ticker}</button>:e.type==='JOURNAL'?'Cały portfel':'Gotówka'}</td><td>{e.type==='JOURNAL'?'—':money(e.total_value)}</td><td>{e.strategy_name??'Część główna'}</td></tr>)}</tbody></table></div><div className="chart-actions"><button disabled={!page} onClick={()=>setPage(page-1)}>Nowsze</button><span>{filtered.length} operacji · strona {page+1}</span><button disabled={(page+1)*25>=filtered.length} onClick={()=>setPage(page+1)}>Starsze</button></div>
+ </section>{instrument&&<InstrumentHistory portfolioId={portfolioId} ticker={instrument} onClose={()=>setInstrument(null)}/>}</div>;
+}

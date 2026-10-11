@@ -1,116 +1,188 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, PieChart, Landmark, PiggyBank, Radar, Moon, Sun, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { BookOpen, ChevronRight, FileText, History, Landmark, LayoutDashboard, Lightbulb, Menu, PieChart, PiggyBank, Radar, Settings, Target, Wallet, X } from 'lucide-react';
+import { portfolioApi } from '../api';
 import { cn } from '../lib/utils';
-import { useTheme } from '../hooks/useTheme';
+import { flattenPortfolios } from '../utils/portfolioUtils';
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
+const investmentLinks = [
+  { name: 'Portfele', path: '/portfolios', icon: Wallet },
+  { name: 'Cele inwestycyjne', path: '/goals', icon: Target },
+  { name: 'Dziennik inwestora', path: '/journal', icon: BookOpen },
+  { name: 'Radar', path: '/radar', icon: Radar },
+  { name: 'Pomysły inwestycyjne', path: '/ideas', icon: Lightbulb },
+  { name: 'Historia transakcji', path: '/transactions', icon: History },
+];
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const location = useLocation();
-  const { isDark, toggleTheme } = useTheme();
+const toolLinks = [
+  { name: 'Portfele', path: '/admin/portfolios' },
+  { name: 'Mapowanie symboli', path: '/admin/symbol-mapping' },
+  { name: 'Audyt spójności', path: '/admin/consistency-audit' },
+  { name: 'Audyt cen', path: '/admin/price-history-audit' },
+  { name: 'Serwis budżetu', path: '/admin/budget' },
+];
+
+const toolNames: Record<string, string> = {
+  '/admin/portfolios': 'Portfele',
+  '/admin/symbol-mapping': 'Mapowanie symboli',
+  '/admin/consistency-audit': 'Audyt spójności',
+  '/admin/price-history-audit': 'Audyt cen',
+  '/admin/budget': 'Serwis budżetu',
+};
+
+const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { pathname } = useLocation();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [portfolioName, setPortfolioName] = useState<{ id: string; name: string } | null>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const drawer = useRef<HTMLDivElement>(null);
+  const drawerCloseButton = useRef<HTMLButtonElement>(null);
+  const portfolioId = pathname.match(/^\/(?:admin\/)?portfolio\/(\d+)$/)?.[1];
+  const isToolRoute = pathname === '/admin' || pathname.startsWith('/admin/');
+
+  useEffect(() => { setIsMobileNavOpen(false); }, [pathname]);
 
   useEffect(() => {
-    setIsMobileNavOpen(false);
-  }, [location.pathname]);
+    if (!portfolioId) return;
+    let active = true;
+    portfolioApi.list().then(({ portfolios }) => {
+      const portfolio = flattenPortfolios(portfolios).find(item => String(item.id) === portfolioId);
+      if (active && portfolio) setPortfolioName({ id: portfolioId, name: portfolio.name });
+    }).catch(() => { /* Keep the fallback label when the list is unavailable. */ });
+    return () => { active = false; };
+  }, [portfolioId]);
 
-  const navItems = [
-    { name: 'Pulpit', path: '/', icon: LayoutDashboard },
-    { name: 'Inwestycje', path: '/portfolios', icon: Wallet },
-    { name: 'Radar', path: '/radar', icon: Radar },
-    { name: 'Kredyty', path: '/loans', icon: Landmark },
-    { name: 'Budżet', path: '/budget', icon: PiggyBank },
-    { name: 'Admin', path: '/admin', icon: Settings },
-  ];
+  useEffect(() => {
+    if (!isMobileNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    drawerCloseButton.current?.focus();
+    const close = () => { setIsMobileNavOpen(false); menuButton.current?.focus(); };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { close(); return; }
+      if (event.key !== 'Tab' || !drawer.current) return;
+      const controls = Array.from(drawer.current.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)'));
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    const desktopQuery = window.matchMedia('(min-width: 1280px)');
+    desktopQuery.addEventListener('change', close);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      desktopQuery.removeEventListener('change', close);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isMobileNavOpen]);
+
+  const active = (path: string) => path === '/' ? pathname === '/' :
+    path === '/portfolios' ? pathname === path || pathname.startsWith('/portfolio/') :
+    pathname === path;
+
+  const navLink = (name: string, path: string, Icon: typeof Wallet) => (
+    <Link key={path} to={path} aria-current={active(path) ? 'page' : undefined}
+      className={cn('app-nav-link', active(path) && 'is-active')}>
+      <Icon className="h-[18px] w-[18px] shrink-0" />
+      <span className="flex-1">{name}</span>
+      {active(path) && <ChevronRight className="h-4 w-4 opacity-60" aria-hidden="true" />}
+    </Link>
+  );
+
+  const navigation = (mobile = false) => (
+    <nav aria-label={mobile ? 'Nawigacja mobilna' : 'Nawigacja główna'} className="app-navigation">
+      {navLink('Centrum finansów', '/', LayoutDashboard)}
+      {navLink('Raport miesięczny', '/reports/monthly', FileText)}
+      <p className="app-nav-section">Inwestycje</p>
+      {investmentLinks.map(({ name, path, icon }) => navLink(name, path, icon))}
+      <div className="app-nav-divider" />
+      {navLink('Budżet', '/budget', PiggyBank)}
+      {(pathname === '/budget' || pathname.startsWith('/budget/')) && <div className="app-nav-subitems">{[
+        {path:'/budget/imports',name:'Importy i paragony'}, {path:'/budget/forecast',name:'Prognoza pieniędzy'},
+        {path:'/budget/accounts',name:'Konta i przelewy'}, {path:'/budget/reserves',name:'Rezerwy na wydatki'},
+      ].map(item=><Link key={item.path} to={item.path} className={cn('app-nav-sublink',pathname===item.path&&'is-active')} aria-current={pathname===item.path?'page':undefined}>{item.name}</Link>)}</div>}
+      {navLink('Kredyty', '/loans', Landmark)}
+      <div className="app-nav-tools">
+        <p className="app-nav-section">Narzędzia</p>
+        <Link to="/admin" aria-current={pathname === '/admin' ? 'page' : undefined}
+          className={cn('app-nav-link', isToolRoute && 'is-active')}>
+          <Settings className="h-[18px] w-[18px] shrink-0" />
+          <span className="flex-1">Centrum narzędzi</span>
+          {isToolRoute && <ChevronRight className="h-4 w-4 opacity-60" aria-hidden="true" />}
+        </Link>
+        {isToolRoute && <div className="app-nav-subitems">
+          {toolLinks.map(({ name, path }) => (
+            <Link key={path} to={path} aria-current={pathname === path ? 'page' : undefined}
+              className={cn('app-nav-sublink', pathname === path && 'is-active')}>{name}</Link>
+          ))}
+        </div>}
+      </div>
+    </nav>
+  );
+
+  const portfolioLabel = portfolioId && portfolioName?.id === portfolioId ? portfolioName.name : 'Portfel';
+  let section = 'Centrum finansów';
+  let sectionPath: string | undefined;
+  let current = '';
+  if (pathname === '/portfolios') { section = 'Inwestycje'; sectionPath = '/portfolios'; current = 'Portfele'; }
+  else if (pathname.startsWith('/portfolio/')) { section = 'Inwestycje'; sectionPath = '/portfolios'; current = portfolioLabel; }
+  else if (pathname === '/radar') { section = 'Inwestycje'; sectionPath = '/portfolios'; current = 'Radar'; }
+  else if (pathname === '/ideas') { section = 'Inwestycje'; sectionPath = '/portfolios'; current = 'Pomysły inwestycyjne'; }
+  else if (pathname === '/goals') { section = 'Inwestycje'; sectionPath = '/portfolios'; current = 'Cele inwestycyjne'; }
+  else if (pathname === '/journal') { section = 'Inwestycje'; sectionPath = '/portfolios'; current = 'Dziennik inwestora'; }
+  else if (pathname === '/transactions' || pathname === '/admin/transactions') { section = 'Inwestycje'; sectionPath = '/portfolios'; current = 'Historia transakcji'; }
+  else if (pathname.startsWith('/loans/')) { section = 'Kredyty'; sectionPath = '/loans'; current = 'Szczegóły kredytu'; }
+  else if (pathname === '/loans') section = 'Kredyty';
+  else if (pathname === '/budget') section = 'Budżet';
+  else if (pathname === '/budget/reserves') { section = 'Budżet'; sectionPath = '/budget'; current = 'Rezerwy na wydatki'; }
+  else if (pathname === '/budget/forecast') { section = 'Budżet'; sectionPath = '/budget'; current = 'Prognoza pieniędzy'; }
+  else if (pathname === '/budget/imports') { section = 'Budżet'; sectionPath = '/budget'; current = 'Importy i paragony'; }
+  else if (pathname === '/budget/accounts') { section = 'Budżet'; sectionPath = '/budget'; current = 'Konta i przelewy'; }
+  else if (pathname === '/reports/monthly') { section = 'Raporty'; current = 'Miesięczny'; }
+  else if (isToolRoute) {
+    section = 'Narzędzia'; sectionPath = '/admin';
+    current = pathname.startsWith('/admin/portfolio/') ? portfolioLabel : toolNames[pathname] ?? '';
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 flex flex-col transition-colors duration-200">
-      <nav className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 transition-colors duration-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <button
-                type="button"
-                onClick={() => setIsMobileNavOpen((prev) => !prev)}
-                className="flex flex-shrink-0 items-center rounded-md px-2 py-1 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 sm:pointer-events-none sm:px-0 sm:py-0 sm:hover:bg-transparent"
-                aria-expanded={isMobileNavOpen}
-                aria-label="Przełącz nawigację mobilną"
-              >
-                <PieChart className="h-8 w-8 text-blue-600" />
-                <span className="ml-2 text-xl font-bold text-gray-900 dark:text-gray-100">Portfolio Manager</span>
-                <span className="ml-2 sm:hidden">
-                  {isMobileNavOpen ? <ChevronUp className="h-4 w-4 text-gray-500 dark:text-gray-300" /> : <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-300" />}
-                </span>
-              </button>
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                {navItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.path}
-                      className={cn(
-                        isActive
-                          ? 'border-blue-500 text-gray-900 dark:text-gray-100'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-200',
-                        'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium'
-                      )}
-                    >
-                      <Icon className="mr-1.5 h-4 w-4" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="flex items-center">
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                aria-label="Przełącz motyw"
-              >
-                {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                <span>{isDark ? 'Jasny' : 'Ciemny'}</span>
-              </button>
-            </div>
+    <div className="app-shell">
+      <a href="#main-content" className="skip-link">Przejdź do treści</a>
+      <aside className="app-sidebar hidden xl:flex">
+        <Link to="/" className="flex items-center gap-3 px-2 py-2" aria-label="Portfolio Manager — pulpit">
+          <span className="brand-mark"><PieChart className="h-6 w-6" /></span>
+          <span><span className="block text-base font-bold tracking-tight">Portfolio Manager</span>
+            <span className="text-xs text-gray-500">Twoje finanse w jednym miejscu</span></span>
+        </Link>
+        {navigation()}
+      </aside>
+      <div className="min-w-0 flex-1 xl:pl-64">
+        <header className="app-topbar">
+          <div className="flex min-w-0 items-center gap-3">
+            <button ref={menuButton} type="button" onClick={() => setIsMobileNavOpen(true)}
+              className="app-icon-button xl:hidden" aria-label="Otwórz menu"
+              aria-expanded={isMobileNavOpen} aria-controls="mobile-navigation">
+              <Menu className="h-5 w-5" />
+            </button>
+            <nav aria-label="Ścieżka nawigacji" className="app-breadcrumb">
+              {sectionPath ? <Link to={sectionPath}>{section}</Link> : <span>{section}</span>}
+              {current && <><ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" /><span aria-current="page" className="app-breadcrumb-current">{current}</span></>}
+            </nav>
           </div>
-
-          {isMobileNavOpen && (
-            <div className="border-t border-gray-200 py-3 dark:border-gray-800 sm:hidden">
-              <div className="grid grid-cols-1 gap-2">
-                {navItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.path}
-                      className={cn(
-                        isActive
-                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200'
-                          : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800',
-                        'inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors'
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <span className="app-topbar-mark" aria-hidden="true" />
+        </header>
+        <main id="main-content" tabIndex={-1} className="app-content">{children}</main>
+      </div>
+      {isMobileNavOpen && <div className="app-mobile-overlay xl:hidden">
+        <button type="button" className="app-mobile-backdrop" aria-label="Zamknij menu" onClick={() => { setIsMobileNavOpen(false); menuButton.current?.focus(); }} />
+        <div id="mobile-navigation" ref={drawer} role="dialog" aria-modal="true" aria-label="Menu nawigacji" className="app-mobile-drawer">
+          <div className="app-mobile-drawer-header"><span className="font-semibold">Menu</span>
+            <button ref={drawerCloseButton} type="button" className="app-icon-button" aria-label="Zamknij menu"
+              onClick={() => { setIsMobileNavOpen(false); menuButton.current?.focus(); }}><X className="h-5 w-5" /></button>
+          </div>
+          {navigation(true)}
         </div>
-      </nav>
-
-      <main className="flex-1 max-w-7xl w-full mx-auto py-6 sm:px-6 lg:px-8">
-        {children}
-      </main>
+      </div>}
     </div>
   );
 };

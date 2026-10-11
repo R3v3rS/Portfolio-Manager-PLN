@@ -21,14 +21,14 @@ const SellModal: React.FC<SellModalProps> = ({
 }) => {
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(new Date().toLocaleDateString('sv-SE'));
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen && holding) {
       setQuantity(holding.quantity.toString());
       setPrice((holding.current_price || holding.average_buy_price).toString());
-      setDate(new Date().toISOString().split('T')[0]);
+      setDate(new Date().toLocaleDateString('sv-SE'));
     }
   }, [isOpen, holding]);
 
@@ -97,6 +97,7 @@ const SellModal: React.FC<SellModalProps> = ({
             <label className="block text-sm font-medium text-gray-700">Data</label>
             <input
               type="date"
+              max={new Date().toLocaleDateString('sv-SE')}
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"

@@ -401,7 +401,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
         ikze_response = self.client.post('/api/portfolio/create', json={
             'name': 'IKZE bezpieczeństwo',
             'initial_cash': 2000.0,
-            'account_type': 'STANDARD',
+            'account_type': 'IKZE',
             'created_at': '2026-01-11',
         })
         self.assertEqual(ikze_response.status_code, 201, ikze_response.get_json())
@@ -523,7 +523,7 @@ class BackendSmokeEndpointsTestCase(unittest.TestCase):
     def test_xtb_import_invalid_csv_returns_consistent_error_details(self):
         portfolio_id = self.seed_portfolio_with_cash()
 
-        with patch('routes_imports.pd.read_csv', side_effect=ValueError('Invalid CSV format')):
+        with patch('routes_imports.read_xtb_file', side_effect=ValueError('Invalid CSV format')):
             response = self.client.post(
                 f'/api/portfolio/{portfolio_id}/import/xtb',
                 data={'file': (io.BytesIO(b'not,a,valid,csv'), 'xtb.csv')},

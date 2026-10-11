@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pl" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -8,18 +8,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <title>Portfolio Manager</title>
-    <script>
-      (function() {
-        try {
-          var savedTheme = localStorage.getItem('app-theme');
-          if (savedTheme === 'light') {
-            document.documentElement.classList.add('light');
-          } else {
-            document.documentElement.classList.add('dark');
-          }
-        } catch (e) {}
-      })();
-    </script>
     <script type="module">
       if (import.meta.hot?.on) {
         import.meta.hot.on('vite:error', (error) => {
@@ -32,7 +20,7 @@
       }
     </script>
   </head>
-  <body class="bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

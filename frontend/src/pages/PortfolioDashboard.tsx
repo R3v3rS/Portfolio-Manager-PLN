@@ -1,84 +1,72 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDownRight, Wallet, TrendingUp, DollarSign, PieChart, Plus } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, Archive, ArrowUpRight, Wallet } from 'lucide-react';
 import { portfolioApi, type TaxLimitsResponse } from '../api';
 import { Portfolio } from '../types';
 import { cn } from '../lib/utils';
-import { ChevronRight, ChevronDown, Archive } from 'lucide-react';
+import { finite, money, percent } from '../components/portfolio/researchModel';
+import './PortfolioDashboard.css';
 
-const PortfolioRow: React.FC<{ 
-  portfolio: Portfolio; 
+const accountLabels: Record<Portfolio['account_type'], string> = {
+  STANDARD: 'Rachunek inwestycyjny', IKE: 'IKE', IKZE: 'IKZE',
+  BONDS: 'Obligacje', SAVINGS: 'Oszczędności', PPK: 'PPK',
+};
+const accountColors: Record<Portfolio['account_type'], string> = {
+  STANDARD: '#a2c1df', IKE: '#78b0f1', IKZE: '#dbad72',
+  BONDS: '#e6c577', SAVINGS: '#67ded2', PPK: '#bba1e8',
+};
+const assetValue = (p: Portfolio) => p.valuation_status === 'incomplete' ? undefined : p.asset_value ?? p.portfolio_value;
+const investmentResult = (p: Portfolio) => p.valuation_status === 'incomplete' ? undefined : p.investment_result ?? p.total_result;
+const resultTone = (value: unknown) => finite(value) ? value > 0 ? 'io-positive' : value < 0 ? 'io-negative' : '' : '';
+const normalize = (value: string) => value.toLocaleLowerCase('pl-PL').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l');
+
+const PortfolioRow: React.FC<{
+  portfolio: Portfolio;
   level?: number;
-  onChildCreate?: (parentId: number) => void;
-}> = ({ portfolio, level = 0, onChildCreate }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const hasChildren = portfolio.children && portfolio.children.length > 0;
-
-  return (
-    <>
-      <tr className={cn(
-        "transition-colors hover:bg-gray-50 dark:hover:bg-slate-900/50 group",
-        portfolio.is_archived && "opacity-60 bg-gray-50/50 dark:bg-slate-900/30"
-      )}>
-        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-slate-100">
-          <div className="flex items-center" style={{ paddingLeft: `${level * 1.5}rem` }}>
-            {hasChildren ? (
-              <button 
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="p-1 hover:bg-gray-200 dark:hover:bg-slate-800 rounded mr-1 text-gray-500 dark:text-slate-400"
-              >
-                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-              </button>
-            ) : (
-              <div className="w-6" />
-            )}
-            <Link to={`/portfolio/${portfolio.id}`} className="flex flex-col hover:text-blue-600 dark:hover:text-blue-400">
-              <span className="text-base font-semibold flex items-center">
-                {portfolio.name}
-                {portfolio.is_archived && <Archive className="ml-2 h-3 w-3 text-gray-400 dark:text-slate-500" />}
-              </span>
-              <span className="text-[10px] text-gray-500 dark:text-slate-400 font-bold uppercase">{portfolio.account_type}</span>
-            </Link>
-            
-            {!portfolio.parent_portfolio_id && ['IKE', 'STANDARD'].includes(portfolio.account_type) && (
-              <button
-                onClick={() => onChildCreate?.(portfolio.id)}
-                className="ml-2 p-1 text-gray-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Dodaj sub-portfel"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 dark:text-slate-400 tabular-nums">
-          {portfolio.portfolio_value?.toFixed(2)} PLN
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600 dark:text-blue-400 font-medium tabular-nums">
-          {portfolio.total_dividends?.toFixed(2)} PLN
-        </td>
-        <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-bold tabular-nums", 
-          (portfolio.total_result || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
-          {portfolio.total_result?.toFixed(2)} PLN
-        </td>
-        <td className={cn("px-6 py-4 whitespace-nowrap text-sm text-right font-bold tabular-nums", 
-          (portfolio.total_result_percent || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
-          {portfolio.total_result_percent?.toFixed(2)}%
-        </td>
-      </tr>
-      {isExpanded && hasChildren && portfolio.children?.map(child => (
-        <PortfolioRow 
-          key={child.id} 
-          portfolio={child} 
-          level={level + 1} 
-          onChildCreate={onChildCreate}
-        />
-      ))}
-    </>
-  );
+  searching: boolean;
+  onChildCreate: (parentId: number) => void;
+}> = ({ portfolio, level = 0, searching, onChildCreate }) => {
+  const [expanded, setExpanded] = useState(false);
+  const children = portfolio.children ?? [];
+  const open = searching || expanded;
+  const value = assetValue(portfolio);
+  const withdrawal = portfolio.withdrawable_value ?? portfolio.portfolio_value;
+  const result = investmentResult(portfolio);
+  const differentWithdrawal = finite(value) && finite(withdrawal) && Math.abs(value - withdrawal) >= 0.01;
+  return <>
+    <tr className={cn('io-row', level > 0 && 'io-strategy', portfolio.is_archived && 'io-archived')}>
+      <td className="io-name-cell">
+        <div className="io-name" style={{ paddingLeft: `${level * 12}px` }}>
+          {children.length > 0 && <button className="io-icon-button" aria-label={`${open ? 'Zwiń' : 'Rozwiń'} strategie: ${portfolio.name}`} aria-expanded={open} onClick={() => setExpanded(!expanded)} disabled={searching}>
+            {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>}
+          <Link to={`/portfolio/${portfolio.id}`} className="io-account-link">
+            <strong>{portfolio.name}<ArrowUpRight size={14} aria-hidden="true" /></strong>
+            <span>{level > 0 ? 'Strategia' : accountLabels[portfolio.account_type]}{portfolio.is_archived && <> · Archiwum <Archive size={12} aria-hidden="true" /></>}</span>
+          </Link>
+          {!level && !portfolio.is_archived && ['IKE', 'STANDARD'].includes(portfolio.account_type) && <button className="io-icon-button io-add-strategy" onClick={() => onChildCreate(portfolio.id)} aria-label={`Dodaj strategię: ${portfolio.name}`} title="Dodaj strategię"><Plus size={15} /></button>}
+        </div>
+        {children.length > 0 && <span className="io-strategy-count">Strategie: {children.length} · zawarte w wartości konta</span>}
+      </td>
+      <td className="io-amount" data-label="Wartość aktywów">
+        <strong>{money(value)}</strong>{!finite(value)&&finite(portfolio.estimated_portfolio_value)&&<span>Orientacyjnie ≈ {money(portfolio.estimated_portfolio_value)}</span>}
+        {differentWithdrawal && <span>Wypłata ≈ {money(withdrawal)}</span>}
+        {portfolio.valuation_status && portfolio.valuation_status !== 'ok' && <span className="io-quality">{portfolio.valuation_status === 'incomplete' ? 'Niepełna wycena' : 'Wycena orientacyjna'}</span>}
+      </td>
+      <td className="io-amount" data-label="Wynik od początku">
+        <strong className={resultTone(result)}>{money(result)}</strong>
+        <span className={resultTone(result)}>{percent(finite(result) ? portfolio.total_result_percent : undefined)}</span>
+      </td>
+    </tr>
+    {open && children.map(child => <PortfolioRow key={child.id} portfolio={child} level={level + 1} searching={searching} onChildCreate={onChildCreate} />)}
+  </>;
 };
 
 const PortfolioDashboard: React.FC = () => {
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('value');
+  const [hideEmpty, setHideEmpty] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [taxLimits, setTaxLimits] = useState<TaxLimitsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,28 +75,43 @@ const PortfolioDashboard: React.FC = () => {
   const [parentPortfolioId, setParentPortfolioId] = useState<number | null>(null);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [initialCash, setInitialCash] = useState('');
-  const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK'>('STANDARD');
+  const [accountType, setAccountType] = useState<'STANDARD' | 'IKE' | 'IKZE' | 'BONDS' | 'SAVINGS' | 'PPK'>('STANDARD');
   const [createdAt, setCreatedAt] = useState(new Date().toISOString().split('T')[0]);
 
+  const [limitsError, setLimitsError] = useState(false);
+  const [ppkRefreshWarning, setPpkRefreshWarning] = useState<string | null>(null);
+  const ppkChecked = useRef<number | null>(null);
   const fetchData = async () => {
-    try {
-      const [listRes, limitsRes] = await Promise.all([
-        portfolioApi.list(),
-        portfolioApi.limits(),
-      ]);
-      setPortfolios(listRes.portfolios);
-      setTaxLimits(limitsRes.limits);
-    } catch (err) {
-      setError('Failed to fetch dashboard data');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    setError(null); setLimitsError(false);
+    const [listRes, limitsRes] = await Promise.allSettled([portfolioApi.list(), portfolioApi.limits()]);
+    if (listRes.status === 'fulfilled') setPortfolios(listRes.value.portfolios);
+    else setError('Nie udało się wczytać portfeli.');
+    if (limitsRes.status === 'fulfilled') setTaxLimits(limitsRes.value.limits);
+    else { setTaxLimits(null); setLimitsError(true); }
+    setLoading(false);
   };
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const ppk = portfolios.find(p => p.account_type === 'PPK' && !p.is_archived);
+    if (!ppk || ppkChecked.current === ppk.id) return;
+    ppkChecked.current = ppk.id;
+    let active = true;
+    void portfolioApi.refreshPpkPrice(ppk.id).then(async result => {
+      if (!active) return;
+      setPpkRefreshWarning(result.warning);
+      if (result.changed) {
+        const list = await portfolioApi.list();
+        if (active) setPortfolios(list.portfolios);
+      }
+    }).catch(() => {
+      if (active) setPpkRefreshWarning('Nie udało się sprawdzić wyceny PPK. Zachowano ostatnią zapisaną cenę.');
+    });
+    return () => { active = false; };
+  }, [portfolios]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,55 +160,50 @@ const PortfolioDashboard: React.FC = () => {
   if (loading) return <div className="p-4 text-center">Ładowanie...</div>;
   if (error) return <div className="p-4 text-center text-red-600">{error}</div>;
 
-  const totalValue = portfolios.reduce((sum, p) => sum + (p.portfolio_value || 0), 0);
-  const totalDeposits = portfolios.reduce((sum, p) => sum + (p.total_deposits || 0), 0);
-  const totalDividends = portfolios.reduce((sum, p) => sum + (p.total_dividends || 0), 0);
-  const totalResult = portfolios.reduce((sum, p) => sum + (p.total_result || 0), 0);
-  const totalNetContributions = totalValue - totalResult;
-  const totalResultPercent = totalNetContributions > 0 ? (totalResult / totalNetContributions) * 100 : 0;
+  const active = portfolios.filter(p => !p.is_archived && !p.parent_portfolio_id);
+  const incomplete = active.some(p => p.valuation_status === 'incomplete' || !finite(assetValue(p)) || !finite(investmentResult(p)) || !finite(p.withdrawable_value ?? p.portfolio_value));
+  const stale = active.some(p => p.valuation_status === 'stale');
+  const totalValue = incomplete ? null : active.reduce((sum, p) => sum + (p.asset_value ?? p.portfolio_value ?? 0), 0);
+  const totalWithdrawal = incomplete ? null : active.reduce((sum, p) => sum + (p.withdrawable_value ?? p.portfolio_value ?? 0), 0);
+  const totalResult = incomplete ? null : active.reduce((sum, p) => sum + (p.investment_result ?? p.total_result ?? 0), 0);
+  const contributions = active.map(p => finite(p.net_contributions) ? p.net_contributions : finite(assetValue(p)) && finite(investmentResult(p)) ? assetValue(p)! - investmentResult(p)! : undefined);
+  const totalNetContributions = contributions.every(finite) ? contributions.reduce((sum, value) => sum + value, 0) : null;
+  const totalResultPercent = totalResult !== null && totalNetContributions !== null && totalNetContributions > 0 ? totalResult / totalNetContributions * 100 : null;
+  const warnings = [...new Set(active.flatMap(p => p.valuation_warnings ?? []))];
 
-  const cards = [
-    {
-      name: 'Wartość Portfeli',
-      value: `${totalValue.toFixed(2)} PLN`,
-      icon: Wallet,
-      color: 'bg-blue-500 dark:bg-blue-600',
-    },
-    {
-      name: 'Wpłaty Ogółem',
-      value: `${totalDeposits.toFixed(2)} PLN`,
-      icon: DollarSign,
-      color: 'bg-slate-500 dark:bg-slate-600',
-    },
-    {
-      name: 'Dywidendy',
-      value: `${totalDividends.toFixed(2)} PLN`,
-      icon: PieChart,
-      color: 'bg-indigo-500 dark:bg-indigo-600',
-    },
-    {
-      name: 'Zysk/Strata',
-      value: `${totalResult.toFixed(2)} PLN`,
-      subValue: `${totalResultPercent.toFixed(2)}%`,
-      icon: totalResult >= 0 ? TrendingUp : ArrowDownRight,
-      color: totalResult >= 0 ? 'bg-emerald-500 dark:bg-emerald-600' : 'bg-red-500 dark:bg-red-600',
-      textColor: totalResult >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
-    },
-  ];
+  const search = normalize(query.trim());
+  const matches = (p: Portfolio) => normalize(`${p.name} ${accountLabels[p.account_type]}`).includes(search);
+  const compare = (a: Portfolio, b: Portfolio) => {
+    if (sort === 'name') return a.name.localeCompare(b.name, 'pl');
+    const av = sort === 'result' ? investmentResult(a) : assetValue(a);
+    const bv = sort === 'result' ? investmentResult(b) : assetValue(b);
+    if (!finite(av)) return finite(bv) ? 1 : a.name.localeCompare(b.name, 'pl');
+    if (!finite(bv)) return -1;
+    return bv - av || a.name.localeCompare(b.name, 'pl');
+  };
+  const filterTree = (p: Portfolio, parentMatched = false): Portfolio | null => {
+    if (!showArchived && p.is_archived) return null;
+    const matched = parentMatched || !search || matches(p);
+    const children = (p.children ?? []).map(child => filterTree(child, matched)).filter((child): child is Portfolio => child !== null).sort(compare);
+    if (!matched && !children.length) return null;
+    if (hideEmpty && finite(assetValue(p)) && Math.abs(assetValue(p)!) < 0.005 && !children.length) return null;
+    return { ...p, children };
+  };
+  const roots = portfolios.filter(p => !p.parent_portfolio_id);
+  const visible = roots.map(p => filterTree(p)).filter((p): p is Portfolio => p !== null).sort(compare);
+  const allocation = Object.entries(accountLabels).map(([type, label]) => ({
+    type: type as Portfolio['account_type'], label,
+    value: active.filter(p => p.account_type === type).reduce((sum, p) => sum + (assetValue(p) ?? 0), 0),
+  })).filter(group => group.value > 0).sort((a, b) => b.value - a.value);
+  const canAllocate = totalValue !== null && totalValue > 0 && active.every(p => finite(assetValue(p)) && assetValue(p)! >= 0);
+  const resetFilters = () => { setQuery(''); setHideEmpty(false); setShowArchived(false); };
 
   return (
-    <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Inwestycje - Dashboard</h1>
-            <button
-              onClick={() => setIsCreating(!isCreating)}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Nowy Portfel
-            </button>
-          </div>
-    
+    <div className="investment-overview">
+      <div className="page-heading io-heading">
+        <div><p className="page-eyebrow">Portfele i aktywa</p><h1>Przegląd inwestycji</h1><p>Cały kapitał w jednym miejscu. Zobacz, gdzie jest i jak pracuje.</p></div>
+        <button onClick={() => { setParentPortfolioId(null); setIsCreating(!isCreating); }} className="io-button io-primary"><Plus size={17} />Nowy Portfel</button>
+      </div>
           {isCreating && (
             <div className="bg-white dark:bg-slate-900 shadow-sm rounded-xl p-6 border border-gray-200 dark:border-slate-800">
               <div className="flex justify-between items-center mb-4">
@@ -245,12 +243,13 @@ const PortfolioDashboard: React.FC = () => {
                     <select
                       id="type"
                       value={accountType}
-                      onChange={(e) => setAccountType(e.target.value as 'STANDARD' | 'IKE' | 'BONDS' | 'SAVINGS' | 'PPK')}
+                      onChange={(e) => setAccountType(e.target.value as 'STANDARD' | 'IKE' | 'IKZE' | 'BONDS' | 'SAVINGS' | 'PPK')}
                       disabled={!!parentPortfolioId}
                       className="mt-1 block w-full rounded-lg border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border disabled:bg-gray-100 dark:disabled:bg-slate-800/50 transition-colors"
                     >
                       <option value="STANDARD">Standardowe Akcje</option>
                       <option value="IKE">IKE (Akcje)</option>
+                      <option value="IKZE">IKZE (Akcje)</option>
                       <option value="BONDS">Obligacje</option>
                       <option value="SAVINGS">Konto Oszczędnościowe</option>
                       <option value="PPK">PPK</option>
@@ -289,113 +288,45 @@ const PortfolioDashboard: React.FC = () => {
               </form>
             </div>
           )}
-      
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-4">
-        {cards.map((card, idx) => {
-          const Icon = card.icon;
-          return (
-            <div key={idx} className="bg-white dark:bg-slate-900 overflow-hidden shadow-sm border border-gray-200 dark:border-slate-800 rounded-xl transition-colors">
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className={cn("flex-shrink-0 rounded-lg p-3 shadow-sm", card.color)}>
-                    <Icon className="h-6 w-6 text-white" aria-hidden="true" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">{card.name}</dt>
-                      <dd className="text-lg font-bold text-gray-900 dark:text-slate-100 tabular-nums tracking-tight">{card.value}</dd>
-                      {card.subValue && (
-                        <dd className={cn("text-sm font-bold tabular-nums", card.textColor)}>
-                          {card.subValue}
-                        </dd>
-                      )}
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
 
-      {taxLimits && (
-        <div className="bg-white dark:bg-slate-900 shadow-sm border border-gray-200 dark:border-slate-800 rounded-xl p-6 transition-colors">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-5">Limity Podatkowe ({taxLimits.year})</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* IKE */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-end mb-1">
-                <span className="text-sm font-semibold text-gray-700 dark:text-slate-300">IKE</span>
-                <span className={cn("text-sm font-medium tabular-nums", taxLimits.IKE.percentage >= 100 ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-gray-500 dark:text-slate-400")}>
-                  {taxLimits.IKE.percentage >= 100 ? "Limit wyczerpany!" : `${taxLimits.IKE.deposited.toFixed(2)} / ${taxLimits.IKE.limit.toFixed(2)} PLN`}
-                </span>
-              </div>
-              <div className="w-full bg-gray-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden shadow-inner">
-                <div 
-                  className={cn("h-full rounded-full transition-all duration-1000 ease-out", 
-                    taxLimits.IKE.percentage >= 100 ? "bg-emerald-500 dark:bg-emerald-400" : "bg-blue-600 dark:bg-blue-500"
-                  )} 
-                  style={{ width: `${Math.min(taxLimits.IKE.percentage, 100)}%` }}
-                ></div>
-              </div>
-              <div className="mt-1 text-xs font-bold text-right text-gray-500 dark:text-slate-400 tabular-nums">{taxLimits.IKE.percentage.toFixed(1)}%</div>
-            </div>
-
-            {/* IKZE */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-end mb-1">
-                <span className="text-sm font-semibold text-gray-700 dark:text-slate-300">IKZE</span>
-                <span className={cn("text-sm font-medium tabular-nums", taxLimits.IKZE.percentage >= 100 ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-gray-500 dark:text-slate-400")}>
-                  {taxLimits.IKZE.percentage >= 100 ? "Limit wyczerpany!" : `${taxLimits.IKZE.deposited.toFixed(2)} / ${taxLimits.IKZE.limit.toFixed(2)} PLN`}
-                </span>
-              </div>
-              <div className="w-full bg-gray-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden shadow-inner">
-                <div 
-                  className={cn("h-full rounded-full transition-all duration-1000 ease-out", 
-                    taxLimits.IKZE.percentage >= 100 ? "bg-emerald-500 dark:bg-emerald-400" : "bg-blue-600 dark:bg-blue-500"
-                  )} 
-                  style={{ width: `${Math.min(taxLimits.IKZE.percentage, 100)}%` }}
-                ></div>
-              </div>
-              <div className="mt-1 text-xs font-bold text-right text-gray-500 dark:text-slate-400 tabular-nums">{taxLimits.IKZE.percentage.toFixed(1)}%</div>
-            </div>
+      {(incomplete || stale) && <div role="status" className="io-notice"><strong>{incomplete ? 'Niepełna wycena — brakuje cen lub kursów walut' : 'Wycena orientacyjna — część notowań jest nieaktualna'}</strong>{warnings.map(note => <p key={note}>{note}</p>)}</div>}
+      {ppkRefreshWarning && <p role="status" className="io-notice">{ppkRefreshWarning}</p>}
+      {limitsError && <p role="alert" className="io-notice">Limity wpłat są chwilowo niedostępne. <button onClick={fetchData}>Spróbuj ponownie</button></p>}
+      <section className="io-summary" aria-label="Podsumowanie aktywnych kont">
+        <dl className="io-summary-main">
+          <div className="io-total"><dt><Wallet size={17} aria-hidden="true" />Wartość aktywów</dt><dd>{money(totalValue)}</dd><p>Łącznie na aktywnych kontach · strategie wliczone tylko raz</p></div>
+          <div className="io-result"><dt>Wynik inwestowania</dt><dd className={resultTone(totalResult)}>{money(totalResult)}</dd><p><strong className={resultTone(totalResult)}>{percent(totalResultPercent)}</strong> · od początku, bez nowych wpłat</p></div>
+        </dl>
+        <dl className="io-summary-secondary">
+          <div><dt>Kapitał wpłacony netto</dt><dd>{money(totalNetContributions)}</dd></div>
+          <div><dt>Szacowana wypłata</dt><dd>{money(totalWithdrawal)}</dd></div>
+        </dl>
+      </section>
+      <div className="io-layout">
+        <section className="io-panel io-portfolios" aria-labelledby="portfolio-list-title">
+          <div className="io-panel-heading"><div><h2 id="portfolio-list-title">Twoje portfele</h2><p>Widoczne konta: {visible.length} z {roots.length}</p></div><span className="io-period">Wynik od początku</span></div>
+          <div className="io-filters">
+            <label className="io-search"><Search size={17} aria-hidden="true" /><input aria-label="Szukaj portfela lub strategii" placeholder="Szukaj konta lub strategii…" value={query} onChange={e => setQuery(e.target.value)} type="search" /></label>
+            <label className="io-sort"><span className="sr-only">Sortowanie portfeli</span><select aria-label="Sortowanie portfeli" value={sort} onChange={e => setSort(e.target.value)}><option value="value">Największa wartość</option><option value="result">Największy wynik w PLN</option><option value="name">Nazwa A–Z</option></select></label>
+            <div className="io-filter-options"><label><input type="checkbox" checked={hideEmpty} onChange={e => setHideEmpty(e.target.checked)} />Ukryj puste</label><label><input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />Pokaż archiwalne</label></div>
           </div>
-        </div>
-      )}
-
-      <div className="bg-white dark:bg-slate-900 shadow-sm border border-gray-200 dark:border-slate-800 rounded-xl overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Twoje Portfele</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800">
-            <thead className="bg-gray-50/80 dark:bg-slate-900/80 backdrop-blur-sm">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Nazwa</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Wartość</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Dywidendy</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Wynik</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Zwrot %</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-slate-950 divide-y divide-gray-100 dark:divide-slate-800/50">
-              {portfolios.map((portfolio) => (
-                <PortfolioRow 
-                  key={portfolio.id} 
-                  portfolio={portfolio} 
-                  onChildCreate={handleAddSubPortfolio}
-                />
-              ))}
-              {portfolios.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-slate-400">
-                    Brak portfeli. Utwórz nowy, aby rozpocząć!
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+          <table className="io-table"><caption className="sr-only">Wartość i wynik portfeli. Szacowaną wypłatę pokazujemy pod wartością, kiedy kwoty się różnią.</caption><thead><tr><th scope="col">Konto / strategia</th><th scope="col">Wartość aktywów</th><th scope="col">Wynik od początku</th></tr></thead><tbody>
+            {visible.map(p => <PortfolioRow key={p.id} portfolio={p} searching={!!search} onChildCreate={handleAddSubPortfolio} />)}
+            {!visible.length && <tr><td className="io-empty" colSpan={3}>{!roots.length ? 'Brak portfeli. Utwórz nowy, aby rozpocząć!' : <><p>Brak kont pasujących do filtrów.</p><button className="io-button" onClick={resetFilters}>Wyczyść filtry</button></>}</td></tr>}
+          </tbody></table>
+          <details className="io-explanation"><summary>Jak liczymy wartość, wynik i wypłatę?</summary><p>Wartość aktywów obejmuje gotówkę i inwestycje, w PPK wartość jednostek brutto. Kapitał wpłacony netto to wpłaty pomniejszone o wypłaty. Wynik to zmiana wartości względem wpłat netto — wpłaty pracodawcy nie są zyskiem. Procent pokazuje prosty wynik od początku, bez uwzględnienia dat wpłat; nie jest roczną stopą zwrotu. Szacowana wypłata uwzględnia potrącenia przy zwrocie PPK przed 60. rokiem życia. W akcjach uwzględniamy szacowaną opłatę walutową, w obligacjach podatek od odsetek; wcześniejszy wykup może dodatkowo zmniejszyć wypłatę. Nie sumujemy podportfeli ponownie.</p></details>
+        </section>
+        <aside className="io-sidebar">
+          <section className="io-panel io-allocation" aria-labelledby="allocation-title"><h2 id="allocation-title">Gdzie są Twoje pieniądze</h2><p>Struktura aktywnych kont</p>
+            {canAllocate ? <><div className="io-allocation-bar" aria-hidden="true">{allocation.map(group => <span key={group.type} style={{ width: `${group.value / totalValue * 100}%`, background: accountColors[group.type] }} />)}</div><ul>{allocation.map(group => <li key={group.type}><div><span className="io-dot" style={{ background: accountColors[group.type] }} /><span>{group.label}</span><strong>{percent(group.value / totalValue * 100)}</strong></div><p>{money(group.value)}</p></li>)}</ul><small>Podział według kont obejmuje również ich gotówkę. Strategie są wliczone w konto główne.</small></> : <p className="io-empty-allocation">{incomplete ? 'Uzupełnij wycenę, aby zobaczyć pełną strukturę.' : 'Struktura pojawi się po dodaniu środków i pełnej wycenie kont.'}</p>}
+          </section>
+          {taxLimits && <section className="io-panel io-limits" aria-labelledby="limits-title"><h2 id="limits-title">Limity wpłat · {taxLimits.year}</h2><p>Miejsce na kolejne wpłaty</p>{(['IKE', 'IKZE'] as const).map(type => {
+            const data = taxLimits[type];
+            const remaining = finite(data.limit) ? data.limit - data.deposited : null;
+            const progress = finite(data.percentage) ? Math.max(0, Math.min(100, data.percentage)) : 0;
+            return <div className="io-limit" key={type}><h3>{type}<span>{percent(data.percentage)}</span></h3><div className="io-progress" role="progressbar" aria-label={`Wykorzystanie limitu ${type}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={finite(data.percentage) ? progress : undefined} aria-valuetext={finite(data.percentage) ? percent(data.percentage) : 'Limit nieopublikowany'}><span style={{ width: `${progress}%` }} /></div><dl><div><dt>Wpłacono</dt><dd>{money(data.deposited)}</dd></div><div className={remaining !== null && remaining < 0 ? 'io-negative' : ''}><dt>{remaining !== null && remaining < 0 ? 'Przekroczenie' : 'Pozostało'}</dt><dd>{money(remaining !== null ? Math.abs(remaining) : null)}</dd></div></dl><small>{finite(data.limit) ? `Limit: ${money(data.limit)}` : 'Limit nieopublikowany'}</small></div>;
+          })}</section>}
+        </aside>
       </div>
     </div>
   );

@@ -311,6 +311,8 @@ export const budgetApi = {
     envelopeId?: number | null,
     description?: string,
     date?: string,
+    subPortfolioId?: number | null,
+    requestId?: string,
   ): Promise<BudgetActionResult> => {
     const response = await withBudgetErrorMessage('transfer środków do portfela', () =>
       budgetHttp.post<unknown>(budgetPath.transferToPortfolio, {
@@ -319,7 +321,9 @@ export const budgetApi = {
         amount,
         envelope_id: envelopeId,
         description,
-        date,
+          date,
+          sub_portfolio_id: subPortfolioId,
+          request_id: requestId,
       })
     );
 
@@ -332,6 +336,8 @@ export const budgetApi = {
     amount: number,
     description?: string,
     date?: string,
+    subPortfolioId?: number | null,
+    requestId?: string,
   ): Promise<BudgetActionResult> => {
     const response = await withBudgetErrorMessage('wypłata środków z portfela', () =>
       budgetHttp.post<unknown>(budgetPath.withdrawFromPortfolio, {
@@ -339,7 +345,9 @@ export const budgetApi = {
         budget_account_id: budgetAccountId,
         amount,
         description,
-        date,
+          date,
+          sub_portfolio_id: subPortfolioId,
+          request_id: requestId,
       })
     );
 

@@ -155,6 +155,7 @@ def calculate_correlation_matrix(tickers: list[str], period: str = "1y") -> dict
 def portfolio_correlation_risk(
     portfolio_id: int,
     sub_portfolio_id: int | None = None,
+    period: str = "1y",
 ) -> dict[str, Any]:
     holdings_snapshot = MarketDataAdapter.get_holdings_snapshot(
         portfolio_id=portfolio_id,
@@ -179,7 +180,7 @@ def portfolio_correlation_risk(
             "recommendation": "Portfel ma mniej niż 2 aktywa; dodaj nieskorelowane instrumenty dla lepszej dywersyfikacji.",
         }
 
-    matrix_data = calculate_correlation_matrix(tickers=tickers, period="1y")
+    matrix_data = calculate_correlation_matrix(tickers=tickers, period=period)
     avg_correlation = float(matrix_data["avg_correlation"])
     high_correlation_pairs = matrix_data["high_correlation_pairs"]
     clusters = _build_clusters_from_pairs(tickers=tickers, high_correlation_pairs=high_correlation_pairs)

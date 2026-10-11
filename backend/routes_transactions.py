@@ -4,6 +4,7 @@ from database import get_db
 from portfolio_service import PortfolioService
 from api.response import success_response
 from api.exceptions import ApiError
+from budget_transfer_service import assert_unlinked_transactions
 from job_registry import job_registry
 import threading
 import hashlib
@@ -333,6 +334,8 @@ def delete_cash_transfer(transfer_id):
 
     if len(transactions) != 2:
         raise ApiError('CASH_TRANSFER_VALIDATION_ERROR', 'transfer_id must match exactly two transactions', status=422)
+    if transfer_id.startswith('archive-cash:') or any(db.execute('SELECT is_archived FROM portfolios WHERE id=?',(tx['sub_portfolio_id'] or tx['portfolio_id'],)).fetchone()['is_archived'] for tx in transactions):
+        raise ApiError('ARCHIVED_STRATEGY', 'Nie można cofnąć transferu zamkniętej strategii.', status=422)
 
     withdraw_tx = next((tx for tx in transactions if tx['type'] == 'WITHDRAW'), None)
     deposit_tx = next((tx for tx in transactions if tx['type'] == 'DEPOSIT'), None)
@@ -415,34 +418,34 @@ def buy():
         if replayed_response:
             return replayed_response
 
-    try:
-        PortfolioService.buy_stock(
-            require_positive_int(data, 'portfolio_id'),
-            require_non_empty_string(data, 'ticker'),
-            require_number(data, 'quantity', positive=True),
-            require_number(data, 'price', positive=True),
-            optional_string(data, 'date'),
-            optional_number(data, 'commission', default=0.0, non_negative=True),
-            optional_bool(data, 'auto_fx_fees', default=False),
-            sub_portfolio_id=optional_positive_int(data, 'sub_portfolio_id')
-        )
-    except ValueError as error:
-        raise_portfolio_validation_error(error)
-
-    if not idempotency_key:
-        return success_response({'message': 'Buy successful'})
-
-    response_status = 201
+    args=(require_positive_int(data,'portfolio_id'),require_non_empty_string(data,'ticker'),
+        require_number(data,'quantity',positive=True),require_number(data,'price',positive=True),
+        PortfolioService._operation_date(optional_string(data,'date')),
+        optional_number(data,'commission',default=0.0,non_negative=True),optional_bool(data,'auto_fx_fees',default=False))
+    sub=optional_positive_int(data,'sub_portfolio_id')
+    response_status = 201 if idempotency_key else 200
     response_envelope = {'payload': {'message': 'Buy successful'}}
     try:
-        _store_idempotent_response(db, endpoint, idempotency_key, request_hash, response_status, response_envelope)
+        prepared=PortfolioService.prepare_buy(args[1],args[4])
+        db.execute('BEGIN IMMEDIATE')
+        if idempotency_key:
+            replayed_response=_load_idempotent_response(db,endpoint,idempotency_key,request_hash)
+            if replayed_response:
+                db.rollback()
+                return replayed_response
+        PortfolioService.buy_stock(*args,sub_portfolio_id=sub,commit=False,prepared_currency=prepared)
+        if idempotency_key:
+            _store_idempotent_response(db,endpoint,idempotency_key,request_hash,response_status,response_envelope)
         db.commit()
     except sqlite3.IntegrityError:
         db.rollback()
-        replayed_response = _load_idempotent_response(db, endpoint, idempotency_key, request_hash)
+        replayed_response = _load_idempotent_response(db, endpoint, idempotency_key, request_hash) if idempotency_key else None
         if replayed_response:
             return replayed_response
         raise
+    except ValueError as error:
+        db.rollback()
+        raise_portfolio_validation_error(error)
     except Exception:
         db.rollback()
         raise
@@ -571,6 +574,8 @@ def assign_transaction(transaction_id):
     if old_sub_portfolio_id == sub_portfolio_id:
         return success_response({'message': 'Transaction assignment updated'})
 
+    assert_unlinked_transactions(db, [transaction_id])
+
     try:
         db.execute('UPDATE transactions SET sub_portfolio_id = ? WHERE id = ?', (sub_portfolio_id, transaction_id))
         if tx_type == 'DIVIDEND':
@@ -674,6 +679,8 @@ def assign_transactions_bulk():
 
     if all(row['sub_portfolio_id'] == sub_portfolio_id for row in rows):
         return success_response({'message': 'Bulk transaction assignment updated'})
+
+    assert_unlinked_transactions(db, [row['id'] for row in rows if row['sub_portfolio_id'] != sub_portfolio_id])
 
     try:
         db.execute(

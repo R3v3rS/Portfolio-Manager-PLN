@@ -58,7 +58,7 @@ def list_portfolios():
     result = []
     
     def enrich_portfolio(p, depth=0):
-        value_data = PortfolioService.get_portfolio_value(p['id'])
+        value_data = PortfolioService.get_portfolio_value(p['id'], cached_prices_only=True)
         p.update(value_data)
         if depth == 0 and 'children' in p and p['children']:
             for child in p['children']:
@@ -73,7 +73,11 @@ def list_portfolios():
 
 @portfolio_bp.route('/value/<int:portfolio_id>', methods=['GET'])
 def get_value(portfolio_id):
-    value_data = PortfolioService.get_portfolio_value(portfolio_id)
+    force_refresh = request.args.get('refresh') == '1'
+    value_data = PortfolioService.get_portfolio_value(
+        portfolio_id,
+        cached_prices_only=not force_refresh,
+    )
     if not value_data:
         raise NotFoundError('Portfolio not found')
     return success_response(value_data)
@@ -87,7 +91,11 @@ def get_holdings(portfolio_id):
         if refresh_value not in {'0', '1'}:
             raise ValidationError('Field refresh must be 0 or 1', details={'field': 'refresh'})
         force_refresh = refresh_value == '1'
-    holdings = PortfolioService.get_holdings(portfolio_id, force_price_refresh=force_refresh)
+    holdings = PortfolioService.get_holdings(
+        portfolio_id,
+        force_price_refresh=force_refresh,
+        cached_prices_only=not force_refresh,
+    )
     return success_response({'holdings': holdings})
 
 
@@ -130,17 +138,50 @@ def get_bonds(portfolio_id):
 @portfolio_bp.route('/bonds', methods=['POST'])
 def add_bond():
     data = require_json_body()
-    try:
-        BondService.add_bond(
-            require_positive_int(data, 'portfolio_id'),
-            require_non_empty_string(data, 'name'),
-            require_number(data, 'principal', positive=True),
-            require_number(data, 'interest_rate', non_negative=True),
-            require_non_empty_string(data, 'purchase_date'),
-        )
-    except ValueError as error:
-        raise_portfolio_validation_error(error)
-    return success_response({'message': 'Bond added successfully'}, status=201)
+    return success_response(BondService.create(data), status=201)
+
+
+@portfolio_bp.route('/bonds/workspace/<int:portfolio_id>', methods=['GET'])
+def bonds_workspace(portfolio_id):
+    from bond_service import number
+    assumption=request.args.get('assumed_rate')
+    if assumption is not None:assumption=number(assumption,'Stopa symulacji',0,100)
+    return success_response(BondService.workspace(portfolio_id,assumption))
+
+
+@portfolio_bp.route('/bonds/position/<int:bond_id>', methods=['PUT'])
+def update_bond(bond_id):
+    return success_response(BondService.update(bond_id,require_json_body()))
+
+
+@portfolio_bp.route('/bonds/position/<int:bond_id>/estimate', methods=['GET'])
+def bond_estimate(bond_id):
+    from bond_service import details, load, day, number
+    from database import get_db
+    as_of=day(request.args.get('date'),'Data symulacji',True)
+    rate=request.args.get('assumed_rate')
+    if rate is not None:rate=number(rate,'Stopa symulacji',0,100)
+    db=get_db();bond=load(db,bond_id)
+    if as_of.isoformat()<bond['purchase_date']:raise ValidationError('Symulacja nie może poprzedzać zakupu.')
+    return success_response(details(db,bond,as_of,rate))
+
+
+@portfolio_bp.route('/bonds/position/<int:bond_id>/<action>', methods=['POST'])
+def bond_action(bond_id,action):
+    method={'rate':BondService.rate,'settle':BondService.settle,'cancel':BondService.cancel}.get(action)
+    if not method:raise NotFoundError('Nie znaleziono działania obligacji.')
+    return success_response(method(bond_id,require_json_body()))
+
+
+@portfolio_bp.route('/bonds/import/preview', methods=['POST'])
+def bond_import_preview():
+    data=require_json_body()
+    return success_response(BondService.preview_import(require_positive_int(data,'portfolio_id'),data.get('text')))
+
+
+@portfolio_bp.route('/bonds/import/book', methods=['POST'])
+def bond_import_book():
+    return success_response(BondService.import_rows(require_json_body()),status=201)
 
 
 @portfolio_bp.route('/savings/rate', methods=['POST'])
@@ -229,3 +270,31 @@ def add_manual_interest():
 def get_consistency_audit():
     result = PortfolioService.get_parent_child_consistency_audit()
     return success_response(result)
+
+
+@portfolio_bp.route('/transfer/asset', methods=['POST'])
+def transfer_asset():
+    from asset_transfer_service import transfer
+    return success_response(transfer(require_json_body()), status=201)
+
+
+@portfolio_bp.route('/transfer/assets/<int:portfolio_id>', methods=['GET'])
+def asset_transfer_positions(portfolio_id):
+    from database import get_db
+    db=get_db()
+    parent=db.execute('SELECT * FROM portfolios WHERE id=?',(portfolio_id,)).fetchone()
+    if not parent or parent['parent_portfolio_id'] or parent['is_archived']:
+        raise ValidationError('Wybierz główny portfel.')
+    scopes=[{'id':None,'name':'Część główna'}]+[dict(r) for r in db.execute('SELECT id,name FROM portfolios WHERE parent_portfolio_id=? AND is_archived=0',(portfolio_id,))]
+    positions=[]
+    for scope in scopes:
+        for h in PortfolioService.get_holdings(portfolio_id,sub_portfolio_id=scope['id'],aggregate=False,cached_prices_only=True):
+            positions.append(dict(h,source_id=scope['id'],source_name=scope['name']))
+    return success_response({'positions':positions,'scopes':scopes})
+
+
+@portfolio_bp.route('/manual-price/<string:ticker>', methods=['PUT', 'DELETE'])
+def manual_stock_price(ticker):
+    from manual_stock_prices import save
+    payload = require_json_body()
+    return success_response(save(ticker, payload, clear=request.method=='DELETE' or payload.get('clear') is True))

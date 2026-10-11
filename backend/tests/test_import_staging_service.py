@@ -13,7 +13,9 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from database import get_db, init_db  # noqa: E402
-from import_staging_service import ImportBookingError, ImportRowSkipError, ImportStagingService  # noqa: E402
+from import_staging_service import ImportBookingError, ImportRowSkipError, ImportStagingService
+from portfolio_import_service import PortfolioImportService
+from price_service import PriceService  # noqa: E402
 
 
 class ImportStagingServiceTestCase(unittest.TestCase):
@@ -23,6 +25,10 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.app.config.update(TESTING=True, DATABASE=str(Path(self.temp_dir.name) / 'staging-test.db'))
         self.ctx = self.app.app_context()
         self.ctx.push()
+        self.original_sync = PriceService.sync_stock_history
+        self.sync_patcher = patch('import_staging_service.PriceService.sync_stock_history', return_value=None)
+        self.sync_patcher.start()
+        self.addCleanup(self.sync_patcher.stop)
         init_db(self.app)
 
         db = get_db()
@@ -39,6 +45,7 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         db.execute(
             "INSERT INTO symbol_mappings (symbol_input, ticker, currency) VALUES ('MSFT.US', 'MSFT', 'USD')"
         )
+        db.execute("INSERT INTO stock_prices(ticker,date,close_price) VALUES('USDPLN=X','2026-01-01',4)")
         db.commit()
 
     def tearDown(self):
@@ -480,7 +487,7 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertEqual(result['booked_tx_only'], 0)
         self.assertEqual(result['skipped_conflicts'], 1)
 
-    def test_book_session_confirmed_database_duplicate_books_normally(self):
+    def test_book_session_confirmed_database_duplicate_is_skipped_without_cash_effect(self):
         db = get_db()
         db.execute(
             '''INSERT INTO transactions (portfolio_id, ticker, date, type, quantity, price, total_value)
@@ -497,11 +504,13 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertEqual(session['rows'][0]['conflict_type'], 'database_duplicate')
 
         result = ImportStagingService.book_session(session['session_id'], confirmed_row_ids=[row_id])
-        self.assertEqual(result['booked'], 1)
+        self.assertEqual(result['booked'], 0)
+        self.assertEqual(result['duplicate_skipped'], 1)
         self.assertEqual(result['booked_tx_only'], 0)
 
         cash = get_db().execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()['current_cash']
-        self.assertAlmostEqual(float(cash), 1000.0)
+        self.assertAlmostEqual(float(cash), 0.0)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 1)
 
     def test_book_session_normal_sell_updates_cash_and_holdings(self):
         db = get_db()
@@ -602,25 +611,20 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         self.assertNotEqual(float(holding['avg_buy_fx_rate']), 1.0)
         self.assertEqual(holding['fx_source'], 'historical_close')
 
-    def test_book_session_buy_sets_missing_fx_for_usd_when_rate_unavailable(self):
-        df = self._df([
-            {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
-            {'Time': '2026-01-02 10:00:00', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
-        ])
-        session = ImportStagingService.create_session(self.portfolio_id, df)
-
-        with patch('import_staging_service.PriceService.sync_stock_history', return_value=None):
-            result = ImportStagingService.book_session(session['session_id'])
-        self.assertEqual(result['booked'], 2)
-
-        holding = get_db().execute(
-            '''SELECT instrument_currency, avg_buy_fx_rate, fx_source
-               FROM holdings WHERE portfolio_id = ? AND ticker = ?''',
-            (self.portfolio_id, 'AAPL'),
-        ).fetchone()
-        self.assertEqual(holding['instrument_currency'], 'USD')
-        self.assertIsNone(holding['avg_buy_fx_rate'])
-        self.assertEqual(holding['fx_source'], 'missing')
+    def test_book_session_missing_fx_preserves_all_financial_state(self):
+        db = get_db()
+        db.execute("DELETE FROM stock_prices WHERE ticker = 'USDPLN=X'")
+        db.commit()
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '1000'},
+            {'Time': '2026-01-02', 'Type': 'Stock purchase', 'Amount': '500', 'Comment': 'OPEN BUY 5 @ 100', 'Symbol': 'AAPL.US'},
+        ]))
+        with self.assertRaises(ImportBookingError):
+            ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()[0], 0)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM holdings').fetchone()[0], 0)
+        self.assertEqual(ImportStagingService.get_session(session['session_id'])['summary']['pending'], 2)
 
     def test_book_session_buy_sets_pln_native_fx_fields_for_pln_ticker(self):
         db = get_db()
@@ -663,7 +667,7 @@ class ImportStagingServiceTestCase(unittest.TestCase):
         tx_count = get_db().execute('SELECT COUNT(*) AS c FROM transactions WHERE portfolio_id = ?', (self.portfolio_id,)).fetchone()['c']
         self.assertEqual(tx_count, 0)
 
-    def test_delete_session_removes_pending_only(self):
+    def test_cancel_session_preserves_booked_and_rejects_pending(self):
         df = self._df([
             {'Time': '2026-01-01 10:00:00', 'Type': 'Deposit', 'Amount': '1000', 'Comment': ''},
             {'Time': '2026-01-02 10:00:00', 'Type': 'Stock sell', 'Amount': '500', 'Comment': 'CLOSE SELL 5 @ 100', 'Symbol': 'AAPL.US'},
@@ -678,8 +682,207 @@ class ImportStagingServiceTestCase(unittest.TestCase):
             'SELECT status FROM import_staging WHERE import_session_id = ? ORDER BY id',
             (session['session_id'],),
         ).fetchall()
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]['status'], 'booked')
+        self.assertEqual(rows[1]['status'], 'rejected')
+        self.assertEqual(ImportStagingService.list_sessions(self.portfolio_id), [])
+
+
+    def test_real_fx_sync_commit_cannot_partially_book_failed_session(self):
+        self.sync_patcher.stop()
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '1000'},
+            {'Time': '2026-01-02', 'Type': 'Stock purchase', 'Amount': '100', 'Comment': 'OPEN BUY 1 @ 25', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-03', 'Type': 'Free funds interest', 'Amount': '5'},
+        ]))
+        original = ImportStagingService._book_single_row
+        def fail_last(row, db, book_tx_only=False):
+            if row['type'] == 'INTEREST':
+                raise RuntimeError('last row failed')
+            return original(row, db, book_tx_only)
+        prices = pd.DataFrame({'Close': [4]}, index=pd.to_datetime(['2026-01-02']))
+        with patch.object(PriceService, '_download_with_retry', return_value=prices), patch.object(ImportStagingService, '_book_single_row', side_effect=fail_last):
+            with self.assertRaises(ImportBookingError):
+                ImportStagingService.book_session(session['session_id'])
+        db = get_db()
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM holdings').fetchone()[0], 0)
+        self.assertEqual(db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()[0], 0)
+        self.assertEqual(ImportStagingService.get_session(session['session_id'])['summary']['pending'], 3)
+        with patch.object(PriceService, '_download_with_retry', return_value=prices):
+            self.assertEqual(ImportStagingService.book_session(session['session_id'])['booked'], 3)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 3)
+
+    def test_two_pending_sessions_recheck_duplicates_at_booking(self):
+        df = self._df([{'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '1000'}])
+        first = ImportStagingService.create_session(self.portfolio_id, df)
+        second = ImportStagingService.create_session(self.portfolio_id, df)
+        ImportStagingService.book_session(first['session_id'])
+        result = ImportStagingService.book_session(second['session_id'])
+        self.assertEqual(result['booked'], 0)
+        self.assertEqual(result['session']['rows'][0]['conflict_type'], 'database_duplicate')
+        self.assertEqual(ImportStagingService.book_session(first['session_id'])['booked'], 0)
+        self.assertEqual(get_db().execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 1)
+
+    def test_concurrent_sessions_cannot_double_book(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        df = self._df([{'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '1000'}])
+        sessions = [ImportStagingService.create_session(self.portfolio_id, df)['session_id'] for _ in range(2)]
+        gate = Barrier(2)
+        def prepare(rows):
+            gate.wait(timeout=5)
+            return {}
+        def book(session_id):
+            with self.app.app_context():
+                return ImportStagingService.book_session(session_id)['booked']
+        with patch.object(ImportStagingService, '_prepare_buy_fields', side_effect=prepare), ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(book, sessions))
+        self.assertEqual(sorted(results), [0, 1])
+        self.assertEqual(get_db().execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 1)
+
+    def test_usd_multiple_buys_update_currency_and_native_basis(self):
+        sessions = [ImportStagingService.create_session(self.portfolio_id, self._df([{
+            'Time': date, 'Type': 'Stock purchase', 'Amount': amount, 'Comment': 'OPEN BUY 1 @ 100', 'Symbol': 'AAPL.US',
+        }])) for date, amount in [('2026-01-01', '100'), ('2026-01-02', '200')]]
+        with patch.object(ImportStagingService, '_resolve_buy_fx_rate', side_effect=[(4, 'historical_close'), (2, 'historical_close')]):
+            for session in sessions:
+                ImportStagingService.book_session(session['session_id'])
+        holding = get_db().execute('SELECT * FROM holdings').fetchone()
+        self.assertEqual(holding['currency'], 'USD')
+        self.assertEqual(holding['instrument_currency'], 'USD')
+        self.assertAlmostEqual(holding['average_buy_price'], 150)
+        self.assertAlmostEqual(holding['avg_buy_price_native'], 62.5)
+        self.assertAlmostEqual(holding['avg_buy_fx_rate'], 2.4)
+        self.assertTrue(all(row['commission'] is None for row in get_db().execute("SELECT commission FROM transactions WHERE type = 'BUY'")))
+
+    def test_direct_oversell_does_not_change_financial_state(self):
+        db = get_db()
+        db.execute("INSERT INTO holdings(portfolio_id,ticker,quantity,average_buy_price,total_cost) VALUES(?, 'AAPL', 1, 100, 100)", (self.portfolio_id,))
+        db.commit()
+        result = PortfolioImportService.import_xtb_csv(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Stock sell', 'Amount': '250', 'Comment': 'CLOSE SELL 2 @ 125', 'Symbol': 'AAPL.US'},
+        ]))
+        self.assertEqual(result['status'], 'warning')
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+        self.assertEqual(db.execute('SELECT quantity FROM holdings').fetchone()[0], 1)
+        self.assertEqual(db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()[0], 0)
+
+    def test_unsupported_rows_are_counted_and_recoverable(self):
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Tax', 'Amount': '-5'},
+            {'Time': '2026-01-01', 'Type': 'Unknown fee', 'Amount': '-2'},
+        ]))
+        self.assertEqual(session['summary']['input_rows'], 2)
+        self.assertEqual(session['summary']['unsupported'], 2)
+        self.assertEqual(len(session['unsupported_rows']), 2)
+        self.assertEqual(ImportStagingService.get_session(session['session_id'])['summary']['total'], 0)
+        self.assertEqual(len(ImportStagingService.list_sessions(self.portfolio_id)), 1)
+        ImportStagingService.delete_session(session['session_id'])
+        self.assertEqual(ImportStagingService.list_sessions(self.portfolio_id), [])
+
+    def test_explicit_commission_is_stored_without_double_charging(self):
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '1000'},
+            {'Time': '2026-01-02', 'Type': 'Stock purchase', 'Amount': '-105', 'Commission': '5', 'Comment': 'OPEN BUY 1 @ 100', 'Symbol': 'AAPL.US'},
+        ]))
+        ImportStagingService.book_session(session['session_id'])
+        tx = get_db().execute("SELECT * FROM transactions WHERE type = 'BUY'").fetchone()
+        self.assertEqual(tx['commission'], 5)
+        self.assertEqual(tx['price'], 100)
+        self.assertEqual(tx['total_value'], 105)
+        self.assertEqual(get_db().execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()[0], 895)
+        self.assertEqual(get_db().execute('SELECT total_cost FROM holdings').fetchone()[0], 105)
+
+    def test_dividend_is_imported_and_unknown_commission_is_visible(self):
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Dividend', 'Amount': '20', 'Symbol': 'AAPL.US'},
+        ]))
+        ImportStagingService.book_session(session['session_id'])
+        tx = get_db().execute('SELECT * FROM transactions').fetchone()
+        self.assertEqual(tx['type'], 'DIVIDEND')
+        self.assertEqual(tx['ticker'], 'AAPL')
+        self.assertEqual(get_db().execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()[0], 20)
+
+    def test_archive_after_preview_blocks_booking(self):
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '100'},
+        ]), sub_portfolio_id=self.sub_portfolio_id)
+        self.assertEqual(session['rows'][0]['target_sub_portfolio_id'], self.sub_portfolio_id)
+        db = get_db()
+        db.execute('UPDATE portfolios SET is_archived = 1 WHERE id = ?', (self.sub_portfolio_id,))
+        db.commit()
+        with self.assertRaises(ValueError):
+            ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+
+    def test_child_id_import_uses_parent_transaction_scope(self):
+        session = ImportStagingService.create_session(self.sub_portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '100'},
+        ]))
+        ImportStagingService.book_session(session['session_id'])
+        tx = get_db().execute('SELECT * FROM transactions').fetchone()
+        self.assertEqual(tx['portfolio_id'], self.portfolio_id)
+        self.assertEqual(tx['sub_portfolio_id'], self.sub_portfolio_id)
+
+    def test_missing_mapping_can_be_repaired_in_existing_session(self):
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Stock purchase', 'Amount': '100', 'Comment': 'OPEN BUY 1 @ 100', 'Symbol': 'XYZ.PL'},
+        ]))
+        db = get_db()
+        db.execute("INSERT INTO symbol_mappings(symbol_input,ticker,currency) VALUES('XYZ.PL','XYZ.WA','PLN')")
+        db.commit()
+        updated = ImportStagingService.refresh_symbols(session['session_id'])
+        self.assertEqual(updated['rows'][0]['status'], 'pending')
+        self.assertEqual(updated['rows'][0]['ticker'], 'XYZ.WA')
+        self.assertEqual(ImportStagingService.book_session(session['session_id'])['booked'], 1)
+
+    def test_price_cache_and_imported_history_are_invalidated(self):
+        db = get_db()
+        db.execute("INSERT INTO portfolio_history_cache(portfolio_id,cache_key,result_json,cached_at) VALUES(?, 'old', '[]', '2026-01-01')", (self.portfolio_id,))
+        db.commit()
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([{'Time': '2026-01-01','Type': 'Deposit','Amount': '100'}]))
+        ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM portfolio_history_cache').fetchone()[0], 0)
+
+    def test_currency_history_is_synced_once_for_whole_session(self):
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Stock purchase', 'Amount': '100', 'Comment': 'OPEN BUY 1 @ 100', 'Symbol': 'AAPL.US'},
+            {'Time': '2026-01-02', 'Type': 'Stock purchase', 'Amount': '200', 'Comment': 'OPEN BUY 1 @ 200', 'Symbol': 'MSFT.US'},
+        ]))
+        with patch.object(PriceService, 'sync_stock_history') as sync:
+            self.assertEqual(ImportStagingService.book_session(session['session_id'])['booked'], 2)
+        sync.assert_called_once_with('USDPLN=X', '2026-01-01')
+
+    def test_unknown_instrument_currency_blocks_financial_changes(self):
+        db = get_db()
+        db.execute("UPDATE symbol_mappings SET currency = NULL WHERE ticker = 'AAPL'")
+        db.commit()
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Stock purchase', 'Amount': '100', 'Comment': 'OPEN BUY 1 @ 100', 'Symbol': 'AAPL.US'},
+        ]))
+        with patch.object(PriceService, 'fetch_metadata', return_value={}):
+            with self.assertRaises(ImportBookingError):
+                ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM holdings').fetchone()[0], 0)
+
+    def test_unknown_legacy_fx_is_not_replaced_by_new_purchase_fx(self):
+        db = get_db()
+        db.execute("""INSERT INTO holdings(portfolio_id,ticker,quantity,average_buy_price,total_cost,
+            currency,instrument_currency,avg_buy_price_native,avg_buy_fx_rate)
+            VALUES(?, 'AAPL', 1, 100, 100, 'USD', 'USD', 25, NULL)""", (self.portfolio_id,))
+        db.commit()
+        session = ImportStagingService.create_session(self.portfolio_id, self._df([
+            {'Time': '2026-01-01', 'Type': 'Deposit', 'Amount': '1000'},
+            {'Time': '2026-01-02', 'Type': 'Stock purchase', 'Amount': '100', 'Comment': 'OPEN BUY 1 @ 100', 'Symbol': 'AAPL.US'},
+        ]))
+        with self.assertRaises(ImportBookingError):
+            ImportStagingService.book_session(session['session_id'])
+        self.assertEqual(db.execute('SELECT quantity FROM holdings').fetchone()[0], 1)
+        self.assertIsNone(db.execute('SELECT avg_buy_fx_rate FROM holdings').fetchone()[0])
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+        self.assertEqual(db.execute('SELECT current_cash FROM portfolios WHERE id = ?', (self.portfolio_id,)).fetchone()[0], 0)
 
 
 if __name__ == '__main__':
