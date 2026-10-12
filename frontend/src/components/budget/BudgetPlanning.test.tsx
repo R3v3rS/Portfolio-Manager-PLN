@@ -140,7 +140,19 @@ describe('Household planning controls',()=>{
     expect(dialog.getByText(/Transport → OC auta/)).toBeInTheDocument();
     expect(planningApi.closeMonth).not.toHaveBeenCalled();
     fireEvent.click(dialog.getByRole('button',{name:'Potwierdź zamknięcie'}));
-    await waitFor(()=>expect(planningApi.closeMonth).toHaveBeenCalledWith('2026-09',{'3':2},expect.any(String),{'3':200},undefined));
+    await waitFor(()=>expect(planningApi.closeMonth).toHaveBeenCalledWith('2026-09',{'3':2},expect.any(String),{'3':200},undefined,{}));
+  });
+  it('requires an explicit end-of-month destination and an account for investment savings',async()=>{
+    const data=fixture();data.month='2026-09';data.planning!.policies=[{category_id:3,name:'Transport',mode:'DECIDE',reserve_id:null,start_month:'2026-09',version:2}];
+    show(<BudgetCarryoverPolicies data={data} reload={reload}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Zamknij miesiąc i rozlicz limity'}));
+    const dialog=within(screen.getByRole('dialog'));
+    expect(dialog.getByRole('button',{name:'Potwierdź zamknięcie'})).toBeDisabled();
+    fireEvent.change(dialog.getByLabelText('Przeznaczenie limitu: Transport'),{target:{value:'INVESTMENTS'}});
+    expect(dialog.getByRole('button',{name:'Potwierdź zamknięcie'})).toBeDisabled();
+    fireEvent.change(dialog.getByLabelText('Konto dla limitu: Transport'),{target:{value:'2'}});
+    fireEvent.click(dialog.getByRole('button',{name:'Potwierdź zamknięcie'}));
+    await waitFor(()=>expect(planningApi.closeMonth).toHaveBeenCalledWith('2026-09',{'3':2},expect.any(String),{'3':200},undefined,{'3':{destination:'INVESTMENTS',account_id:2}}));
   });
   it('opens a purchase variant only as a forecast scenario',()=>{
     const data=fixture();data.planning!.purchases=[{id:5,name:'Wakacje',amount:1200,low:900,high:1800,due_date:'2027-01-15',account_id:2,account_name:'Alior',category_id:3,status:'PLANNED',notes:'',reserve_id:4,saved:100,monthly_required:300,version:1,reserve_version:2}];

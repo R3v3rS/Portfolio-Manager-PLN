@@ -6,7 +6,7 @@ from collections import defaultdict
 def carries(db, month, options):
     from budget_bill_schedule import category_bill_cents
     from budget_category_hierarchy_service import plan_amounts
-    policies=[dict(r) for r in db.execute("SELECT * FROM budget_category_policies WHERE mode='ROLLOVER' AND start_month<?",(month,))]
+    policies=[dict(r) for r in db.execute("SELECT * FROM budget_category_policies WHERE (mode='ROLLOVER' OR decision_required=1) AND start_month<?",(month,))]
     media_categories={r['category_id'] for r in db.execute('SELECT category_id FROM budget_reserves WHERE monthly_amount_cents IS NOT NULL AND open_ended=0 AND is_archived=0 AND COALESCE(monthly_start_month,substr(start_date,1,7))<=?',(month,))}
     policies=[p for p in policies if p['category_id'] not in media_categories]
     result={c['id']:0 for c in options}
@@ -50,6 +50,10 @@ def carries(db, month, options):
         else: frozen={}
         for policy in policies:
             if policy['start_month']>key: continue
+            if policy['decision_required']:
+                decision=db.execute('''SELECT i.* FROM budget_month_closing_items i JOIN budget_month_closings m ON m.id=i.closing_id WHERE m.month=? AND i.category_id=?''',(key,policy['category_id'])).fetchone()
+                result[policy['category_id']]=decision['amount_cents'] if decision and decision['destination']=='ROLLOVER' else 0
+                continue
             ids=[c['id'] for c in options if c['id']==policy['category_id'] or c['parent_id']==policy['category_id']]
             result[policy['category_id']]=max(0,round(frozen[policy['category_id']]['remaining']*100)) if policy['category_id'] in frozen else max(0,amounts.get(policy['category_id'],0)-sum(coverage.get(i,0) for i in ids)+result.get(policy['category_id'],0)-sum(period_spent.get(i,0) for i in ids))
         year,current=(year+1,1) if current==12 else (year,current+1)

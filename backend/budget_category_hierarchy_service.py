@@ -127,7 +127,7 @@ def save_category(db, data, category_id=None):
                 raise ValidationError('Wybierz kategorię główną. Budżet obsługuje dwa poziomy kategorii.')
             if category_id and db.execute('SELECT 1 FROM budget_categories_v2 WHERE parent_id=?', (category_id,)).fetchone():
                 raise ValidationError('Kategoria z podkategoriami musi pozostać kategorią główną.')
-            if category_id and db.execute("SELECT 1 FROM budget_category_policies WHERE category_id=? AND mode!='RESET'", (category_id,)).fetchone():
+            if category_id and db.execute("SELECT 1 FROM budget_category_policies WHERE category_id=? AND (mode!='RESET' OR decision_required=1)", (category_id,)).fetchone():
                 raise ValidationError('Najpierw ustaw zerowanie niewykorzystanego limitu tej kategorii, potem przenieś ją do podkategorii.')
             icon = parent['icon']
         if current:

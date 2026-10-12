@@ -39,6 +39,73 @@ class BudgetPlanningTest(unittest.TestCase):
         data=dict(mode='ROLLOVER',start_month='2026-09',version=0);data.update(extra)
         return self.client.put(f'{self.planning}/category-policies/{category or self.category}',json=data)
 
+    def deferred_limit(self):
+        db=get_db()
+        db.execute("INSERT INTO budget_plans_v2 VALUES(?,'2026-09',10000)",(self.category,));db.commit()
+        self.expense(30)
+        self.result(self.policy(mode='DECIDE'))
+        return dict(month='2026-09',request_id=str(uuid4()),category_versions={str(self.category):1},amounts={str(self.category):70})
+
+    def test_deferred_choice_is_required_and_rollover_starts_only_after_closing(self):
+        values=self.deferred_limit();db=get_db()
+        self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],0)
+        self.assertEqual(self.client.post(self.planning+'/close-month',json=values).status_code,400)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM budget_month_closings').fetchone()[0],0)
+        values['decisions']={str(self.category):dict(destination='ROLLOVER')}
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],70)
+        self.assertEqual(next(c for c in self.get_workspace('2026-11')['categories'] if c['id']==self.category)['carryover'],0)
+        self.assertEqual(db.execute('SELECT balance FROM budget_accounts WHERE id=?',(self.account,)).fetchone()[0],9970)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM budget_reserve_movements').fetchone()[0],0)
+
+    def test_deferred_savings_and_investments_earmark_cash_without_income_or_purchase(self):
+        for kind in ('SAVINGS','INVESTMENTS'):
+            with self.subTest(kind=kind):
+                # Each test instance uses one purpose; clear only its test closing.
+                if kind=='INVESTMENTS':
+                    db=get_db();db.execute('DELETE FROM budget_month_closing_items');db.execute('DELETE FROM budget_month_closings');db.execute('DELETE FROM budget_month_snapshots');db.execute('DELETE FROM budget_reserve_movements');db.execute('DELETE FROM budget_reserves');db.commit()
+                    values=dict(month='2026-09',request_id=str(uuid4()),category_versions={str(self.category):1},amounts={str(self.category):70})
+                else: values=self.deferred_limit()
+                values['decisions']={str(self.category):dict(destination=kind,account_id=self.account)}
+                self.result(self.client.post(self.planning+'/close-month',json=values),201)
+                self.result(self.client.post(self.planning+'/close-month',json=values),201)
+                db=get_db();reserve=db.execute('SELECT * FROM budget_reserves').fetchone()
+                self.assertEqual((reserve['open_ended'],reserve['monthly_amount_cents']),(1,0))
+                self.assertEqual(self.item(reserve['id'])['saved'],70)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM budget_reserve_movements').fetchone()[0],1)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM budget_entries_v2').fetchone()[0],1)
+                self.assertEqual(db.execute('SELECT balance FROM budget_accounts WHERE id=?',(self.account,)).fetchone()[0],9970)
+
+    def test_deferred_existing_reserve_and_reset(self):
+        values=self.deferred_limit();reserve=self.create_reserve()
+        values['decisions']={str(self.category):dict(destination='RESERVE',reserve_id=reserve)}
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        self.assertEqual(self.item(reserve)['saved'],70)
+
+    def test_deferred_reset_leaves_cash_free(self):
+        values=self.deferred_limit();values['decisions']={str(self.category):dict(destination='RESET')}
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        self.assertEqual(get_db().execute('SELECT COUNT(*) FROM budget_reserve_movements').fetchone()[0],0)
+        self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],0)
+
+    def test_deferred_invalid_and_stale_choices_roll_back_without_new_reserves(self):
+        values=self.deferred_limit()
+        for choice,status in ((dict(destination='WRONG'),400),(dict(destination='SAVINGS',account_id=999999),404),(dict(destination='RESERVE',reserve_id=999999),400)):
+            self.assertEqual(self.client.post(self.planning+'/close-month',json=dict(values,decisions={str(self.category):choice})).status_code,status)
+        self.expense(1)
+        self.assertEqual(self.client.post(self.planning+'/close-month',json=dict(values,decisions={str(self.category):dict(destination='SAVINGS',account_id=self.account)})).status_code,409)
+        self.assertEqual(get_db().execute('SELECT COUNT(*) FROM budget_month_closings').fetchone()[0],0)
+        self.assertEqual(get_db().execute('SELECT COUNT(*) FROM budget_reserves').fetchone()[0],0)
+
+    def test_deferred_insufficient_cash_rolls_back_generated_purpose(self):
+        values=self.deferred_limit();db=get_db()
+        db.execute('UPDATE budget_accounts SET balance=1 WHERE id=?',(self.account,));db.commit()
+        values['decisions']={str(self.category):dict(destination='INVESTMENTS',account_id=self.account)}
+        self.assertEqual(self.client.post(self.planning+'/close-month',json=values).status_code,400)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM budget_reserves').fetchone()[0],0)
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM budget_month_closings').fetchone()[0],0)
+
     def purchase(self,**extra):
         data=dict(name='Wakacje',amount=1200,low=900,high=1800,due_date='2026-12-15',account_id=self.account,
                   category_id=self.category,status='PLANNED',notes='',request_id=str(uuid4()));data.update(extra)

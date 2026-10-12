@@ -100,3 +100,9 @@ def initialize(db):
             CHECK(low_cents<=amount_cents AND high_cents>=amount_cents)
         );
     ''')
+    policy_columns = {r['name'] for r in db.execute('PRAGMA table_info(budget_category_policies)')}
+    if 'decision_required' not in policy_columns:
+        db.execute('ALTER TABLE budget_category_policies ADD COLUMN decision_required INTEGER NOT NULL DEFAULT 0 CHECK(decision_required IN (0,1))')
+    closing_columns = {r['name'] for r in db.execute('PRAGMA table_info(budget_month_closing_items)')}
+    if 'destination' not in closing_columns:
+        db.execute("ALTER TABLE budget_month_closing_items ADD COLUMN destination TEXT NOT NULL DEFAULT 'RESERVE'")

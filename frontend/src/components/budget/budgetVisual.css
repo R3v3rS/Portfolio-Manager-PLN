@@ -77,3 +77,19 @@
   .budget-spending-summary.is-compact { grid-template-columns:1fr; }
 }
 @media(max-width:430px) { .budget-month-highlights { grid-template-columns:1fr; } .budget-month-highlights article>span { min-height:0; } }
+.budget-pace-card { padding:1.25rem; border:1px solid var(--line); border-radius:1rem; background:var(--surface); }
+.budget-pace-heading { display:flex; align-items:center; gap:.8rem; color:var(--accent,#42e8e0); }
+.budget-pace-heading span { display:block; font-size:.8rem; color:var(--muted); }
+.budget-pace-heading h3 { margin:.25rem 0 0; font-size:1.2rem; }
+.budget-pace-card.is-ahead { border-color:color-mix(in srgb,#fbbf24 45%,var(--line)); }
+.budget-pace-card.is-ahead .budget-pace-heading { color:#fcd898; }
+.budget-pace-card p { margin:.8rem 0; color:var(--ink); font-size:.9rem; }
+.budget-pace-values { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; margin:1rem 0; }
+.budget-pace-values span { font-size:.8rem; color:var(--muted); }
+.budget-pace-values strong { display:block; margin-top:.25rem; font-size:1.1rem; color:var(--ink); }
+.budget-pace-card small { display:block; color:var(--muted); line-height:1.6; font-size:.78rem; }
+.bp-closing-decision { border:1px solid var(--line); border-radius:.8rem; padding:1rem; margin:1rem 0; }
+.bp-closing-decision h3 { margin:0 0 .8rem; font-size:1rem; }
+.bp-closing-decision label { display:grid; gap:.4rem; margin-top:.8rem; color:var(--muted); }
+.bp-closing-decision select { width:100%; padding:.7rem; border:1px solid var(--line); border-radius:.6rem; background:var(--surface); color:var(--ink); }
+@media(max-width:550px) { .budget-pace-values { grid-template-columns:1fr; gap:.65rem; } }

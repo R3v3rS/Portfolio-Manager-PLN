@@ -5,6 +5,8 @@
 - Spójny interfejs Centrum finansów, inwestycji, kredytów i budżetu.
 - Konta budżetowe, salda początkowe, przelewy, hierarchia kategorii, rachunki jednorazowe i cykliczne.
 - Plan miesiąca, prognoza pieniędzy, rezerwy terminowe i bezterminowe oraz miesięczne rozliczenie.
+- Tempo codziennych wydatków wyrażone w dniach względem planu, bez wcześniejszych płatności stałych zobowiązań.
+- Decyzja o niewykorzystanym limicie przy zamknięciu miesiąca: następny miesiąc, oszczędności, przyszłe inwestycje, wybrana rezerwa lub pozostawienie wolnych środków. Odłożenia nie tworzą fikcyjnych przelewów ani zakupów inwestycji.
 - Import bankowych CSV, reguły kategorii, paragony z odczytem i przeglądem przed zapisem, powiązania z istniejącymi płatnościami.
 - Cele inwestycyjne, dziennik inwestora, raport miesięczny i widok pomysłów inwestycyjnych.
 - Analiza rzeczywistych wyników, osobne modele obligacji i PPK oraz oznaczanie niepełnych wycen.

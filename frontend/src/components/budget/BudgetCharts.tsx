@@ -5,6 +5,7 @@ import type { BudgetWorkspace } from '../../api_budget_workspace';
 import { TrendChart } from '../charts/ChartKit';
 import { chartColors } from '../charts/chartTheme';
 import { budgetChartData } from './budgetChartModel';
+import BudgetSpendingPace from './BudgetSpendingPace';
 
 export default function BudgetCharts({ data }: { data: BudgetWorkspace }) {
   const [metric,setMetric]=useState<'daily'|'cash'|'budget'>('daily');
@@ -13,6 +14,7 @@ export default function BudgetCharts({ data }: { data: BudgetWorkspace }) {
   const fixed=data.fixed_costs;
   const money=(amount:number)=>new Intl.NumberFormat('pl-PL',{style:'currency',currency:'PLN'}).format(amount);
   return <div className="budget-chart-stack">
+    <BudgetSpendingPace data={data}/>
     <section className="chart-panel">
       <div className="chart-heading"><div><h2>{metric==='daily'?'Tempo codziennych wydatków':'Wydatki na tle planu miesiąca'}</h2><p>Narastająco od początku miesiąca · PLN</p></div></div>
       <div className="bp-switch bp-chart-modes"><button aria-pressed={metric==='daily'} onClick={()=>setMetric('daily')}>Codzienne wydatki</button><button aria-pressed={metric==='budget'} onClick={()=>setMetric('budget')}>Obciążenie budżetu</button><button aria-pressed={metric==='cash'} onClick={()=>setMetric('cash')}>Faktyczne wydatki</button></div>
