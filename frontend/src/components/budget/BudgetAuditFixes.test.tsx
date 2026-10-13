@@ -19,7 +19,7 @@ describe('Budget audit corrections',()=>{
   });
   it('switches between cash and budget burden using server series',()=>{
     show(<BudgetCharts data={data}/>);
-    expect(screen.getByRole('heading',{name:'Tempo codziennych wydatków'})).toBeInTheDocument();
+    expect(screen.getByRole('heading',{name:'Tempo wybranych kategorii'})).toBeInTheDocument();
     expect(screen.getByTestId('chart')).toHaveTextContent('"spent":40');
     fireEvent.click(screen.getByRole('button',{name:'Obciążenie budżetu'}));
     expect(screen.getByTestId('chart')).toHaveTextContent('"spent":250');

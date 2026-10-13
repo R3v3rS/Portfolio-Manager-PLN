@@ -1,6 +1,6 @@
 import BudgetSettlementUndo from './BudgetSettlementUndo';
-import {Fragment,useState} from 'react';
-import {Link} from 'react-router-dom';
+import {Fragment,useEffect,useState} from 'react';
+import {Link,useSearchParams} from 'react-router-dom';
 import {CalendarDays,Check,CircleAlert,Pause,Pencil,Play,Plus} from 'lucide-react';
 import {budgetWorkspaceApi,type BudgetBill,type BillInput,type BudgetWorkspace} from '../../api_budget_workspace';
 import {ImportDialog} from './imports/ImportUi';
@@ -15,8 +15,8 @@ function billInput(bill:BudgetBill,month:string):BillInput{
     variable_amount:bill.variable_amount??false,notes:bill.notes??'',reserve_id:bill.reserve_id??null,version:bill.version};
 }
 
-function BillEditor({data,bill,reload,onClose}:{data:BudgetWorkspace;bill:BudgetBill|null;reload:()=>Promise<void>;onClose:()=>void}){
-  const [input,setInput]=useState<BillInput>(()=>bill?billInput(bill,data.month):{title:'',amount:0,due_day:data.month===planningToday().slice(0,7)?Number(planningToday().slice(-2)):1,frequency:'ONCE',start_month:data.month,due_month:data.month,account_id:data.accounts[0]?.id??0,category_id:data.categories.find(c=>c.name==='Rachunki')?.id??data.categories[0]?.id??0,variable_amount:false,notes:'',reserve_id:null});
+export function BillEditor({data,bill,reload,onClose,categoryId}:{data:BudgetWorkspace;bill:BudgetBill|null;reload:()=>Promise<void>;onClose:()=>void;categoryId?:number}){
+  const [input,setInput]=useState<BillInput>(()=>bill?billInput(bill,data.month):{title:'',amount:0,due_day:data.month===planningToday().slice(0,7)?Number(planningToday().slice(-2)):1,frequency:'ONCE',start_month:data.month,due_month:data.month,account_id:data.accounts[0]?.id??0,category_id:categoryId??data.categories.find(c=>c.name==='Rachunki')?.id??data.categories.find(c=>!c.is_unassigned)?.id??0,variable_amount:false,notes:'',reserve_id:null});
   const [requestId]=useState(()=>crypto.randomUUID()),action=usePlanningAction(reload);
   const update=<K extends keyof BillInput>(key:K,value:BillInput[K])=>setInput(old=>({...old,[key]:value}));
   const oneOff=input.frequency==='ONCE';
@@ -31,6 +31,7 @@ function BillEditor({data,bill,reload,onClose}:{data:BudgetWorkspace;bill:Budget
       {!oneOff&&<><label>Powtarzalność<select value={input.frequency} onChange={e=>update('frequency',e.target.value as BillInput['frequency'])}>{Object.entries(frequencyNames).filter(([value])=>value!=='ONCE').map(([value,name])=><option key={value} value={value}>{name}</option>)}</select></label><div className="budget-form-grid"><label>Pierwszy miesiąc<input type="month" required value={input.start_month} onChange={e=>update('start_month',e.target.value)}/></label><label>Ostatni miesiąc — opcjonalnie<input type="month" min={input.start_month} value={input.end_month??''} onChange={e=>update('end_month',e.target.value||null)}/></label></div></>}
       <label>Konto płatności<select required value={input.account_id} onChange={e=>update('account_id',Number(e.target.value))}>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
       <label>Kategoria<select required value={input.category_id} onChange={e=>update('category_id',Number(e.target.value))}>{data.categories.filter(c=>!c.is_unassigned).map(c=><option key={c.id} value={c.id}>{c.selection_label??c.name}</option>)}</select></label>
+      <p className="bp-help">Rachunek pojawi się w planie tej kategorii i jej kategorii głównej. Jego kwota mieści się w limicie kategorii; podwyższy plan tylko wtedy, gdy przypisane płatności lub podkategorie przekroczą wspólny limit.</p>
       <label className="bp-checkbox"><input type="checkbox" checked={input.variable_amount??false} onChange={e=>update('variable_amount',e.target.checked)}/>Kwota jest szacunkowa — przy płatności podam rzeczywistą</label>
       {!oneOff&&<details className="bp-details" open={!!input.promotion_end||!!input.notice_date}><summary>Promocja i termin wypowiedzenia</summary><div className="budget-form-grid"><label>Koniec promocji<input type="date" value={input.promotion_end??''} onChange={e=>update('promotion_end',e.target.value||null)}/></label><label>Kwota po promocji<input type="number" min="0.01" step="0.01" required={!!input.promotion_end} value={input.regular_amount??''} onChange={e=>update('regular_amount',e.target.value?Number(e.target.value):null)}/></label></div><label>Termin wypowiedzenia<input type="date" value={input.notice_date??''} onChange={e=>update('notice_date',e.target.value||null)}/></label></details>}
       <label>Finansowanie z rezerwy — opcjonalnie<select value={input.reserve_id??''} onChange={e=>update('reserve_id',e.target.value?Number(e.target.value):null)}><option value="">Z bieżącego budżetu</option>{data.planning?.reserve_plans.filter(r=>r.active).map(r=><option key={r.reserve_id} value={r.reserve_id}>{r.name}</option>)}</select></label>
@@ -69,9 +70,18 @@ export function BillPayment({data,bill,reload,onClose}:{data:BudgetWorkspace;bil
 }
 
 export default function BudgetObligations({data,reload}:{data:BudgetWorkspace;reload:()=>Promise<void>}){
+  const [params,setParams]=useSearchParams();
+  const requestedBill=params.get('bill');
   const [scope,setScope]=useState<'MONTH'|'ALL'>('MONTH'),[inactive,setInactive]=useState(false),[editing,setEditing]=useState<BudgetBill|null|undefined>(undefined),[paying,setPaying]=useState<BudgetBill|null>(null);
   const [kind,setKind]=useState<'ALL'|'ONCE'|'RECURRING'>('ALL');
   const [undo,setUndo]=useState<number|null>(null);
+  useEffect(()=>{
+    if(!requestedBill)return;
+    const bill=data.bills.find(item=>String(item.id)===requestedBill);
+    if(!bill)return;
+    if(bill.status!=='PAID'&&data.month<=planningToday().slice(0,7))setPaying(bill);
+    setParams(current=>{const next=new URLSearchParams(current);next.delete('bill');return next;},{replace:true});
+  },[requestedBill,data.bills,data.month,setParams]);
   const action=usePlanningAction(reload);
   const catalog=data.planning?.bill_catalog??data.bills;
   const rows=(scope==='MONTH'?data.bills:catalog).filter(b=>(inactive||b.active!==false)&&(kind==='ALL'||(kind==='ONCE')===(b.frequency==='ONCE'))).sort((a,b)=>Number(b.frequency==='ONCE')-Number(a.frequency==='ONCE'));

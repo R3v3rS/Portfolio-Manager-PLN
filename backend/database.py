@@ -1091,6 +1091,7 @@ def reset_budget_data():
 
     db.execute("UPDATE loan_installment_payments SET budget_entry_id = NULL")
     db.execute("UPDATE loan_overpayments SET budget_entry_id = NULL")
+    db.execute('DELETE FROM loan_budget_settings')
 
     for table in ('budget_import_sources', 'budget_import_rows', 'budget_import_sessions',
                   'budget_receipt_drafts', 'budget_category_rules', 'budget_csv_profiles', 'budget_reserve_transfer_rules'):
@@ -1100,7 +1101,8 @@ def reset_budget_data():
     db.execute("DELETE FROM budget_purchase_refunds")
     for table in ('budget_settlements','budget_settlement_reversals','budget_cancelled_requests','budget_entry_requests',
                   'budget_reserve_plan_history','budget_month_snapshots','budget_month_closing_items', 'budget_month_closings', 'budget_purchase_plans',
-                  'budget_reserve_month_plans', 'budget_category_policies', 'budget_planning_settings'):
+                  'budget_reserve_month_plans', 'budget_category_policies', 'budget_planning_settings',
+                  'budget_default_plans', 'budget_plan_copy_requests'):
         db.execute(f'DELETE FROM {table}')
     db.execute('INSERT INTO budget_planning_settings(id) VALUES(1)')
     db.execute("DELETE FROM budget_expected_income_receipts")

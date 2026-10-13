@@ -2,6 +2,9 @@
 
 
 def initialize(db):
+    category_columns = {r['name'] for r in db.execute('PRAGMA table_info(budget_categories_v2)')}
+    if 'daily_pace_included' not in category_columns:
+        db.execute('ALTER TABLE budget_categories_v2 ADD COLUMN daily_pace_included INTEGER NOT NULL DEFAULT 1 CHECK(daily_pace_included IN (0,1))')
     reserve_columns={r['name'] for r in db.execute('PRAGMA table_info(budget_reserves)')}
     if 'category_id' not in reserve_columns: db.execute('ALTER TABLE budget_reserves ADD COLUMN category_id INTEGER REFERENCES budget_categories_v2(id)')
     if 'monthly_amount_cents' not in reserve_columns:
@@ -29,6 +32,14 @@ def initialize(db):
         if name not in existing:
             db.execute(f'ALTER TABLE budget_bill_payments_v2 ADD COLUMN {name} TEXT')
     db.executescript('''
+        CREATE TABLE IF NOT EXISTS budget_default_plans (
+            category_id INTEGER NOT NULL REFERENCES budget_categories_v2(id),
+            start_month TEXT NOT NULL, amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),
+            version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(category_id,start_month)
+        );
+        CREATE TABLE IF NOT EXISTS budget_plan_copy_requests (
+            request_id TEXT PRIMARY KEY, request_payload TEXT NOT NULL, result_json TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS budget_cancelled_requests (request_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS budget_entry_requests (
             request_id TEXT PRIMARY KEY, request_payload TEXT NOT NULL,
@@ -106,3 +117,7 @@ def initialize(db):
     closing_columns = {r['name'] for r in db.execute('PRAGMA table_info(budget_month_closing_items)')}
     if 'destination' not in closing_columns:
         db.execute("ALTER TABLE budget_month_closing_items ADD COLUMN destination TEXT NOT NULL DEFAULT 'RESERVE'")
+    from loan_budget_service import initialize as initialize_loan_budget
+    initialize_loan_budget(db)
+    from budget_rollover_service import freeze_legacy_closings
+    freeze_legacy_closings(db)

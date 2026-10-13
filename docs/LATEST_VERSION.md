@@ -2,6 +2,16 @@
 
 ## Główne zmiany
 
+- Szczegółowe instrukcje całej aplikacji, budżetu, uruchamiania i kopii oraz dokumentacja modelu danych: [spis dokumentacji](README.md).
+- Wspólna nawigacja budżetu z zachowaniem miesiąca, osobne ustawienia, filtry transakcji i podział historii na dni.
+- Plan kategorii rozdzielający wspólny limit, rachunki/raty i zwykłe wydatki; płatności widoczne także pod kategoriami.
+- Domyślny plan miesięczny od wybranej daty, miesięczne wyjątki z pierwszeństwem dla 0 zł i powrót do domyślnego limitu.
+- Kopiowanie limitów na 3, 6 lub 12 miesięcy z podglądem, zachowaniem istniejących wyjątków i kontrolą nieaktualnych danych.
+- Miesięczne założenia prognozy z oznaczeniami limitów miesięcznych, domyślnych i szacunkowych; szacunek podkategorii nie podwyższa zapisanego wspólnego limitu.
+- Konto i kategoria rat zapamiętywane per kredyt, powiązanie istniejącej płatności oraz bezpieczne cofnięcie rozliczenia.
+- Zatwierdzone decyzje zamknięcia zachowane niezależnie od późniejszej zmiany polityki kategorii.
+- Wyłączenie wybranych kategorii z tempa bez usuwania ich z pełnego planu oraz zakresy wykresu majątku.
+
 - Spójny interfejs Centrum finansów, inwestycji, kredytów i budżetu.
 - Konta budżetowe, salda początkowe, przelewy, hierarchia kategorii, rachunki jednorazowe i cykliczne.
 - Plan miesiąca, prognoza pieniędzy, rezerwy terminowe i bezterminowe oraz miesięczne rozliczenie.

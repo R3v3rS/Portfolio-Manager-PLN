@@ -46,6 +46,41 @@ class BudgetPlanningTest(unittest.TestCase):
         self.result(self.policy(mode='DECIDE'))
         return dict(month='2026-09',request_id=str(uuid4()),category_versions={str(self.category):1},amounts={str(self.category):70})
 
+    def test_closed_savings_decision_survives_switch_to_rollover(self):
+        values=self.deferred_limit();values['decisions']={str(self.category):dict(destination='SAVINGS',account_id=self.account)}
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        self.result(self.policy(mode='ROLLOVER',version=1))
+        self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],0)
+        self.assertEqual(get_db().execute('SELECT SUM(amount_cents) FROM budget_reserve_movements').fetchone()[0],7000)
+
+    def test_closed_rollover_decision_survives_switch_to_reset_and_late_expense(self):
+        values=self.deferred_limit();values['decisions']={str(self.category):dict(destination='ROLLOVER')}
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        self.result(self.policy(mode='RESET',start_month='2026-10',version=1))
+        self.expense(5)
+        self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],70)
+
+    def test_automatic_rollover_is_also_frozen_when_policy_changes(self):
+        values=self.deferred_limit()
+        self.result(self.policy(mode='ROLLOVER',version=1))
+        values.update(category_versions={},amounts={});values.pop('decisions',None)
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        self.result(self.policy(mode='RESET',version=2))
+        self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],70)
+
+    def test_migration_preserves_legacy_automatic_closings_and_explicit_choices(self):
+        values=self.deferred_limit()
+        self.result(self.policy(mode='ROLLOVER',version=1))
+        values.update(category_versions={},amounts={})
+        self.result(self.client.post(self.planning+'/close-month',json=values),201)
+        db=get_db()
+        # Before this migration, automatic rollover had only a snapshot, not an item.
+        db.execute('DELETE FROM budget_month_closing_items WHERE category_id=?',(self.category,))
+        from budget_rollover_service import freeze_legacy_closings
+        freeze_legacy_closings(db);freeze_legacy_closings(db);db.commit()
+        self.result(self.policy(mode='RESET',version=2))
+        self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],70)
+
     def test_deferred_choice_is_required_and_rollover_starts_only_after_closing(self):
         values=self.deferred_limit();db=get_db()
         self.assertEqual(next(c for c in self.get_workspace()['categories'] if c['id']==self.category)['carryover'],0)

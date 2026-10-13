@@ -1,6 +1,7 @@
+import BudgetNavigation from '../components/budget/BudgetNavigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRightLeft, CheckCheck, History, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react';
+import { ArrowRightLeft, CheckCheck, History, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react';
 import { accountsApi, type AccountsWorkspace, type ManagedAccount, type AccountHistory } from '../api_accounts';
 import { extractErrorMessageFromUnknown } from '../http/response';
 import '../components/budget/budgetWorkspace.css';
@@ -34,7 +35,9 @@ export default function BudgetAccounts(){
   const disabled=loading||!!editor;
   const history=data?.history.filter(h=>!filter||[h.account_id,h.source_account_id,h.target_account_id].includes(Number(filter)))??[];
   return <div className="page-stack budget-page br-page ba-page">
-    <header className="br-heading"><div><p className="page-eyebrow">Wiesz, gdzie są Twoje pieniądze</p><h1>Konta i przelewy</h1><p>Sprawdź salda, miejsce odkładania na cele i środki, które możesz jeszcze wykorzystać.</p></div><div className="br-actions"><Link className="budget-button-secondary" to="/budget"><ArrowLeft size={16}/>Budżet</Link><button className="budget-button-secondary" onClick={()=>setEditor({kind:'ADD'})} disabled={disabled}><Plus size={16}/>Dodaj konto</button><button className="budget-button-primary" onClick={()=>setEditor({kind:'TRANSFER'})} disabled={disabled||!data||data.accounts.length<2}><ArrowRightLeft size={16}/>Zapisz przelew</button></div></header>
+    <header className="br-heading"><div><p className="page-eyebrow">Wiesz, gdzie są Twoje pieniądze</p><h1>Konta i przelewy</h1><p>Sprawdź salda, miejsce odkładania na cele i środki, które możesz jeszcze wykorzystać.</p></div><div className="br-actions"><button className="budget-button-secondary" onClick={()=>setEditor({kind:'ADD'})} disabled={disabled}><Plus size={16}/>Dodaj konto</button><button className="budget-button-primary" onClick={()=>setEditor({kind:'TRANSFER'})} disabled={disabled||!data||data.accounts.length<2}><ArrowRightLeft size={16}/>Zapisz przelew</button></div></header>
+    <BudgetNavigation active="accounts" current/>
+
     {notice&&<div className="budget-feedback is-success" role="status">{notice}</div>}
     {error&&<div className="budget-feedback is-error" role="alert">{error}<button className="budget-button-secondary" disabled={loading} onClick={()=>void reload()}>Odśwież dane</button></div>}
     {!data&&loading?<p className="br-panel" role="status">Ładowanie kont…</p>:data&&<>

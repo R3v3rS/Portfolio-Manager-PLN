@@ -22,6 +22,8 @@ def category_options(db, include_unassigned=True):
             parent = by_id.get(row['parent_id'])
             path = f"{parent['name']} › {row['name']}" if parent else row['name']
             result.append({**row, 'parent_name': parent['name'] if parent else None,
+                           'daily_pace_included': bool(row['daily_pace_included']),
+                           'daily_pace_effective': bool(row['daily_pace_included'] and (not parent or parent['daily_pace_included'])),
                            'path': path, 'has_children': bool(children[row['id']]),
                            'selection_label': path if parent or not children[row['id']] else path + ' › Ogólnie'})
     return result
@@ -45,7 +47,10 @@ def category_workspace(db, month, through=None, pln_only=False):
         JOIN budget_entries_v2 e ON e.id=l.entry_id JOIN budget_accounts a ON a.id=e.account_id
         WHERE (e.kind='EXPENSE' OR EXISTS(SELECT 1 FROM budget_purchase_refunds r WHERE r.entry_id=e.id)) AND e.date BETWEEN ? AND ?''' + currency + ' GROUP BY l.category_id',
         (month+'-01', end)))
-    manual = dict(db.execute('SELECT category_id,amount_cents FROM budget_plans_v2 WHERE month=?', (month,)))
+    from budget_default_plan_service import resolve
+    manual, plan_sources = resolve(db, month)
+    default_amounts={r['category_id']:r['amount_cents'] for r in db.execute(
+        'SELECT category_id,amount_cents FROM budget_default_plans WHERE start_month<=? ORDER BY start_month',(month,))}
     actual_spent = dict(spent)
     from budget_bill_funding import category_coverage
     coverage, settled = category_coverage(db,month)
@@ -84,6 +89,9 @@ def category_workspace(db, month, through=None, pln_only=False):
         ids = [category_id, *[c['id'] for c in options if c['parent_id'] == category_id]]
         used = sum(spent.get(i, 0) for i in ids)
         result.append({**row, 'is_unassigned': bool(row['is_unassigned']),
+            'plan_source': 'MEDIA' if category_id in media else plan_sources.get(category_id, {}).get('kind', 'NONE'),
+            'plan_source_month': plan_sources.get(category_id, {}).get('month'),
+            'default_plan': default_amounts[category_id]/100 if category_id in default_amounts else None,
             'manual_plan': manual.get(category_id, 0)/100, 'planned_bills': sum(bills.get(i, 0) for i in ids)/100,
             'reserve_covered': sum(coverage.get(i,0) for i in ids)/100,
             'reserve_settled': sum(settled.get(i,0) for i in ids)/100,
@@ -119,6 +127,9 @@ def save_category(db, data, category_id=None):
                for r in db.execute('SELECT id,name FROM budget_categories_v2')):
             raise ValidationError('Taka kategoria już istnieje.')
         icon = current['icon'] if current else 'Shapes'
+        pace_included = data.get('daily_pace_included', bool(current['daily_pace_included']) if current else True)
+        if type(pace_included) is not bool:
+            raise ValidationError('Wybierz, czy kategoria wchodzi do tempa codziennych wydatków.')
         if parent_id:
             parent = db.execute('SELECT * FROM budget_categories_v2 WHERE id=?', (parent_id,)).fetchone()
             if not parent:
@@ -131,12 +142,12 @@ def save_category(db, data, category_id=None):
                 raise ValidationError('Najpierw ustaw zerowanie niewykorzystanego limitu tej kategorii, potem przenieś ją do podkategorii.')
             icon = parent['icon']
         if current:
-            db.execute('UPDATE budget_categories_v2 SET name=?,parent_id=?,icon=?,version=version+1 WHERE id=?',
-                       (name, parent_id, icon, category_id))
+            db.execute('UPDATE budget_categories_v2 SET name=?,parent_id=?,icon=?,daily_pace_included=?,version=version+1 WHERE id=?',
+                       (name, parent_id, icon, int(pace_included), category_id))
         else:
             order = db.execute('SELECT COALESCE(MAX(sort_order),-1)+1 FROM budget_categories_v2').fetchone()[0]
-            category_id = db.execute('INSERT INTO budget_categories_v2(name,parent_id,icon,sort_order) VALUES (?,?,?,?)',
-                                     (name, parent_id, icon, order)).lastrowid
+            category_id = db.execute('INSERT INTO budget_categories_v2(name,parent_id,icon,sort_order,daily_pace_included) VALUES (?,?,?,?,?)',
+                                     (name, parent_id, icon, order, int(pace_included))).lastrowid
         db.commit()
         return {'id': category_id}
     except Exception:

@@ -3,7 +3,6 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {MemoryRouter} from 'react-router-dom';
 import InvestmentIdeas from './InvestmentIdeas';
 import {ideasApi,type ResearchWorkspace} from '../api_ideas';
-import {radarApi} from '../api_radar';
 
 vi.mock('../api_ideas',()=>({ideasApi:{workspace:vi.fn(),refresh:vi.fn(),publication:vi.fn(),save:vi.fn()}}));
 vi.mock('../api_radar',()=>({radarApi:{addToWatchlist:vi.fn()}}));

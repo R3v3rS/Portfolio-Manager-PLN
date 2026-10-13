@@ -58,7 +58,7 @@ describe('Manual split from the import queue',()=>{
     const summary=within(await screen.findByRole('region',{name:'Podsumowanie miesiąca'}));
     const pending=summary.getByRole('link',{name:/Wpływy do otrzymania/});
     expect(pending).toHaveTextContent(/6\s?100,00/);
-    expect(pending).toHaveAttribute('href','/budget/forecast');
+    expect(pending).toHaveAttribute('href','/budget/forecast?month=2026-10');
     expect(summary.getByText(/Saldo \+ oczekiwane wpływy − pozostałe limity/)).toBeInTheDocument();
     expect(summary.getByText(/Otrzymane wpływy są już w saldzie/)).toBeInTheDocument();
     expect(summary.getByText(/2\s?704,01/)).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe('Manual split from the import queue',()=>{
     expect(dialog.getByLabelText('Kategoria główna')).toHaveValue('1');
     fireEvent.change(dialog.getByLabelText('Nazwa kategorii'),{target:{value:'Restauracje'}});
     fireEvent.click(dialog.getByRole('button',{name:'Dodaj'}));
-    await waitFor(()=>expect(budgetWorkspaceApi.createCategory).toHaveBeenCalledWith('Restauracje',1));
+    await waitFor(()=>expect(budgetWorkspaceApi.createCategory).toHaveBeenCalledWith('Restauracje',1,true));
     expect(budgetWorkspaceApi.updateEntry).not.toHaveBeenCalled();
   });
 
@@ -84,8 +84,10 @@ describe('Manual split from the import queue',()=>{
     fireEvent.click(screen.getByRole('button',{name:'Edytuj kategorię: Chemia'}));
     const dialog=within(screen.getByRole('dialog',{name:'Edytuj kategorię'}));
     fireEvent.change(dialog.getByLabelText('Kategoria główna'),{target:{value:'1'}});
+    expect(dialog.getByLabelText('Uwzględniaj w tempie codziennych wydatków')).toBeChecked();
+    fireEvent.click(dialog.getByLabelText('Uwzględniaj w tempie codziennych wydatków'));
     fireEvent.click(dialog.getByRole('button',{name:'Zapisz zmiany'}));
-    await waitFor(()=>expect(budgetWorkspaceApi.updateCategory).toHaveBeenCalledWith(3,'Chemia',1,1));
+    await waitFor(()=>expect(budgetWorkspaceApi.updateCategory).toHaveBeenCalledWith(3,'Chemia',1,1,false));
   });
 
   it('groups child spending below the root and shows paths in expense choices',async()=>{
@@ -93,10 +95,10 @@ describe('Manual split from the import queue',()=>{
       {...data.categories[0],name:'Transport',spent:255,planned:1000,direct_spent:25},
       {...data.categories[1],name:'Paliwo',parent_id:1,selection_label:'Transport › Paliwo',spent:230,planned:600},
     ]});
-    render(<MemoryRouter initialEntries={['/budget?month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/budget?view=plan&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
     expect(await screen.findByText('Podkategorie (1)')).toBeInTheDocument();
-    expect(screen.getByText('Ogólnie · bez podkategorii')).toBeInTheDocument();
-    expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+    expect(screen.getByText('Transport')).toBeInTheDocument();
+    expect(screen.getByText('Paliwo')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Wydatek'}));
     expect(within(screen.getByRole('dialog')).getByRole('option',{name:'Transport › Paliwo'})).toBeInTheDocument();
   });

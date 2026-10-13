@@ -13,7 +13,7 @@ def nominal_bill(bill):
     return round(bill.get('planned_amount',bill.get('base_amount',bill['amount']))*100)
 
 
-def daily_month_plan(categories,bills,loans,reserves):
+def daily_month_plan(categories,bills,loans,reserves,apply_exclusions=False):
     """Keep the fixed planned amount independent of its eventual payment."""
     from budget_category_hierarchy_service import plan_amounts
     fixed,gross,coverage=defaultdict(int),defaultdict(int),defaultdict(int)
@@ -36,9 +36,12 @@ def daily_month_plan(categories,bills,loans,reserves):
     planned=plan_amounts(categories,manual,gross)
     result=0
     for root in (c for c in categories if not c['parent_id']):
+        if apply_exclusions and root.get('daily_pace_included') is False:
+            continue
         ids={root['id'],*[c['id'] for c in categories if c['parent_id']==root['id']]}
         own_plan=planned[root['id']]+round(root.get('carryover',0)*100)-sum(coverage[i] for i in ids)
-        result+=max(0,own_plan-sum(fixed[i] for i in ids))
+        excluded_plan=sum(max(0,manual.get(c['id'],0)-gross[c['id']]) for c in categories if c['parent_id']==root['id'] and c.get('daily_pace_included') is False) if apply_exclusions else 0
+        result+=max(0,own_plan-sum(fixed[i] for i in ids)-excluded_plan)
     return result
 
 
@@ -82,10 +85,12 @@ def pace(db,month,categories,bills,loans,reserves,totals):
     from budget_summary_service import reserve_budget_costs
     from budget_refunds_service import flows
     days=calendar.monthrange(*map(int,month.split('-')))[1]
-    daily_plan=daily_month_plan(categories,bills,loans,reserves)
+    full_daily_plan=daily_month_plan(categories,bills,loans,reserves)
+    daily_plan=daily_month_plan(categories,bills,loans,reserves,apply_exclusions=True)
     media=[r for r in reserves if r.get('monthly_amount') is not None and not r.get('open_ended')]
     media_ids={r['reserve_id'] for r in media}
-    daily_changes=daily_ledger(db,month,{r['category_id'] for r in media})
+    excluded_categories={c['id'] for c in categories if c.get('daily_pace_effective') is False}
+    daily_changes=daily_ledger(db,month,{r['category_id'] for r in media}|excluded_categories)
     cash_fixed=[];budget_fixed=[]
     for bill in bills:
         amount=nominal_bill(bill)
@@ -108,6 +113,6 @@ def pace(db,month,categories,bills,loans,reserves,totals):
         visible=day<=date.today().isoformat()
         result.append(dict(date=day,cash_spent=spent if visible else None,budget_spent=round(spent+adjustment,2) if visible else None,
             daily_spent=daily_spent/100 if visible else None,daily_plan=round(daily_plan*number/days)/100,
-            cash_plan=round(daily_plan*number/days+sum(a for d,a in cash_fixed if d<=day))/100,
-            budget_plan=round((daily_plan+allocations+media_plan)*number/days+sum(a for d,a in budget_fixed if d<=day))/100))
+            cash_plan=round(full_daily_plan*number/days+sum(a for d,a in cash_fixed if d<=day))/100,
+            budget_plan=round((full_daily_plan+allocations+media_plan)*number/days+sum(a for d,a in budget_fixed if d<=day))/100))
     return result

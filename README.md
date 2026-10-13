@@ -1,188 +1,96 @@
 # Portfolio Manager (PLN)
 
-Portfolio Manager (PLN) to aplikacja do zarządzania finansami osobistymi, portfelami inwestycyjnymi, budżetem domowym, kredytami oraz analizą majątku netto.
+Aplikacja do zarządzania budżetem domowym, kontami i rezerwami, inwestycjami, kredytami oraz majątkiem netto. Backend: Flask + SQLite. Frontend: React + TypeScript + Vite.
 
-Repozytorium jest utrzymywane jako monolit z dwoma głównymi częściami:
+## Dokumentacja i instrukcja obsługi
 
-- `backend/` — API w Flasku oparte o SQLite,
-- `frontend/` — interfejs React + TypeScript budowany przez Vite.
+Zacznij od [spisu dokumentacji](docs/README.md).
 
-## Co potrafi aplikacja
+| Dokument | Zawartość |
+|---|---|
+| [Instrukcja całej aplikacji](docs/INSTRUKCJA_OBSLUGI_PL.md) | Centrum finansów, portfele, strategie, PPK, obligacje, kredyty, analizy, cele, radar i narzędzia |
+| [Szczegółowa instrukcja budżetu](docs/BUDZET_INSTRUKCJA_PL.md) | Pierwsze ustawienie, salda, limity, rachunki, rezerwy, media, importy, paragony, zwroty, prognoza i zamknięcie miesiąca |
+| [Uruchamianie i kopie](docs/URUCHAMIANIE_I_KOPIE_PL.md) | Windows i uruchomienie ręczne, aktualizacja, przeniesienie danych, kopie i diagnostyka |
+| [Architektura i model danych](docs/ARCHITEKTURA_I_MODEL_DANYCH_PL.md) | Zasady księgowania i obliczeń, ważne tabele, warstwy i API |
+| [Najnowsza wersja](docs/LATEST_VERSION.md) | Zakres aktualnych zmian i ograniczenia analiz |
 
-### Inwestycje
-- wiele portfeli inwestycyjnych,
-- wpłaty, wypłaty, kupno i sprzedaż aktywów,
-- obsługa akcji, ETF-ów, obligacji, kont oszczędnościowych i PPK,
-- historia wartości, wyników i pozycji,
-- import CSV z XTB,
-- mapowanie symboli brokerowych,
-- watchlista i radar inwestycyjny.
+Instrukcje są po polsku. Przykłady korzystają z fikcyjnych kwot i kont; baza, paragony i prywatne raporty nie są publikowane.
 
-### Budżet domowy
-- konta budżetowe i historia transakcji,
-- koperty, kategorie i alokowanie środków,
-- analityka miesięczna,
-- transfery budżet ↔ inwestycje,
-- pożyczki między kopertami.
+## Główne możliwości
 
-### Kredyty i majątek netto
-- lista kredytów i harmonogramy spłat,
-- nadpłaty oraz zmiany oprocentowania,
-- symulacje skrócenia okresu lub obniżenia rat,
-- globalny dashboard majątku netto łączący budżet, inwestycje i zobowiązania.
-
-## Architektura w skrócie
-
-1. React renderuje widoki zdefiniowane w `frontend/src/App.tsx`.
-2. Strony i komponenty korzystają z warstwy API w `frontend/src/api*.ts`, a requesty HTTP przechodzą przez wspólny klient z `frontend/src/http.ts`.
-3. Flask rejestruje blueprinty pod `/api/portfolio`, `/api/budget`, `/api/loans`, `/api/dashboard`, `/api/radar` i `/api/symbol-map`.
-4. Routy delegują logikę do serwisów domenowych.
-5. Serwisy zapisują dane bezpośrednio do SQLite przez `database.py`.
-6. Część danych rynkowych jest pobierana z zewnętrznych źródeł i cache’owana lokalnie.
-
-
-## Zasada architektoniczna frontendu
-
-- komponenty i strony **nie wykonują bezpośrednich requestów HTTP**; korzystają wyłącznie z warstwy API (`frontend/src/api*.ts`),
-- helpery infrastrukturalne używają wspólnego klienta HTTP z `frontend/src/http.ts`,
-- endpointy backendowe powinny być budowane przez wspólną konfigurację API, bez rozproszonych, twardo kodowanych baz URL.
-
-## Najważniejsze katalogi
-
-```text
-.
-├── backend/
-│   ├── app.py
-│   ├── database.py
-│   ├── routes*.py
-│   ├── *_service.py
-│   └── modules/ppk/
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── pages/
-│   │   ├── components/
-│   │   ├── api*.ts
-│   │   ├── services/
-│   │   └── types.ts
-│   └── package.json
-├── docs/
-│   └── PROJECT_GUIDE.md
-└── README.md
-```
-
-## Wymagania
-
-- Python 3.11 lub 3.12 (przypięty `pandas==2.2.0` nie obsługuje Pythona 3.13+)
-- Node.js 18+
-- npm 9+
+- Centrum finansów: majątek netto, płynność i konkretne sprawy do załatwienia.
+- Budżet: kategorie i podkategorie, wspólne limity, domyślny plan, miesięczne wyjątki i kopiowanie na 3/6/12 miesięcy.
+- Rachunki jednorazowe i cykliczne, raty przypisane do kont oraz powiązanie z istniejącymi płatnościami.
+- Rezerwy na koszt z terminem, miesięczne pule prądu/wody i stałe odkładanie bez terminu.
+- Konta, saldo początkowe poza dochodem, korekty oraz przelewy własne i do inwestycji.
+- Import bankowego CSV, reguły kategorii i przelewów, paragony z lokalnym OCR na Windows, podział zakupów i zwroty.
+- Prognoza 30/90/365 dni, źródła limitów, scenariusze i kontrola braków na poszczególnych kontach.
+- Tempo wybranych kategorii oraz zamknięcie miesiąca z decyzją o pozostałym limicie.
+- Akcje, ETF-y, IKE/IKZE, obligacje, oszczędności i PPK z właściwymi podsumowaniami.
+- Import XTB CSV/XLSX Cash Operations, mapowanie symboli, strategie, transfery aktywów i archiwizacja.
+- Rzeczywiste wyniki, analiza struktury i ryzyka, ceny ręczne oraz oznaczenia jakości wyceny.
+- Cele, dziennik inwestora, radar, publiczne pomysły inwestycyjne i raport miesięczny.
+- Kopie bazy oraz narzędzia spójności danych i historii cen.
 
 ## Uruchomienie lokalne
 
-### Backend
+Backend wymaga Pythona 3.11 lub 3.12 zgodnego z `pandas==2.2.0`. Dla frontendu przygotuj Node i npm zgodne z zależnościami projektu.
 
-```bash
+Windows, terminal 1:
+
+```powershell
 cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe run_local.py
 ```
 
-API domyślnie działa pod `http://127.0.0.1:5000`.
+Windows, terminal 2:
 
-### Frontend
-
-```bash
+```powershell
 cd frontend
-npm install
-npm run dev
+npm ci
+npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-Frontend domyślnie działa pod `http://localhost:5173`.
+Otwórz `http://127.0.0.1:5173`. API działa na `http://127.0.0.1:5000`. Inicjalizacja backendu tworzy brakujący schemat w `backend/portfolio.db`; własną bazę zachowaj przed aktualizacją.
 
-## Najważniejsze komendy developerskie
+Na przygotowanym lokalnym środowisku Windows można użyć `scripts/start-local.ps1` i `scripts/stop-local.ps1`. Skrypt startu zakłada lokalny runtime Codex oraz istniejące zależności i bazę — na nowym komputerze użyj uruchomienia ręcznego lub dostosuj jego ścieżki. Szczegóły, także dla Linux/macOS, są w [instrukcji uruchamiania](docs/URUCHAMIANIE_I_KOPIE_PL.md).
 
-### Frontend
+## Kontrola jakości
+
+Frontend, z katalogu `frontend/`:
 
 ```bash
-cd frontend
-npm run dev
 npm run check
-npm run build
 npm run lint
 npm test
+npm run build
 ```
 
-Alternatywnie z katalogu głównego repo:
+Backend, z katalogu `backend/` w przygotowanym środowisku Pythona:
 
 ```bash
-npm --prefix frontend test
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
-### Backend
+Na środowisku z Bash można uruchomić `scripts/run_quality_gate.sh`, opcjonalnie z `PYTHON_BIN=python3.12`. [Dokumentacja techniczna](docs/ARCHITEKTURA_I_MODEL_DANYCH_PL.md) opisuje obszary, które należy sprawdzać po zmianach wspólnych obliczeń.
 
-```bash
-cd backend
-python app.py
-python -m compileall .
-```
+## Organizacja projektu
 
-## Dokumentacja projektu
+- `frontend/src/App.tsx` — trasy aplikacji.
+- `frontend/src/pages/`, `frontend/src/components/` — widoki i komponenty.
+- `frontend/src/api*.ts`, `http.ts`, `apiConfig.ts` — wspólna warstwa API; komponenty nie wykonują niezależnych żądań poza nią.
+- `backend/app.py`, `database.py` — konfiguracja i baza.
+- `backend/routes*.py`, `*_service.py`, `modules/` — domeny, księgowanie i analizy.
+- `backend/tests/`, testy `*.test.ts(x)` — weryfikacja zachowania.
+- `docs/` — aktualne instrukcje i referencje uzupełniające.
 
-Aktualna dokumentacja repo jest rozbita na dwa poziomy:
+## Dane i ograniczenia
 
-- `README.md` — szybki opis produktu, stosu i uruchomienia,
-- `docs/PROJECT_GUIDE.md` — pełny przewodnik po architekturze, modułach, zależnościach, danych, przepływach requestów i onboarding dla developera lub AI,
-- `docs/IMPROVEMENT_PLAN.md` — plan usprawnień aplikacji z priorytetami, etapami wdrożenia i listą quick wins.
+Baza SQLite, backupy, załączniki, klucze, logi i prywatne zrzuty pozostają lokalne. Kopia samej bazy nie zawiera plików paragonów; zachowaj również `backend/uploads/`.
 
-Jeśli zaczynasz pracę w projekcie, najlepsza kolejność to:
+Aplikacja nie wykonuje przelewów w banku ani zleceń u brokera. Prognoza jest symulacją, a analizy zależą od kompletności historii i aktualności wyceny. Lokalna konfiguracja nie jest gotowym publicznym systemem wieloużytkownikowym.
 
-1. przeczytać ten plik,
-2. otworzyć `backend/app.py`, `backend/database.py` i `frontend/src/App.tsx`,
-3. przejść przez `docs/PROJECT_GUIDE.md`,
-4. wybrać jeden moduł domenowy i prześledzić go end-to-end.
-
-## Porządek dokumentacji
-
-W repo zostały usunięte stare lub mylące dokumenty pomocnicze, które dublowały informacje albo opisywały nieaktualny stan projektu. Od teraz punktem wejścia są wyłącznie ten `README.md` oraz `docs/PROJECT_GUIDE.md`.
-
-
-## Quality gate
-
-Minimalny quality gate dla formalnego domknięcia Etapu 1 uruchomisz jednym poleceniem:
-
-```bash
-./scripts/run_quality_gate.sh
-```
-
-Jeżeli właściwy interpreter nie jest domyślnym `python`, wskaż go jawnie:
-
-```bash
-PYTHON_BIN=python3.12 ./scripts/run_quality_gate.sh
-```
-
-Skrypt wykonuje kolejno:
-
-- `npm --prefix frontend run check`,
-- `npm --prefix frontend run lint`,
-- `npm --prefix frontend test`,
-- `npm --prefix frontend run build`,
-- `python -m compileall backend`,
-- `python -m pytest -q` (pełny zestaw testów backendu).
-
-Przed pierwszym uruchomieniem zainstaluj zależności developerskie backendu przez
-`python -m pip install -r backend/requirements-dev.txt` oraz zależności frontendu
-przez `npm --prefix frontend ci`.
-
-
-
-### CI/CD (frontend tests)
-
-W GitHub Actions uruchamiaj testy frontendu z ustawionym katalogiem roboczym:
-
-```yaml
-defaults:
-  run:
-    working-directory: frontend
-```
+Starsze dokumenty audytowe mogą opisywać wcześniejsze zachowanie. Obecne instrukcje znajdują się w [spisie dokumentacji](docs/README.md); szczegóły historycznej własności portfeli uzupełnia [PROJECT_GUIDE_PL.md](docs/PROJECT_GUIDE_PL.md).

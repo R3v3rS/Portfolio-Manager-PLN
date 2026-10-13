@@ -205,6 +205,15 @@ def close_month(data):
                     request_id=str(uuid5(UUID(token),str(policy['category_id'])))),within_transaction=True)['id']
             db.execute('INSERT INTO budget_month_closing_items(closing_id,category_id,reserve_id,amount_cents,movement_id,destination) VALUES(?,?,?,?,?,?)',
                 (closing,policy['category_id'],reserve_id,amount,movement,destination))
+        # Freeze every root's disposition, including automatic reset/rollover.
+        # Later policy changes must never reinterpret this month's decision.
+        saved={r[0] for r in db.execute('SELECT category_id FROM budget_month_closing_items WHERE closing_id=?',(closing,))}
+        for category in categories.values():
+            if category['parent_id'] is not None or category['id'] in saved: continue
+            policy=db.execute('SELECT * FROM budget_category_policies WHERE category_id=? AND start_month<=?',(category['id'],month)).fetchone()
+            destination='ROLLOVER' if policy and policy['mode']=='ROLLOVER' and not category['monthly_reserve_managed'] else 'RESET'
+            db.execute('INSERT INTO budget_month_closing_items(closing_id,category_id,amount_cents,destination) VALUES(?,?,?,?)',
+                (closing,category['id'],max(0,round(category['remaining']*100)),destination))
         import json
         from budget_month_snapshot import capture
         from budget_plan_history import freeze

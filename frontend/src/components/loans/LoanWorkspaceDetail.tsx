@@ -3,13 +3,15 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { TrendChart } from '../charts/ChartKit';
 
 import LoanPaymentChart from './LoanPaymentChart';
+import LoanPaymentLink from './LoanPaymentLink';
+import LoanBudgetSettingsPanel from './LoanBudgetSettingsPanel';
 import { ArrowLeft, ArrowRight, CalendarDays, Check, CheckCircle2, CircleDollarSign, ClipboardCheck,
   Plus, RotateCcw, Save, SlidersHorizontal, Trash2, Wallet, X } from 'lucide-react';
 import {
   addOverpayment, addRate, deleteInstallment, deleteOverpayment, getSchedule,
-  recordBalanceCheck, recordInstallment, setLoanNetWorthExclusion, type LoanScheduleEntry, type LoanScheduleResponse,
+  recordBalanceCheck, recordInstallment, setLoanNetWorthExclusion, type LoanScheduleEntry, type LoanScheduleResponse,type LoanPaymentSelection,
 } from '../../api_loans';
-import { budgetWorkspaceApi, type BudgetAccount } from '../../api_budget_workspace';
+import { budgetWorkspaceApi, type BudgetAccount,type BudgetCategory } from '../../api_budget_workspace';
 import { extractErrorMessageFromUnknown } from '../../http/response';
 import './loansWorkspace.css';
 
@@ -28,6 +30,8 @@ export default function LoanWorkspaceDetail() {
   const loanId = Number(id);
   const [data, setData] = useState<LoanScheduleResponse | null>(null);
   const [accounts, setAccounts] = useState<BudgetAccount[]>([]);
+  const [categories,setCategories]=useState<BudgetCategory[]>([]);
+  const [paymentLink,setPaymentLink]=useState<LoanPaymentSelection>({ready:false});
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,6 +43,7 @@ export default function LoanWorkspaceDetail() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(localToday);
   const [paymentAccount, setPaymentAccount] = useState('');
+  const [paymentToBudget,setPaymentToBudget]=useState<LoanScheduleResponse['payments_list'][number]|null>(null);
   const [overpaymentAmount, setOverpaymentAmount] = useState('');
   const [overpaymentDate, setOverpaymentDate] = useState(localToday);
   const [overpaymentAction, setOverpaymentAction] = useState<'REDUCE_TERM' | 'REDUCE_INSTALLMENT'>('REDUCE_TERM');
@@ -59,7 +64,7 @@ export default function LoanWorkspaceDetail() {
     setData(result);
   }, [loanId, debouncedAmount, scenarioAction]);
   const refreshAccounts = useCallback(async () => {
-    try { setAccounts((await budgetWorkspaceApi.get(localToday().slice(0, 7))).accounts); }
+    try { const budget=await budgetWorkspaceApi.get(localToday().slice(0, 7));setAccounts(budget.accounts);setCategories(budget.categories??[]); }
     catch { setAccounts([]); }
   }, []);
   useEffect(() => {
@@ -83,7 +88,7 @@ export default function LoanWorkspaceDetail() {
   };
   const startPayment = (row: LoanScheduleEntry) => {
     setPaymentTarget(row); setPaymentAmount(row.installment.toFixed(2));
-    setPaymentDate(row.date <= localToday() ? row.date : localToday()); setPaymentAccount('');
+    setPaymentDate(row.date <= localToday() ? row.date : localToday()); setPaymentAccount(String(data?.budget_settings?.resolved_account_id??''));setPaymentLink({ready:false});
   };
   const changeNetWorthExclusion = async (excluded: boolean) => {
     setBusy(true); setError(''); setSuccess('');
@@ -101,7 +106,8 @@ export default function LoanWorkspaceDetail() {
     const saved = await action(() => recordInstallment(loanId, {
       installment_month: target.month, paid_on: paymentDate, amount: Number(paymentAmount),
       ...(paymentAccount ? { account_id: Number(paymentAccount) } : {}),
-    }), 'Rata została zapisana w historii.');
+      ...(paymentLink.existing_entry_id?{existing_entry_id:paymentLink.existing_entry_id,entry_version:paymentLink.entry_version}:paymentLink.confirm_new_expense?{confirm_new_expense:true}:{}),
+    }), paymentLink.existing_entry_id?'Spłata powiązana z istniejącym wydatkiem. Saldo nie zmieniło się.':paymentAccount ? 'Rata zapisana. Saldo wybranego konta zostało pomniejszone.' : 'Spłata zapisana bez wydatku — saldo kont nie zostało pomniejszone.');
     if (saved) setPaymentTarget(null);
   };
   const saveOverpayment = async (event: FormEvent) => {
@@ -123,7 +129,8 @@ export default function LoanWorkspaceDetail() {
     if (saved) setBalance('');
   };
   const undoPayment = (paymentId: number) => {
-    if (!window.confirm('Cofnąć zapis raty? Powiązany wydatek w budżecie też zostanie cofnięty.')) return;
+    const payment=data?.payments_list.find(p=>p.id===paymentId);
+    if (!window.confirm(payment?.budget_entry_created===false?'Cofnąć powiązanie spłaty? Istniejący wydatek pozostanie w budżecie i saldzie.':'Cofnąć zapis raty? Utworzony przy niej wydatek w budżecie też zostanie cofnięty.')) return;
     void action(() => deleteInstallment(loanId, paymentId), 'Zapis raty cofnięty.');
   };
   const undoOverpayment = (overpaymentId: number) => {
@@ -164,14 +171,15 @@ export default function LoanWorkspaceDetail() {
   const { loan, status, actual_metrics, simulated_metrics } = data;
   const nextRow = schedule.find(row => row.date === status.next_due_date);
   const nextRate = nextRow?.interest_rate ?? data.rates_list[data.rates_list.length - 1]?.interest_rate ?? 0;
-  const upcoming = schedule.filter(row => row.date >= localToday()).slice(0, 4);
-  const firstUnpaid = schedule.find(row => !paidMonths.has(row.month) && row.date <= localToday());
+  const upcoming = schedule.filter(row => row.date >= localToday() && !paidMonths.has(row.month)).slice(0, 4);
+  const paymentSuggestion = requestedInstallment && !paidMonths.has(requestedInstallment.month)
+    ? requestedInstallment : nextRow;
 
   return <div className="loan-page">
     <Link className="loan-back" to="/loans"><ArrowLeft size={17} /> Wszystkie kredyty</Link>
     <header className="loan-heading loan-detail-heading"><div><p className="page-eyebrow">Analiza zobowiązania</p><h1>{loan.name}</h1>
       <p>{loan.category === 'RATY_0' ? 'Raty 0%' : loan.category === 'HIPOTECZNY' ? 'Kredyt hipoteczny' : 'Kredyt gotówkowy'} · {loan.installment_type === 'DECREASING' ? 'raty malejące' : 'raty równe'} · od {dateLabel(loan.start_date)}</p></div>
-      {firstUnpaid && <button type="button" className="loan-button-primary" onClick={() => { startPayment(firstUnpaid); setView('schedule'); }}><Check size={17} /> Zapisz spłatę</button>}</header>
+      {paymentSuggestion && <button type="button" className="loan-button-primary" onClick={() => { startPayment(paymentSuggestion); setView('schedule'); }}><Check size={17} /> Zapisz spłatę</button>}</header>
     {error && <div role="alert" className="loan-alert">{error}<button type="button" aria-label="Zamknij komunikat" onClick={() => setError('')}><X size={16} /></button></div>}
     {success && <div role="status" className="loan-alert is-success">{success}<button type="button" aria-label="Zamknij komunikat" onClick={() => setSuccess('')}><X size={16} /></button></div>}
     <section className="loan-summary-grid" aria-label="Stan kredytu">
@@ -231,7 +239,8 @@ export default function LoanWorkspaceDetail() {
             <button type="submit" className="loan-button-primary" disabled={busy}>Zapisz nadpłatę</button></form></section></div></div>}
     {view === 'history' && <div className="loan-history-grid">
       <div className="loan-side-stack"><section className="loan-panel surface-card"><div className="loan-section-title"><div><p className="page-eyebrow">Potwierdzone operacje</p><h2>Zapisane spłaty</h2></div><CheckCircle2 size={20} /></div>
-        {data.payments_list.length ? data.payments_list.map(payment => <div className="loan-history-row" key={payment.id}><span><strong>Rata {payment.installment_month}</strong><small>{dateLabel(payment.paid_on)}{payment.budget_linked ? ' · budżet' : ''}</small></span><b>{money(payment.amount)}</b>
+        {data.payments_list.length ? data.payments_list.map(payment => <div className="loan-history-row" key={payment.id}><span><strong>Rata {payment.installment_month}</strong><small>{dateLabel(payment.paid_on)}{payment.budget_linked ? ' · rozliczona w budżecie' : ' · bez wydatku w budżecie'}</small></span><b>{money(payment.amount)}</b>
+          {!payment.budget_linked&&<button type="button" className="loan-button-secondary" disabled={busy} onClick={()=>{setPaymentAccount(String(data?.budget_settings?.resolved_account_id??''));setPaymentLink({ready:false});setPaymentToBudget(payment);}}>Rozlicz w budżecie</button>}
           <button type="button" className="loan-icon-button" disabled={busy} title="Cofnij spłatę" aria-label={'Cofnij ratę ' + payment.installment_month} onClick={() => undoPayment(payment.id)}><RotateCcw size={16} /></button></div>) : <p className="loan-muted">Nie zapisano jeszcze żadnej spłaty.</p>}</section>
         <section className="loan-panel surface-card"><div className="loan-section-title"><div><p className="page-eyebrow">Przedterminowe spłaty</p><h2>Nadpłaty</h2></div></div>
           {data.overpayments_list.length ? data.overpayments_list.map(op => <div className="loan-history-row" key={op.id}><span><strong>{dateLabel(op.date)}</strong><small>{op.type === 'REDUCE_INSTALLMENT' ? 'Zmniejszenie raty' : 'Skrócenie okresu'}{op.budget_linked ? ' · budżet' : ''}</small></span><b>{money(op.amount)}</b>
@@ -253,11 +262,15 @@ export default function LoanWorkspaceDetail() {
         <p className="loan-muted">Planowany termin: {dateLabel(paymentTarget.date)}. Zapis jest potwierdzeniem płatności w aplikacji.</p>
         <form className="loan-form" onSubmit={savePayment}><label>Zapłacona kwota (PLN)<input required type="number" min="0.01" step="0.01" value={paymentAmount} onChange={event => setPaymentAmount(event.target.value)} /></label>
           <label>Data płatności<input required type="date" max={localToday()} value={paymentDate} onChange={event => setPaymentDate(event.target.value)} /></label>
-          <label>Konto budżetowe<select value={paymentAccount} onChange={event => setPaymentAccount(event.target.value)}><option value="">Tylko zapisz spłatę</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name} · {money(account.balance)}</option>)}</select></label>
-          <p className="loan-form-note">Wybór konta zapisze równocześnie wydatek w nowym budżecie. Każdą ratę można zapisać tylko raz.</p>
+          <label>Konto budżetowe<select value={paymentAccount} onChange={event => setPaymentAccount(event.target.value)}><option value="">Bez wydatku — nie pomniejszaj salda kont</option>{accounts.filter(account=>account.currency==='PLN').map(account => <option key={account.id} value={account.id}>{account.name} · {money(account.balance)}</option>)}</select></label>
+          <LoanPaymentLink loanId={loanId} accountId={Number(paymentAccount)} date={paymentDate} amount={Number(paymentAmount)} onChange={setPaymentLink}/>
+          <p className="loan-form-note">{paymentAccount?`${accounts.find(a=>a.id===Number(paymentAccount))?.name}: ${money(accounts.find(a=>a.id===Number(paymentAccount))?.balance??0)} → ${money((accounts.find(a=>a.id===Number(paymentAccount))?.balance??0)-(paymentLink.existing_entry_id?0:Number(paymentAmount||0)))}`:'Uwaga: zapiszesz wyłącznie potwierdzenie spłaty. Saldo budżetu pozostanie bez zmian. Wybierz konto, jeśli rata ma zostać odjęta od jego salda.'}</p>
+          <p className="loan-form-note">{paymentLink.existing_entry_id?'Płatność jest już w budżecie. Powiążemy ją ze spłatą bez ponownego obciążenia konta.':'Nowy wydatek pomniejszy saldo wybranego konta. Jeśli rata jest już w budżecie, wybierz jej istniejącą płatność powyżej.'}</p>
           {accounts.length === 0 && <p className="loan-form-note">Aby zapisać także wydatek, najpierw <Link to="/budget">dodaj konto w budżecie</Link>.</p>}
           <div className="loan-form-actions"><button type="button" className="loan-button-quiet" onClick={() => setPaymentTarget(null)}>Anuluj</button>
-            <button type="submit" className="loan-button-primary" disabled={busy}><Check size={17} /> Potwierdź spłatę</button></div></form></section></div>}
+            <button type="submit" className="loan-button-primary" disabled={busy||!paymentLink.ready}><Check size={17} /> Potwierdź spłatę</button></div></form></section></div>}
+    {paymentToBudget&&<div className="loan-modal-backdrop"><section className="loan-modal surface-card" role="dialog" aria-modal="true" aria-label="Rozlicz istniejącą spłatę w budżecie"><h2>Rozlicz istniejącą spłatę w budżecie</h2><p>Rata {paymentToBudget.installment_month} · {dateLabel(paymentToBudget.paid_on)} · {money(paymentToBudget.amount)}. Zachowamy tę spłatę i jej datę.</p><form className="loan-form" onSubmit={async event=>{event.preventDefault();const saved=await action(()=>recordInstallment(loanId,{installment_month:paymentToBudget.installment_month,paid_on:paymentToBudget.paid_on,amount:paymentToBudget.amount,account_id:Number(paymentAccount),apply_to_budget:true,payment_id:paymentToBudget.id,...(paymentLink.existing_entry_id?{existing_entry_id:paymentLink.existing_entry_id,entry_version:paymentLink.entry_version}:paymentLink.confirm_new_expense?{confirm_new_expense:true}:{})}),paymentLink.existing_entry_id?'Spłata powiązana z istniejącym wydatkiem. Saldo nie zmieniło się.':'Spłata rozliczona w budżecie. Saldo konta zostało pomniejszone.');if(saved)setPaymentToBudget(null);}}><label>Konto płatności<select required value={paymentAccount} onChange={e=>setPaymentAccount(e.target.value)}><option value="">Wybierz konto</option>{accounts.filter(a=>a.currency==='PLN').map(a=><option key={a.id} value={a.id}>{a.name} · {money(a.balance)}</option>)}</select></label><LoanPaymentLink loanId={loanId} accountId={Number(paymentAccount)} date={paymentToBudget.paid_on} amount={paymentToBudget.amount} onChange={setPaymentLink}/>{error&&<p role="alert">{error}</p>}<p className="loan-form-note">{paymentAccount?`${money(accounts.find(a=>a.id===Number(paymentAccount))?.balance??0)} → ${money((accounts.find(a=>a.id===Number(paymentAccount))?.balance??0)-(paymentLink.existing_entry_id?0:paymentToBudget.amount))}`:'Wybierz konto płatności.'} {paymentLink.existing_entry_id?'Płatność jest już w budżecie — zachowamy saldo.':'Nowy wydatek wybierz tylko wtedy, gdy saldo nie uwzględnia jeszcze tej raty.'}</p><div className="loan-form-actions"><button type="button" className="loan-button-quiet" disabled={busy} onClick={()=>setPaymentToBudget(null)}>Anuluj</button><button type="submit" className="loan-button-primary" disabled={busy||!paymentAccount||!paymentLink.ready}>{paymentLink.existing_entry_id?'Powiąż bez zmiany salda':'Pomniejsz saldo i rozlicz'}</button></div></form></section></div>}
+    {data.budget_settings&&<LoanBudgetSettingsPanel key={`${loanId}-${data.budget_settings.version}`} settings={data.budget_settings} accounts={accounts} categories={categories} onSaved={refresh}/>}
     <div className="loan-footer"><span>Harmonogram jest szacunkiem; uzgadniaj saldo i naliczone odsetki z bankiem.</span><button type="button" className="loan-text-button" onClick={() => setView('schedule')}>Zobacz raty <ArrowRight size={15} /></button></div>
   </div>;
 }

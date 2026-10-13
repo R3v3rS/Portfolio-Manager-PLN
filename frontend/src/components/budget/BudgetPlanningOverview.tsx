@@ -18,9 +18,9 @@ export function BudgetPlanningOverview({ data, forecast, failed }: { data: Budge
       {data.totals.monthly_income_to_plan!==undefined&&<article className={data.totals.monthly_income_to_plan<0?'is-negative':''} aria-label="Wolne z przychodów miesiąca"><span>Wolne z przychodów miesiąca</span><strong>{money(data.totals.monthly_income_to_plan)}</strong><p>Bez wcześniejszych sald i oszczędności.</p>{data.totals.monthly_income_to_plan<0&&<small>Plan wymaga pieniędzy z poprzednich miesięcy.</small>}</article>}
       <article className={`bp-money-now ${data.totals.to_plan<0?'is-negative':''}`} aria-label="Do zaplanowania z dostępnych pieniędzy"><span>Do zaplanowania</span><strong>{money(data.totals.to_plan)}</strong><p>Z sald kont i oczekiwanych wpływów, po uwzględnieniu planu i rezerw.</p></article>
     </section>
-    <div className="budget-cash-context"><span><Wallet size={16}/>Dostępne teraz <strong>{money(data.totals.available_now??data.totals.balance)}</strong></span><span><CalendarDays size={16}/>Do następnej wypłaty <strong>{next?money(next.available):failed?'Niedostępne':'Wyliczanie…'}</strong></span><Link to="/budget/forecast">Prognoza i terminy <ArrowRight size={14}/></Link></div>
+    <div className="budget-cash-context"><span><Wallet size={16}/>Dostępne teraz <strong>{money(data.totals.available_now??data.totals.balance)}</strong></span><span><CalendarDays size={16}/>Do następnej wypłaty <strong>{next?money(next.available):failed?'Niedostępne':'Wyliczanie…'}</strong></span><Link to={`/budget/forecast?month=${data.month}`}>Prognoza i terminy <ArrowRight size={14}/></Link></div>
     <details className="budget-calculation-help"><summary>Jak liczymy dostępne pieniądze?</summary><p>{monthLabel} · otrzymano {money(data.totals.income)}{(data.totals.expected_income??0)>0&&` + oczekiwane ${money(data.totals.expected_income??0)}`}. Wykorzystano {money(data.totals.monthly_income_cost??0)}; pozostały plan {money(data.totals.monthly_income_remaining_plan??0)}.</p><p>Wolne z przychodów miesiąca: bez wcześniejszych sald i oszczędności. Plan obejmuje wydatki oraz odłożenia.{(data.totals.monthly_invested??0)>0&&` Wpłaty do inwestycji: ${money(data.totals.monthly_invested??0)}.`}</p><p>Do zaplanowania: saldo {money(data.totals.balance)} + oczekiwane wpływy {money(data.totals.expected_income??0)} − pozostałe limity, rachunki i raty {money(data.totals.remaining_commitments??Math.max(0,data.totals.planned-data.totals.spent))} − rezerwy {money(data.totals.reserved??0)} − dodatkowe odłożenia {money(data.totals.reserve_plan_extra??data.totals.reserve_plan_remaining??0)}.</p>{next&&<p>Do następnej wypłaty: prognoza na {day(next.through)}. Płatności do tego dnia: {money(next.must_pay)}.</p>}</details>
-    {next && next.minimum < 0 && <div className="bp-warning" role="status">Przed kolejną wypłatą plan przekracza dostępne środki. Najniższa prognoza: <b>{money(next.minimum)}</b>. <Link to="/budget/forecast">Sprawdź koszty i konta</Link></div>}
+    {next && next.minimum < 0 && <div className="bp-warning" role="status">Przed kolejną wypłatą plan przekracza dostępne środki. Najniższa prognoza: <b>{money(next.minimum)}</b>. <Link to={`/budget/forecast?month=${data.month}`}>Sprawdź koszty i konta</Link></div>}
   </>;
 }
 
@@ -36,7 +36,7 @@ export function ForecastAccounts({ data, days = 30 }: { data: CashForecast; days
   </section>;
 }
 
-export function BudgetPayCycle({ data, forecast, reload }: { data: BudgetWorkspace; forecast: CashForecast | null; reload: () => Promise<void> }) {
+export function BudgetPayCycle({ data, forecast, reload, settingsOnly=false }: { data: BudgetWorkspace; forecast: CashForecast | null; reload: () => Promise<void>;settingsOnly?:boolean }) {
   const context = data.planning!;
   const config = context.settings;
   const [payDay, setPayDay] = useState(String(config.resolved_pay_day));
@@ -55,11 +55,11 @@ export function BudgetPayCycle({ data, forecast, reload }: { data: BudgetWorkspa
   };
   return <div className="bp-section-stack">
     <PlanningMessages {...action}/>
-    <section className="budget-panel surface-card">
+    {!settingsOnly&&<section className="budget-panel surface-card">
       <div className="budget-section-heading"><div><p className="page-eyebrow">Od wypłaty do wypłaty</p><h2>{day(cycle.start)} — {day(cycle.end)}</h2><p>Miesiąc wybrany u góry wskazuje początek okresu. Limity kategorii i historia nadal dotyczą miesięcy kalendarzowych.</p></div></div>
       <div className="bp-cycle-stats"><div><span>Otrzymane w okresie</span><b>{money(cycle.income)}</b></div><div><span>Jeszcze oczekiwane</span><b>{money(cycle.expected_income)}</b></div><div><span>Zapisane wydatki</span><b>{money(cycle.spent)}</b></div><div><span>Pozostałe koszty w prognozie</span><b>{forecast ? money(plannedOut) : '—'}</b></div></div>
       {points.length > 1 ? <TrendChart data={points} series={[{key:'balance', name:'Saldo kont', area:true}, {key:'available', name:'Poza rezerwami', dashed:true}]} height={260} zero note="Prognoza zaczyna się dzisiaj; zapisane wydatki są już w saldzie. Plan nie zmienia historii."/> : <p className="budget-small-empty">Wykres pojawia się dla części okresu objętej prognozą od dzisiaj. Historyczne wpływy i wydatki widzisz powyżej.</p>}
-    </section>
+    </section>}
     <section className="budget-panel surface-card"><div className="budget-section-heading"><div><p className="page-eyebrow">Dopasuj do swoich finansów</p><h2><Settings2 size={18}/> Ustawienia planowania</h2><p>Wybrany dzień określa granice okresu. Termin faktycznego wpływu zmienisz w planie dochodu.</p></div><Link className="budget-text-button" to="/budget/forecast">Edytuj dochody <ArrowRight size={15}/></Link></div>
       <form className="bp-settings-form" onSubmit={save}><fieldset disabled={action.busy}>
         <label>Dzień początku okresu<input required type="number" min="1" max="31" step="1" value={payDay} onChange={e => setPayDay(e.target.value)}/></label>
@@ -67,8 +67,8 @@ export function BudgetPayCycle({ data, forecast, reload }: { data: BudgetWorkspa
         <label>Konto codziennych wydatków<select value={spendingAccount} onChange={e => setSpendingAccount(e.target.value)}><option value="">Konto głównej wypłaty</option>{data.accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Konto rat kredytów<select value={loanAccount} onChange={e => setLoanAccount(e.target.value)}><option value="">Konto codziennych wydatków</option>{data.accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <button className="budget-button-primary" type="submit">Zapisz ustawienia</button>
-      </fieldset></form><p className="bp-help">Dzień 29–31 w krótszym miesiącu oznacza jego ostatni dzień. Ustawienia służą planowaniu i nie wykonują przelewów.</p>
+      </fieldset></form><p className="bp-help">Dzień 29–31 w krótszym miesiącu oznacza jego ostatni dzień. Konto rat jest domyślne dla kredytów bez własnego przypisania. Osobne konto i kategorię ustawisz w <Link to="/loans">szczegółach każdego kredytu</Link>. Ustawienia służą planowaniu i nie wykonują przelewów.</p>
     </section>
-    {forecast && <ForecastAccounts data={forecast}/>}
+    {!settingsOnly&&forecast && <ForecastAccounts data={forecast}/>}
   </div>;
 }
