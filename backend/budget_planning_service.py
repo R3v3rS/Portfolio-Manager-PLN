@@ -138,7 +138,8 @@ def save_reserve_plan(reserve_id,data):
 def save_policy(category_id,data):
     from routes_budget_workspace import month_value,positive_id
     db=get_db();month=month_value(data.get('start_month'));mode=data.get('mode')
-    if mode not in ('RESET','ROLLOVER','RESERVE'): raise ValidationError('Wybierz zasadę niewykorzystanego limitu.')
+    if mode not in ('RESET','ROLLOVER','RESERVE','DECIDE'): raise ValidationError('Wybierz zasadę niewykorzystanego limitu.')
+    decision_required = int(mode == 'DECIDE')
     reserve_id=positive_id(data.get('reserve_id'),'rezerwę') if mode=='RESERVE' else None
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -151,8 +152,8 @@ def save_policy(category_id,data):
             raise ValidationError('Wybierz aktywną rezerwę.')
         current=db.execute('SELECT * FROM budget_category_policies WHERE category_id=?',(category_id,)).fetchone()
         check_version(current,data.get('version'),'Zasada kategorii')
-        db.execute('''INSERT INTO budget_category_policies(category_id,mode,reserve_id,start_month) VALUES(?,?,?,?)
-            ON CONFLICT(category_id) DO UPDATE SET mode=excluded.mode,reserve_id=excluded.reserve_id,start_month=excluded.start_month,version=version+1''',(category_id,mode,reserve_id,month))
+        db.execute('''INSERT INTO budget_category_policies(category_id,mode,reserve_id,start_month,decision_required) VALUES(?,?,?,?,?)
+            ON CONFLICT(category_id) DO UPDATE SET mode=excluded.mode,reserve_id=excluded.reserve_id,start_month=excluded.start_month,decision_required=excluded.decision_required,version=version+1''',(category_id,'RESET' if decision_required else mode,reserve_id,month,decision_required))
         db.commit();return dict(id=category_id)
     except Exception: db.rollback();raise
 
@@ -178,21 +179,41 @@ def close_month(data):
         if not isinstance(expected,dict): raise ValidationError('Odśwież zasady przed zamknięciem.')
         expected_amounts=data.get('amounts',{})
         if not isinstance(expected_amounts,dict): raise ValidationError('Odśwież kwoty przed zamknięciem.')
+        decisions=data.get('decisions',{})
+        if not isinstance(decisions,dict): raise ValidationError('Sprawdź decyzje zamknięcia miesiąca.')
+        policies=db.execute("SELECT * FROM budget_category_policies WHERE (mode='RESERVE' OR decision_required=1) AND start_month<=?",(month,)).fetchall()
+        if set(decisions)-{str(p['category_id']) for p in policies if p['decision_required']}:
+            raise ValidationError('Decyzja dotyczy kategorii bez zasady wyboru przy zamknięciu.')
         closing=db.execute('INSERT INTO budget_month_closings(month,request_id,request_payload,created_at) VALUES(?,?,?,?)',(month,token,fingerprint,_now())).lastrowid
-        for policy in db.execute("SELECT * FROM budget_category_policies WHERE mode='RESERVE' AND start_month<=?",(month,)).fetchall():
+        for policy in policies:
             check_version(policy,expected.get(str(policy['category_id'])),'Zasada kategorii')
             amount=max(0,round(categories[policy['category_id']]['remaining']*100))
             preview=expected_amounts.get(str(policy['category_id']))
             if isinstance(preview,bool) or not isinstance(preview,(int,float)) or preview!=amount/100:
                 raise ApiError('closing_amount_conflict','Wydatki lub plan zmieniły się. Odśwież kwoty przed zamknięciem.',status=409)
             movement=None
-            if amount:
-                reserve=db.execute('SELECT * FROM budget_reserves WHERE id=?',(policy['reserve_id'],)).fetchone()
+            destination,reserve_id='RESERVE',policy['reserve_id']
+            if policy['decision_required']:
+                from budget_closing_decisions import destination as choose_destination
+                destination,reserve_id=choose_destination(db,policy,decisions.get(str(policy['category_id']),dict(destination='RESET') if not amount else None),amount,token,date.today().isoformat())
+            if amount and reserve_id:
+                reserve=db.execute('SELECT * FROM budget_reserves WHERE id=?',(reserve_id,)).fetchone()
+                if not reserve or reserve['is_archived'] or reserve['completed_at']:
+                    raise ValidationError('Wybierz aktywną rezerwę przed zamknięciem.')
                 movement=move(reserve['id'],dict(kind='ADD',amount=amount/100,date=date.today().isoformat(),version=reserve['version'],
                     notes=f'Niewykorzystany limit {categories[policy["category_id"]]["name"]} za {month}',
                     request_id=str(uuid5(UUID(token),str(policy['category_id'])))),within_transaction=True)['id']
-            db.execute('INSERT INTO budget_month_closing_items(closing_id,category_id,reserve_id,amount_cents,movement_id) VALUES(?,?,?,?,?)',
-                (closing,policy['category_id'],policy['reserve_id'],amount,movement))
+            db.execute('INSERT INTO budget_month_closing_items(closing_id,category_id,reserve_id,amount_cents,movement_id,destination) VALUES(?,?,?,?,?,?)',
+                (closing,policy['category_id'],reserve_id,amount,movement,destination))
+        # Freeze every root's disposition, including automatic reset/rollover.
+        # Later policy changes must never reinterpret this month's decision.
+        saved={r[0] for r in db.execute('SELECT category_id FROM budget_month_closing_items WHERE closing_id=?',(closing,))}
+        for category in categories.values():
+            if category['parent_id'] is not None or category['id'] in saved: continue
+            policy=db.execute('SELECT * FROM budget_category_policies WHERE category_id=? AND start_month<=?',(category['id'],month)).fetchone()
+            destination='ROLLOVER' if policy and policy['mode']=='ROLLOVER' and not category['monthly_reserve_managed'] else 'RESET'
+            db.execute('INSERT INTO budget_month_closing_items(closing_id,category_id,amount_cents,destination) VALUES(?,?,?,?)',
+                (closing,category['id'],max(0,round(category['remaining']*100)),destination))
         import json
         from budget_month_snapshot import capture
         from budget_plan_history import freeze
@@ -305,9 +326,10 @@ def workspace(db,month):
     loans,loan_warnings=loan_items(db,month)
     from budget_matching_service import suggestions
     return dict(payment_matches=suggestions(db,month),settings=config,loans=loans,loan_warnings=loan_warnings,month_review=review(db,month),reserve_plans=reserve_plans(db,month),purchases=purchase_items(db),bill_catalog=catalog,
-        policies=[dict(category_id=c['id'],name=c['name'],mode=policies.get(c['id'],{}).get('mode','RESET'),
+        policies=[dict(category_id=c['id'],name=c['name'],mode='DECIDE' if policies.get(c['id'],{}).get('decision_required') else policies.get(c['id'],{}).get('mode','RESET'),
             reserve_id=policies.get(c['id'],{}).get('reserve_id'),start_month=policies.get(c['id'],{}).get('start_month',month),version=policies.get(c['id'],{}).get('version',0))
             for c in options if not c['parent_id'] and not c['is_unassigned']],
         cycle=dict(start=start.isoformat(),end=end.isoformat(),next_payday=next_pay.isoformat(),income=flows[0]/100,spent=flows[1]/100,
             expected_income=pending_amount_cents(db,start.isoformat(),end.isoformat())/100,bills_before_payday=before_pay/100),
-        closing=dict(db.execute('SELECT id,month,created_at FROM budget_month_closings WHERE month=?',(month,)).fetchone() or {}))
+        closing=dict(db.execute('SELECT id,month,created_at FROM budget_month_closings WHERE month=?',(month,)).fetchone() or {}),
+        closing_items=[dict(r,amount=r['amount_cents']/100) for r in db.execute('''SELECT i.*,c.name,r.name reserve_name FROM budget_month_closing_items i JOIN budget_month_closings m ON m.id=i.closing_id JOIN budget_categories_v2 c ON c.id=i.category_id LEFT JOIN budget_reserves r ON r.id=i.reserve_id WHERE m.month=?''',(month,))])

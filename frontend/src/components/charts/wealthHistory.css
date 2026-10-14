@@ -1,0 +1,4 @@
+.wealth-range-selector { display:flex; flex-wrap:wrap; gap:.4rem; margin:1rem 0; }
+.wealth-range-selector button { border:1px solid var(--line,#30464e); border-radius:.65rem; background:var(--surface,#17272f); color:var(--muted,#adc0c8); padding:.5rem .9rem; font:inherit; font-size:.85rem; cursor:pointer; }
+.wealth-range-selector button[aria-pressed="true"] { background:color-mix(in srgb,#42e8e0 14%,var(--surface,#17272f)); color:#42e8e0; border-color:#248e91; }
+.wealth-range-selector button:focus-visible { outline:2px solid #42e8e0; outline-offset:3px; }

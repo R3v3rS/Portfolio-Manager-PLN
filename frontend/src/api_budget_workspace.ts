@@ -5,6 +5,8 @@ const client = createApiClient('/budget/workspace');
 
 export type BudgetAccount = { id: number; name: string; balance: number; currency: string };
 export type BudgetCategory = {
+  plan_source?:'DEFAULT'|'MONTH'|'MEDIA'|'NONE'; plan_source_month?:string|null; default_plan?:number|null;
+  plan_details?: {ordinary_planned:number;ordinary_spent:number;ordinary_remaining:number;payments_planned:number;payments_pending:number;media_remaining:number;ordinary_over:number};
   id: number; name: string; icon: string; manual_plan: number;
   planned_bills: number; planned: number; spent: number; remaining: number;
   monthly_reserve_plan?:number; monthly_reserve_managed?:boolean; actual_spent?:number;
@@ -12,6 +14,8 @@ export type BudgetCategory = {
   path?: string; selection_label?: string; version?: number; has_children?: boolean;
   direct_spent?: number; direct_planned_bills?: number; children_plan?: number;
   carryover?: number; reserve_covered?:number; reserve_settled?:number;
+  daily_pace_included?:boolean; daily_pace_effective?:boolean;
+  description?:string; has_activity?:boolean; rule_count?:number;
 };
 export type BudgetLine = { category_id: number; category_name: string; label: string; amount: number };
 export type BudgetEntry = {
@@ -36,6 +40,7 @@ export type BudgetBill = {
   payment_candidates?:{id:number;date:string;description:string;amount:number;version:number}[];
 };
 export type BudgetWorkspace = {
+  bank_transfers?:{id:number;date:string;description:string;amount:number;source_account_id:number;target_account_id:number;source_name:string;target_name:string;reserve_name:string|null;move_money?:number;reserve_action?:string}[];
   chart?:{date:string;cash_spent:number|null;budget_spent:number|null;cash_plan:number;budget_plan:number;daily_spent?:number|null;daily_plan?:number}[];
   fixed_costs?:{planned:number;paid:number;pending:number;over_plan:number;early_count:number;paid_count:number;count:number};
   month: string; accounts: BudgetAccount[]; categories: BudgetCategory[];
@@ -75,12 +80,17 @@ export type BillInput = {
 };
 
 export const budgetWorkspaceApi = {
+  defaultPlans:(month:string)=>client.get<DefaultPlans>('/plans/defaults',{params:{month}}),
+  saveDefaults:(start_month:string,items:{category_id:number;amount:number;revision:string}[])=>client.put<{saved:number}>('/plans/defaults',{start_month,items}),
+  resetPlan:(categoryId:number,month:string)=>client.delete('/plans/'+categoryId,{params:{month}}),
+  previewCopy:(input:PlanCopyInput)=>client.post<PlanCopyPreview>('/plans/copy-preview',input),
+  copyRange:(input:PlanCopyInput,token:string,request_id:string)=>client.post<{copied:number;skipped:number}>('/plans/copy-range',{...input,token,request_id}),
   settlementPreview:(id:number)=>client.get<SettlementPreview>(`/entries/${id}/settlement-preview`),
   reverseSettlement:(id:number,input:SettlementPreview,request_id:string)=>client.post(`/entries/${id}/reverse-settlement`,{...input,request_id}),
   get: (month: string) => client.get<BudgetWorkspace>('', { params: { month } }),
   createAccount: (name: string, balance: number) => client.post<{ id: number }>('/accounts', { name, balance }),
-  createCategory: (name: string, parent_id: number | null = null) => client.post<{ id: number }>('/categories', { name, parent_id }),
-  updateCategory: (id: number, name: string, parent_id: number | null, version: number) => client.put<{ id: number }>('/categories/' + id, { name, parent_id, version }),
+  createCategory: (name: string, parent_id: number | null = null, daily_pace_included=true, description?:string) => client.post<{ id: number }>('/categories', { name, parent_id, daily_pace_included, ...(description!==undefined?{description}:{}) }),
+  updateCategory: (id: number, name: string, parent_id: number | null, version: number, daily_pace_included?:boolean, description?:string) => client.put<{ id: number }>('/categories/' + id, { name, parent_id, version, daily_pace_included, ...(description!==undefined?{description}:{}) }),
   setPlan: (categoryId: number, month: string, amount: number) =>
     client.put('/plans/' + categoryId, { month, amount }),
   copyPlans: (source: string, target: string) => client.post<{ copied: number }>('/plans/copy', { source, target }),
@@ -104,3 +114,6 @@ export const budgetWorkspaceApi = {
 };
 
 export interface SettlementPreview {entry_id:number;entry_version:number;reserve_version:number|null;balance_before:number;balance_after:number;account_name:string;delete_expense:boolean;restored_reserve:number;message:string}
+export interface DefaultPlans {month:string;items:{category_id:number;name:string;parent_id:number|null;managed:boolean;amount:number|null;start_month:string|null;revision:string;history:{start_month:string;amount:number}[]}[]}
+export interface PlanCopyInput {source:string;start:string;months:number;replace:boolean;category_ids:number[]}
+export interface PlanCopyPreview {source:string;start:string;months:number;replace:boolean;copied:number;skipped:number;token:string;rows:{month:string;category_id:number;name:string;action:'ADD'|'REPLACE'|'KEEP'|'MANAGED'|'NO_SOURCE';amount:number;previous:number}[]}

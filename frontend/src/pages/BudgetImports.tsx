@@ -1,6 +1,7 @@
+import BudgetNavigation from '../components/budget/BudgetNavigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, Camera, Check, CirclePlus, FileUp, History, ListChecks, Pencil, RefreshCw, ShieldCheck, WandSparkles } from 'lucide-react';
+import { ArrowUpRight, Camera, Check, CirclePlus, FileUp, History, ListChecks, Pencil, RefreshCw, ShieldCheck, WandSparkles } from 'lucide-react';
 import { budgetImportsApi, type BudgetImportsWorkspace, type CategoryRule } from '../api_budget_imports';
 import { extractErrorMessageFromUnknown } from '../http/response';
 import BankCsvImport from '../components/budget/imports/BankCsvImport';
@@ -21,9 +22,11 @@ const tabs:{id:Tab;name:string;icon:typeof Camera}[]=[{id:'PENDING',name:'Do prz
 
 export default function BudgetImports(){
   const [suggestion,setSuggestion]=useState<RuleSuggestion|null>(null);
-  const [params]=useSearchParams();const requestedId=Number(params.get('entry_id'))||undefined;
+  const [params,setParams]=useSearchParams();const requestedId=Number(params.get('entry_id'))||undefined;
   const [data,setData]=useState<BudgetImportsWorkspace|null>(null),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
-  const [tab,setTab]=useState<Tab>(params.get('tab')==='receipt'||requestedId?'RECEIPT':'PENDING');
+  const requestedTab=(params.get('tab')??'').toUpperCase();
+  const tab:Tab=['PENDING','CSV','RECEIPT','RULES','HISTORY'].includes(requestedTab)?requestedTab as Tab:requestedId?'RECEIPT':'PENDING';
+  const setTab=(value:Tab)=>{const next=new URLSearchParams(params);next.set('tab',value.toLowerCase());if(value!=='RECEIPT')next.delete('entry_id');setParams(next);};
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[ruleEditor,setRuleEditor]=useState<RuleDraft|null>(null);
   const [sessionId,setSessionId]=useState<number|null>(null),[draftId,setDraftId]=useState<number|null>(null),[limit,setLimit]=useState(200);
   const [selected,setSelected]=useState<Set<number>>(new Set()),[category,setCategory]=useState(''),[rowCategories,setRowCategories]=useState<Record<number,string>>({});
@@ -46,7 +49,9 @@ export default function BudgetImports(){
   };
   const blocked=busy||loading;
   return <div className="page-stack budget-page br-page bi-page">
-    <header className="br-heading"><div><p className="page-eyebrow">Mniej przepisywania, pełniejszy budżet</p><h1>Importy i paragony</h1><p>Wczytaj wyciąg, przypisz sklepy do kategorii i uzupełniaj zakupy paragonami. Jeden zakup pozostaje jednym wydatkiem.</p></div><div className="br-actions"><Link className="budget-button-secondary" to="/budget"><ArrowLeft size={16}/>Budżet</Link><button className="budget-button-secondary" disabled={blocked} aria-label="Odśwież importy i wydatki" onClick={()=>void reload()}><RefreshCw size={16}/></button><button className="budget-button-primary" disabled={!data||blocked} onClick={()=>setRuleEditor({rule:null})}><CirclePlus size={16}/>Dodaj regułę</button></div></header>
+    <header className="br-heading"><div><p className="page-eyebrow">Mniej przepisywania, pełniejszy budżet</p><h1>Importy i paragony</h1><p>Wczytaj wyciąg, przypisz sklepy do kategorii i uzupełniaj zakupy paragonami. Jeden zakup pozostaje jednym wydatkiem.</p></div><div className="br-actions"><button className="budget-button-secondary" disabled={blocked} aria-label="Odśwież importy i wydatki" onClick={()=>void reload()}><RefreshCw size={16}/></button><button className="budget-button-primary" disabled={!data||blocked} onClick={()=>setRuleEditor({rule:null})}><CirclePlus size={16}/>Dodaj regułę</button></div></header>
+    <BudgetNavigation active="imports" current/>
+
     {notice&&<div className="budget-feedback is-success" role="status">{notice}</div>}
     {suggestion&&<BudgetRuleSuggestion suggestion={suggestion} onClose={()=>{setSuggestion(null);void reload();}}/>}
     {error&&<div className="budget-feedback is-error" role="alert">{error}{data&&<span> Pokazujemy ostatnio odczytane dane.</span>}<button className="budget-text-button" disabled={loading} onClick={()=>void reload()}>Odśwież dane</button></div>}

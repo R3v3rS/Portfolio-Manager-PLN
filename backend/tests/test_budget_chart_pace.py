@@ -31,6 +31,40 @@ class ChartPaceTests(unittest.TestCase):
     def payment(self,bill,amount):
         return self.result(self.client.post(f'/api/budget/workspace/bills/{bill}/pay',json=dict(month='2026-10',date='2026-10-08',amount=amount,request_id=str(uuid4()))),201)['entry_id']
 
+    def test_excluded_child_removes_its_limit_and_lines_but_keeps_full_budget(self):
+        db=get_db()
+        fuel=db.execute("INSERT INTO budget_categories_v2(name,parent_id) VALUES('Paliwo',?)",(self.shopping,)).lastrowid
+        db.execute("UPDATE budget_plans_v2 SET amount_cents=61000 WHERE category_id=?",(self.shopping,))
+        db.execute("INSERT INTO budget_plans_v2 VALUES(?,'2026-10',30000)",(fuel,));db.commit()
+        self.result(self.client.put(f'/api/budget/workspace/categories/{fuel}',json=dict(name='Paliwo',parent_id=self.shopping,version=1,daily_pace_included=False)))
+        self.result(self.client.post('/api/budget/workspace/entries',json=dict(kind='EXPENSE',account_id=self.account,amount=380,date='2026-10-08',description='Zakupy i paliwo',lines=[dict(category_id=fuel,amount=300,label='Paliwo'),dict(category_id=self.shopping,amount=80,label='Zakupy')])),201)
+        workspace=self.get_workspace()
+        self.assertEqual((workspace['chart'][7]['daily_spent'],workspace['chart'][7]['daily_plan']),(80,80))
+        self.assertEqual((workspace['chart'][-1]['daily_plan'],workspace['chart'][-1]['cash_plan'],workspace['chart'][-1]['budget_plan']),(310,610,610))
+        self.assertEqual(workspace['totals']['spent'],380)
+        self.assertEqual(workspace['totals']['planned'],610)
+        self.assertEqual(db.execute('SELECT balance FROM budget_accounts WHERE id=?',(self.account,)).fetchone()[0],9620)
+        row=next(c for c in workspace['categories'] if c['id']==fuel)
+        self.assertFalse(row['daily_pace_effective'])
+        self.assertEqual(self.client.put(f'/api/budget/workspace/categories/{fuel}',json=dict(name='Paliwo',parent_id=self.shopping,version=1,daily_pace_included=True)).status_code,409)
+
+    def test_excluded_root_applies_to_children_and_renaming_preserves_flag(self):
+        db=get_db()
+        child=db.execute("INSERT INTO budget_categories_v2(name,parent_id) VALUES('Zakupy duże',?)",(self.shopping,)).lastrowid;db.commit()
+        self.result(self.client.put(f'/api/budget/workspace/categories/{self.shopping}',json=dict(name='Jedzenie',parent_id=None,version=1,daily_pace_included=False)))
+        self.expense(100,category=child,day='2026-10-08')
+        self.result(self.client.put(f'/api/budget/workspace/categories/{self.shopping}',json=dict(name='Zakupy',parent_id=None,version=2)))
+        workspace=self.get_workspace()
+        self.assertEqual(workspace['chart'][7]['daily_spent'],0)
+        self.assertEqual(workspace['chart'][-1]['daily_plan'],0)
+        self.assertEqual(workspace['chart'][-1]['cash_plan'],310)
+        self.assertFalse(next(c for c in workspace['categories'] if c['id']==child)['daily_pace_effective'])
+
+    def test_invalid_pace_flag_does_not_change_category(self):
+        response=self.client.put(f'/api/budget/workspace/categories/{self.shopping}',json=dict(name='Jedzenie',parent_id=None,version=1,daily_pace_included='false'))
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(get_db().execute('SELECT daily_pace_included FROM budget_categories_v2 WHERE id=?',(self.shopping,)).fetchone()[0],1)
+
     def test_early_rent_moves_allowance_and_is_not_daily_shopping(self):
         bill=self.bill(title='Czynsz',amount=773,due_day=10)
         self.payment(bill,773)

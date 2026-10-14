@@ -148,11 +148,13 @@ def workspace(options=None):
                 href=f'/budget?view=bills&month={occurrence}',detail='Szacunkowa kwota' if row['variable_amount'] else 'Rachunek bez zapisu płatności',account_id=row['account_id'])
     if overdue:warnings.append(f'Nieopłacone rachunki z minionym terminem: {overdue}. Przyjęto płatność jutro; sprawdź, czy nie zostały już opłacone.')
 
-    loan_nominal=defaultdict(int)
+    loan_fixed=defaultdict(lambda:defaultdict(int))
     paid_loans={(r['loan_id'],r['installment_month']) for r in db.execute('SELECT loan_id,installment_month FROM loan_installment_payments')}
     old_loans,current_overdue=0,0
     for loan_row in db.execute('''SELECT id,name,original_amount,duration_months,CAST(start_date AS TEXT) start_date,installment_type FROM loans'''):
         loan=dict(loan_row)
+        from loan_budget_service import settings as loan_budget_settings
+        loan_budget=loan_budget_settings(db,loan['id'])
         included=source(f'loan:{loan["id"]}','LOAN',loan['name'],0,f'/loans/{loan["id"]}')
         rates=LoanService.get_loan_rates(loan['id'])
         try:
@@ -162,13 +164,13 @@ def workspace(options=None):
                 if row['installment']<=0 or row.get('is_mid_month'):continue
                 if not math.isfinite(row['installment']):raise ValueError('invalid installment')
                 amount=round(row['installment']*100)
-                loan_nominal[row['date'][:7]]+=amount
+                if loan_budget['category_id'] is not None:loan_fixed[row['date'][:7]][loan_budget['category_id']]+=amount
                 if (loan['id'],row['month']) in paid_loans:continue
                 if row['date']<today.strftime('%Y-%m')+'-01':old_loans+=1;continue
                 if included:
                     if row['date']<today.isoformat():current_overdue+=1
                     add(f'loan:{loan["id"]}:{row["month"]}',row['date'],'LOAN',loan['name'],amount,-amount,
-                        href=f'/loans/{loan["id"]}',detail='Rata według zapisanego oprocentowania; konto z ustawień planowania',account_id=configuration['resolved_loan_account_id'])
+                        href=f'/loans/{loan["id"]}',detail='Rata według zapisanego oprocentowania; konto przypisane do kredytu',account_id=loan_budget['resolved_account_id'])
         except (ValueError,TypeError,IndexError,ZeroDivisionError,OverflowError):
             warnings.append(f'{loan["name"]}: brak pełnego harmonogramu lub oprocentowania. Raty tego kredytu mogą być niepełne w prognozie.')
     if old_loans:warnings.append(f'Starsze raty bez zapisu spłaty: {old_loans}. Nie doliczamy ich automatycznie; sprawdź historię kredytów.')
@@ -320,16 +322,16 @@ def workspace(options=None):
                 href='/goals',detail='Pozostała miesięczna wpłata; termin na koniec miesiąca lub termin celu')
 
     # Default ordinary spending = manual category limits less fixed bills and
-    # loan installments in their shared Rachunki category. Users can override it.
+    # loan installments in their assigned categories. Users can override it.
     from budget_category_hierarchy_service import category_options, plan_amounts
     options = category_options(db)
     roots = {c['id']: c['parent_id'] or c['id'] for c in options}
-    loan_root = next((roots[c['id']] for c in options if c['name'].casefold()=='rachunki'), None)
-    plans=defaultdict(dict)
-    for row in db.execute('SELECT * FROM budget_plans_v2'):
-        plans[row['month']][row['category_id']]=row['amount_cents']
+    from budget_default_plan_service import resolve
+    plan_bases={}
+    variable_cache={}
     def variable_plan(month):
-        manual=dict(plans.get(month) or plans.get(today.strftime('%Y-%m'),{}))
+        if month in variable_cache:return variable_cache[month]
+        manual,provenance=resolve(db,month,today.strftime('%Y-%m'))
         fixed=defaultdict(int)
         for bill in bills:
             if due_in_month(bill,month) and (bill['active'] or (bill['id'],month) in paid_bills):
@@ -342,13 +344,20 @@ def workspace(options=None):
         for category_id,amount in category_targets(db,month).items():
             fixed[category_id]+=amount
             manual[category_id]=0
+            provenance[category_id]=dict(kind='MEDIA',month=month)
+        for category_id,amount in loan_fixed[month].items():fixed[category_id]+=amount
         effective=plan_amounts(options, manual, fixed)
         if month==today.strftime('%Y-%m'):
             from budget_rollover_service import carries
             for category_id,amount in carries(db,month,options).items():effective[category_id]+=amount
-        return {c['id']:max(0,effective[c['id']]-sum(amount for category_id,amount in fixed.items() if roots.get(category_id)==c['id'])
-                       -(loan_nominal[month] if c['id']==loan_root else 0))
+        result={c['id']:max(0,effective[c['id']]-sum(amount for category_id,amount in fixed.items() if roots.get(category_id)==c['id']))
                    for c in options if c['parent_id'] is None}
+        plan_bases[month]=dict(month=month,ordinary_limit=sum(result.values())/100,
+            categories=[dict(category_id=c['id'],name=c['path'],amount=manual.get(c['id'],0)/100,
+                source=provenance.get(c['id'],{}).get('kind','NONE'),source_month=provenance.get(c['id'],{}).get('month'))
+                for c in options if not c['is_unassigned']])
+        variable_cache[month]=result
+        return result
     default_variable=sum(variable_plan(today.strftime('%Y-%m')).values())
     # Each root owns its allowance. Spending without a cap, or a root overrun,
     # must not cancel money still planned in other categories. Media and linked
@@ -386,6 +395,8 @@ def workspace(options=None):
             if amount:add(f'daily:{day}',day,'DAILY','Codzienne wydatki',amount,-amount,detail='Pozostały miesięczny limit rozłożony równo na dni')
     if variable_override is None and default_variable==0:warnings.append('Nie ma planu codziennych wydatków. Ustaw miesięczną kwotę poza rachunkami, ratami i kosztami rezerw.')
     if reserve_count and default_variable>0 and variable_override is None:warnings.append('Sprawdź limit codziennych wydatków: koszty rezerw nie mają przypisanej kategorii planu, więc nie możemy automatycznie wyłączyć ich z limitów kategorii.')
+    if variable_override is None and any(c['source']=='ESTIMATE' for row in plan_bases.values() for c in row['categories']):
+        warnings.append('Część przyszłych limitów jest szacunkiem z bieżącego miesiąca. Ustaw plan domyślny lub miesięczne wyjątki, aby prognoza miała stałą podstawę.')
     if any(s['kind']=='BILL' for s in sources) and any(s['kind'] in ('LOAN','RESERVE_COST') for s in sources):
         warnings.append('Jeśli ten sam koszt jest zapisany jako rachunek i rata lub rezerwa, wyłącz jedno źródło w prognozie.')
     events.sort(key=lambda e:(e['date'],e['key']))
@@ -442,7 +453,17 @@ def workspace(options=None):
     before_income=dict(next_payday=next_pay.isoformat(),through=window[-1]['date'],minimum=min(p['available'] for p in window),
         must_pay=sum(e['amount'] for e in events if e['date']<next_pay.isoformat() and e['kind'] in ('BILL','LOAN','RESERVE_COST'))/100,
         balance=window[-1]['balance'],available=window[-1]['available'])
-    return dict(as_of=today.isoformat(),end_date=end.isoformat(),accounts=accounts,opening=dict(balance=opening/100,reserved=opening_reserved/100,available=(opening-opening_reserved)/100),
+    month_plans=[]
+    for period,row in sorted(plan_bases.items()):
+        totals=defaultdict(int)
+        for event in events:
+            if event['scheduled_date'][:7]==period and not event['recorded']:
+                totals[event['kind']]+=event['amount']
+        month_plans.append({**row,'ordinary_limit':variable_override/100 if variable_override is not None else row['ordinary_limit'],
+            'scenario':variable_override is not None,'ordinary_remaining':totals['DAILY']/100,
+            'income':totals['INCOME']/100,'bills':totals['BILL']/100,'loans':totals['LOAN']/100,
+            'reserves':totals['RESERVE_ADD']/100,'reserve_payments':totals['RESERVE_COST']/100,'investments':totals['GOAL']/100})
+    return dict(as_of=today.isoformat(),end_date=end.isoformat(),accounts=accounts,month_plans=month_plans,opening=dict(balance=opening/100,reserved=opening_reserved/100,available=(opening-opening_reserved)/100),
         account_forecasts=account_forecasts,transfer_suggestions=transfer_suggestions,before_income=before_income,planning_settings=configuration,
         options=dict(income_percent=percent,buffer=buffer/100,variable_monthly=variable_override/100 if variable_override is not None else None,
             default_variable_monthly=default_variable/100,excluded=sorted(excluded)),points=points,summaries=summaries,

@@ -17,7 +17,7 @@ from portfolio_trade_service import PortfolioTradeService as Trade
 from portfolio_valuation_service import PortfolioValuationService as Valuation
 from actual_results_service import analyze
 from bond_service import BondService
-from scripts.audit_investments_20261008 import parent,transaction
+from tests.investment_fixtures import parent,transaction
 from uuid import uuid4
 import routes_transactions
 

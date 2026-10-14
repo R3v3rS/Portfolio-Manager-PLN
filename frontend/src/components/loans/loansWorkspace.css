@@ -94,6 +94,11 @@
 .loan-form label, .loan-panel label { display: flex; flex-direction: column; gap: .35rem; color: var(--muted); font-size: .73rem; font-weight: 650; }
 .loan-form input, .loan-form select, .loan-panel input, .loan-panel select { width: 100%; color: var(--ink); }
 .loan-form-note { color: var(--muted); font-size: .69rem; line-height: 1.5; }
+.loan-payment-link { padding: .9rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--surface-muted); }
+.loan-budget-settings summary { cursor: pointer; color: var(--ink); font-size: .85rem; font-weight: 700; }
+.loan-budget-settings summary small { margin-left: .75rem; color: var(--accent); font-size: .75rem; }
+.loan-form .loan-payment-confirmation { flex-direction: row; align-items: flex-start; gap: .6rem; margin-top: .6rem; }
+.loan-form .loan-payment-confirmation input { width: auto; margin-top: .15rem; flex-shrink: 0; }
 .loan-form-separated { margin-top: 1.3rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .loan-form-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .3rem; }
 .loan-form > .loan-button-primary, .loan-form > .loan-button-secondary { width: fit-content; }

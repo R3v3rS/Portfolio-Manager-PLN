@@ -22,11 +22,15 @@ export function budgetChartData(data: BudgetWorkspace, today: string, extraIncom
   for(const loan of loans)if(loan.category_id!=null)nominalFixed[loan.category_id]=(nominalFixed[loan.category_id]??0)+cents(loan.amount);
   for(const reserve of reserveRows)if(reserve.monthly_amount!=null&&!reserve.open_ended&&reserve.category_id!=null)nominalFixed[reserve.category_id]=(nominalFixed[reserve.category_id]??0)+cents(reserve.planned);
   const own=Object.fromEntries(data.categories.map(c=>[c.id,Math.max(mediaIds.has(c.id)?0:cents(c.manual_plan),nominalFixed[c.id]??0)]));
-  const dailyLimit=data.categories.length?data.categories.filter(c=>!c.parent_id).reduce((sum,root)=>{
+  const excludedIds=new Set(data.categories.filter(c=>c.daily_pace_included===false||c.daily_pace_effective===false||data.categories.some(parent=>parent.id===c.parent_id&&parent.daily_pace_included===false)).map(c=>c.id));
+  const limit=(filtered:boolean)=>data.categories.length?data.categories.filter(c=>!c.parent_id).reduce((sum,root)=>{
+    if(filtered&&excludedIds.has(root.id))return sum;
     const children=data.categories.filter(c=>c.parent_id===root.id);
     const total=Math.max(cents(root.manual_plan), (nominalFixed[root.id]??0)+children.reduce((s,c)=>s+own[c.id],0))+cents(root.carryover??0);
-    return sum+Math.max(0,total-(nominalFixed[root.id]??0)-children.reduce((s,c)=>s+(nominalFixed[c.id]??0),0));
+    const excluded=filtered?children.filter(c=>excludedIds.has(c.id)).reduce((s,c)=>s+Math.max(0,own[c.id]-(nominalFixed[c.id]??0)),0):0;
+    return sum+Math.max(0,total-(nominalFixed[root.id]??0)-children.reduce((s,c)=>s+(nominalFixed[c.id]??0),0)-excluded);
   },0):variablePlan;
+  const dailyLimit=limit(true),fullDailyLimit=limit(false);
   let spent = 0,dailySpent=0;
   const dailyPace:{date:string;spent:number|null;plan:number}[]=[];
   const pace = Array.from({ length: days }, (_, index) => {
@@ -35,12 +39,12 @@ export function budgetChartData(data: BudgetWorkspace, today: string, extraIncom
     for(const entry of data.entries.filter(e=>e.date===date&&(e.kind==='EXPENSE'||e.kind==='REFUND'))){
       const original=entry.refund_of?data.entries.find(e=>e.id===entry.refund_of):entry;
       if(original?.bill_id||original?.loan_id||original?.reserve_id)continue;
-      const media=entry.lines.filter(l=>mediaIds.has(l.category_id)).reduce((sum,l)=>sum+cents(l.amount),0);
+      const media=entry.lines.filter(l=>mediaIds.has(l.category_id)||excludedIds.has(l.category_id)).reduce((sum,l)=>sum+cents(l.amount),0);
       dailySpent+=(entry.kind==='REFUND'?-1:1)*(cents(entry.amount)-media);
     }
     dailyPace.push({date,spent:index<lastActual?dailySpent/100:null,plan:Math.round(dailyLimit*(index+1)/days)/100});
     const due = data.bills.filter(bill => fixedDate(bill) <= date).reduce((sum, bill) => sum + fixedAmount(bill), 0);
-    return { date, spent: index < lastActual ? spent / 100 : null, plan: (dailyLimit * (index + 1) / days + due+loans.filter(l=>(l.paid_on&&l.paid_on<l.date?l.paid_on:l.date)<=date).reduce((sum,l)=>sum+cents(l.amount),0)) / 100 };
+    return { date, spent: index < lastActual ? spent / 100 : null, plan: (fullDailyLimit * (index + 1) / days + due+loans.filter(l=>(l.paid_on&&l.paid_on<l.date?l.paid_on:l.date)<=date).reduce((sum,l)=>sum+cents(l.amount),0)) / 100 };
   });
   const unpaid = data.bills.filter(bill => bill.status !== 'PAID');
   const remainingVariable = data.categories.filter(category => !category.parent_id).reduce((sum, category) => {

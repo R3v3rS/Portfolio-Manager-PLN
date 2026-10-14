@@ -64,3 +64,7 @@
 .cf-method p { margin-top:1rem; color:var(--muted); font-size:.8rem; line-height:1.8; }
 @media(max-width:1150px) { .cf-analysis { grid-template-columns:1fr; } .cf-scenario fieldset { grid-template-columns:1fr 1fr; } }
 @media(max-width:700px) { .cf-horizons { grid-template-columns:1fr; } .cf-horizons strong { font-size:1.75rem; margin:.6rem 0; } .cf-scenario fieldset,.cf-sources>div { grid-template-columns:1fr; } .cf-horizons p { justify-content:flex-start; gap:1rem; } .cf-horizon-foot { padding:.6rem 1.25rem; } .cf-incomes li>div:first-child { min-width:100%; } }
+.cf-chart-controls { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: .85rem; }
+.cf-chart-controls label { min-width: 12rem; flex: 1; }
+.cf-range-dates { color: var(--muted); font-size: .75rem; margin-top: .4rem; }
+@media(max-width:500px) { .cf-chart-controls { flex-direction: column; } .cf-chart-controls label { min-width: 0; width: 100%; } }

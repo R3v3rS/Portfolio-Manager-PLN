@@ -1,7 +1,8 @@
+import BudgetNavigation, { budgetMonth } from '../components/budget/BudgetNavigation';
 import BudgetSettlementUndo from '../components/budget/BudgetSettlementUndo';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Archive, ArrowDownLeft, ArrowLeft, ArrowRightLeft, CalendarDays, Check, CirclePlus, History, Pencil, PiggyBank, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react';
+import { Archive, ArrowDownLeft, ArrowRightLeft, CalendarDays, Check, CirclePlus, History, Pencil, PiggyBank, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react';
 import { reservesApi, type Reserve, type ReserveMovementInput, type ReserveMovementKind, type ReservePlan, type ReservesWorkspace } from '../api_reserves';
 import { budgetImportsApi, type ExpenseCandidate } from '../api_budget_imports';
 import { extractErrorMessageFromUnknown } from '../http/response';
@@ -45,7 +46,10 @@ export default function BudgetReserves() {
   };
   const visible = data?.items.filter(item => archive ? item.status!=='ACTIVE' : item.status==='ACTIVE').filter(item=>group==='ALL'||(group==='OPEN'?item.open_ended:group==='MEDIA'?item.monthly_amount!=null&&!item.open_ended:item.monthly_amount==null)) ?? [];
   return <div className="page-stack budget-page br-page">
-    <header className="br-heading"><div><p className="page-eyebrow">Przygotuj pieniądze przed terminem</p><h1>Rezerwy na wydatki</h1><p>Ubezpieczenie, remont czy zakup sprzętu — odkładaj we własnym tempie, a plan dopasuje się do wpłat.</p></div><div className="br-actions"><Link className="budget-button-secondary" to="/budget"><ArrowLeft size={16}/>Budżet</Link><button className="budget-button-primary" onClick={() => {setNotice('');setEditor({kind:'PLAN',item:null});}} disabled={!data || !data.accounts.length || loading || busy || !!editor}><Plus size={17}/>Nowa rezerwa</button></div></header>
+    <header className="br-heading"><div><p className="page-eyebrow">Przygotuj pieniądze przed terminem</p><h1>Rezerwy i cele</h1><p>Ubezpieczenie, remont czy zakup sprzętu — odkładaj we własnym tempie, a plan dopasuje się do wpłat.</p></div><div className="br-actions"><button className="budget-button-primary" onClick={() => {setNotice('');setEditor({kind:'PLAN',item:null});}} disabled={!data || !data.accounts.length || loading || busy || !!editor}><Plus size={17}/>Nowa rezerwa</button></div></header>
+    <BudgetNavigation active="reserves" current/>
+
+    <div className="bp-switch"><button aria-pressed="true">Rezerwy</button><Link className="budget-button-quiet" to={`/budget?view=purchases&month=${budgetMonth(params.get('month'))}`}>Większe zakupy</Link></div>
     {notice && <div role="status" className="budget-feedback is-success">{notice}</div>}
     {error && <div role="alert" className="budget-feedback is-error">{error}<button className="budget-button-secondary" onClick={() => void reload()} disabled={loading}>Spróbuj ponownie</button></div>}
     {!data && loading ? <p className="br-panel" role="status">Ładowanie rezerw…</p> : data && <>

@@ -422,6 +422,11 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/budget/workspace/plans/<int:category_id>', 'PUT'): lambda: self.client.put(
                 '/api/budget/workspace/plans/1', json={'month': '2026-03', 'amount': 200},
             ),
+            ('/api/budget/workspace/plans/<int:category_id>', 'DELETE'): lambda: self.client.delete('/api/budget/workspace/plans/1?month=2026-03'),
+            ('/api/budget/workspace/plans/defaults', 'GET'): lambda: self.client.get('/api/budget/workspace/plans/defaults?month=2026-10'),
+            ('/api/budget/workspace/plans/defaults', 'PUT'): lambda: self.client.put('/api/budget/workspace/plans/defaults',json={}),
+            ('/api/budget/workspace/plans/copy-preview', 'POST'): lambda: self.client.post('/api/budget/workspace/plans/copy-preview',json={}),
+            ('/api/budget/workspace/plans/copy-range', 'POST'): lambda: self.client.post('/api/budget/workspace/plans/copy-range',json={}),
             ('/api/budget/workspace/plans/copy', 'POST'): lambda: self.client.post(
                 '/api/budget/workspace/plans/copy', json={'source': '2026-03', 'target': '2026-04'},
             ),
@@ -457,6 +462,8 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 '/api/budget/workspace/bills/1/pay', json={'month': '2026-03'},
             ),
             ('/api/dashboard/net-worth-history', 'GET'): lambda: self.client.get('/api/dashboard/net-worth-history'),
+            ('/api/loans/<int:loan_id>/budget-settings', 'PUT'): lambda: self.client.put('/api/loans/999999/budget-settings',json={}),
+            ('/api/loans/<int:loan_id>/payment-candidates', 'GET'): lambda: self.client.get('/api/loans/999999/payment-candidates'),
             ('/api/dashboard/actions', 'GET'): lambda: self.client.get('/api/dashboard/actions'),
             ('/api/dashboard/monthly-report', 'GET'): lambda: self.client.get('/api/dashboard/monthly-report?month=2026-01'),
             ('/api/budget/reserves/', 'GET'): lambda: self.client.get('/api/budget/reserves/'),
