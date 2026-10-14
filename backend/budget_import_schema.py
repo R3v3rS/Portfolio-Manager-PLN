@@ -5,6 +5,7 @@ def initialize(db):
     additions = {
         'budget_categories_v2': [('is_unassigned', 'INTEGER NOT NULL DEFAULT 0'),
             ('parent_id', 'INTEGER REFERENCES budget_categories_v2(id)'),
+            ('description', "TEXT NOT NULL DEFAULT ''"),
             ('version', 'INTEGER NOT NULL DEFAULT 1')],
         'budget_entries_v2': [
             ('classification_status', "TEXT NOT NULL DEFAULT 'GENERAL'"),

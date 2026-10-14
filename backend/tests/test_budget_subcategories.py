@@ -108,6 +108,30 @@ class BudgetSubcategoriesTest(unittest.TestCase):
         ids=[c['id'] for c in data['categories']]
         self.assertEqual(ids[ids.index(self.transport)+1:ids.index(self.transport)+3],[self.fuel,self.tickets])
 
+    def test_descriptions_are_saved_preserved_and_invalid_edits_are_rejected(self):
+        self.payload(self.client.put(self.base+f'/categories/{self.fuel}',json=dict(
+            name='Paliwo',parent_id=self.transport,version=1,description='  Tankowanie; zakupy na stacji rozdziel osobno.  ')))
+        self.payload(self.client.put(self.base+f'/categories/{self.fuel}',json=dict(name='Tankowanie',parent_id=self.transport,version=2)))
+        item=next(c for c in self.snapshot()['categories'] if c['id']==self.fuel)
+        self.assertEqual(item['description'],'Tankowanie; zakupy na stacji rozdziel osobno.')
+        for invalid in (42,'x'*501):
+            response=self.client.put(self.base+f'/categories/{self.fuel}',json=dict(name='Nie zapisuj',parent_id=self.transport,version=3,description=invalid))
+            self.assertEqual(response.status_code,400)
+        self.assertEqual(next(c for c in self.snapshot()['categories'] if c['id']==self.fuel)['name'],'Tankowanie')
+
+    def test_usage_retains_planned_zero_rules_bills_and_parents_without_spending(self):
+        before={c['id']:c for c in self.snapshot()['categories']}
+        self.assertFalse(before[self.fuel]['has_activity'])
+        self.assertFalse(before[self.transport]['has_activity'])
+        self.plan(self.fuel,0)
+        with self.app.app_context():
+            save_rule(dict(pattern='PKP',category_id=self.tickets,request_id=str(uuid4())))
+        after={c['id']:c for c in self.snapshot()['categories']}
+        self.assertTrue(after[self.fuel]['has_activity'])
+        self.assertTrue(after[self.transport]['has_activity'])
+        self.assertEqual(after[self.tickets]['rule_count'],1)
+        self.assertTrue(after[self.tickets]['has_activity'])
+
     def test_reading_hierarchy_does_not_mutate_cash_or_categories(self):
         with self.app.app_context():
             db=get_db(); before=db.total_changes

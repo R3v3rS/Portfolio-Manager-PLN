@@ -56,6 +56,37 @@ describe('Cash forecast',()=>{
     expect(forecastApi.get).toHaveBeenCalledTimes(1);expect(forecastApi.createIncome).not.toHaveBeenCalled();expect(forecastApi.receiveIncome).not.toHaveBeenCalled();
   });
 
+  it('selects twelve months at the chart and updates the account low, calendar and horizon card together',async()=>{
+    const data=forecast();
+    data.account_forecasts=[{id:1,name:'Konto osobiste',opening:data.opening,
+      points:[{date:data.as_of,balance:500,reserved:200,available:300},
+        {date:'2027-01-01',balance:900,reserved:200,available:700},
+        {date:'2027-10-03',balance:-500,reserved:200,available:-700}],
+      summaries:data.summaries.map(s=>({days:s.days,date:s.date,balance:900,reserved:200,available:700,
+        minimum:s.days===365?-700:300,first_shortfall:s.days===365?'2027-10-03':null}))}];
+    data.events.push({key:'insurance',date:'2027-03-01',scheduled_date:'2027-03-01',kind:'BILL',title:'OC w marcu',amount:800,cash_delta:-800,reserved_delta:0,href:'/budget',detail:'Rachunek',recorded:false});
+    vi.mocked(forecastApi.get).mockResolvedValue(data);
+    show();await screen.findByRole('heading',{name:'Planowane dochody'});
+    fireEvent.change(screen.getByLabelText('Konto na wykresie'),{target:{value:'1'}});
+    const calendar=within(screen.getByRole('heading',{name:'Kalendarz przepływów'}).closest('section')!);
+    expect(calendar.getByRole('table')).not.toHaveTextContent('OC w marcu');
+    const range=screen.getByLabelText('Zakres prognozy');
+    expect(range).toHaveValue('90');
+    fireEvent.change(range,{target:{value:'365'}});
+    expect(screen.getByText('Najbliższe 12 miesięcy')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:/Za 365 dni/})).toHaveAttribute('aria-pressed','true');
+    expect(screen.getByRole('img',{name:'Wykres prognozy'})).toHaveTextContent('2027-10-03');
+    expect(document.querySelector('.cf-low')).toHaveTextContent('-700,00');
+    expect(screen.getByRole('heading',{name:'Konta za 365 dni'})).toBeInTheDocument();
+    expect(screen.getByRole('heading',{name:'Przepływy w 365 dni'})).toBeInTheDocument();
+    expect(calendar.getByRole('table')).toHaveTextContent('OC w marcu');
+    fireEvent.click(screen.getByRole('button',{name:/Za 30 dni/}));
+    expect(range).toHaveValue('30');
+    expect(calendar.getByRole('table')).not.toHaveTextContent('OC w marcu');
+    expect(forecastApi.get).toHaveBeenCalledTimes(1);
+    expect(forecastApi.createIncome).not.toHaveBeenCalled();
+  });
+
   it('applies an explicit scenario and excludes a source only from that forecast',async()=>{
     show();await screen.findByRole('heading',{name:'Planowane dochody'});
     fireEvent.change(screen.getByLabelText('Planowane dochody (%)'),{target:{value:'75'}});

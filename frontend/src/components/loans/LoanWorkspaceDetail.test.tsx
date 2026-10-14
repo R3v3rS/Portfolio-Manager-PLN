@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import LoanWorkspaceDetail from './LoanWorkspaceDetail';
-import { recordInstallment } from '../../api_loans';
+import { recordInstallment,addOverpayment } from '../../api_loans';
 
 const api = vi.hoisted(() => ({ getSchedule: vi.fn(), setLoanNetWorthExclusion: vi.fn(), getLoanPaymentCandidates:vi.fn(), saveLoanBudgetSettings:vi.fn() }));
 vi.mock('../../api_loans', () => ({ ...api, addOverpayment: vi.fn(), addRate: vi.fn(), deleteInstallment: vi.fn(), deleteOverpayment: vi.fn(), recordBalanceCheck: vi.fn(), recordInstallment: vi.fn() }));
@@ -20,6 +20,19 @@ const schedule = (excluded = false) => ({
 const show = () => render(<MemoryRouter initialEntries={['/loans/22']}><Routes><Route path="/loans/:id" element={<LoanWorkspaceDetail/>}/></Routes></MemoryRouter>);
 describe('Loan net worth setting', () => {
   beforeEach(() => { cleanup(); vi.clearAllMocks(); api.getSchedule.mockResolvedValue(schedule()); api.getLoanPaymentCandidates.mockResolvedValue({items:[]}); });
+  it('links an existing extra payment to an overpayment without a new debit',async()=>{
+    api.getLoanPaymentCandidates.mockResolvedValue({items:[{id:49,date:'2026-10-10',description:'Rata extra',amount:10.38,version:1,account_id:2,cash_effect:1}]});
+    vi.mocked(addOverpayment).mockResolvedValue({id:1,message:'Saved'});
+    show();fireEvent.click(await screen.findByRole('button',{name:'Symulacja'}));
+    fireEvent.change(screen.getByLabelText('Kwota (PLN)'),{target:{value:'10.38'}});
+    fireEvent.change(screen.getByLabelText('Data'),{target:{value:'2026-10-10'}});
+    fireEvent.change(screen.getByLabelText('Wydatek w budżecie'),{target:{value:'2'}});
+    await screen.findByText(/Znaleziono 1 możliwych płatności/);
+    expect(screen.getByRole('button',{name:'Zapisz nadpłatę'})).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Powiązanie nadpłaty z wydatkiem'),{target:{value:'49'}});
+    fireEvent.click(screen.getByRole('button',{name:'Powiąż nadpłatę bez zmiany salda'}));
+    await waitFor(()=>expect(addOverpayment).toHaveBeenCalledWith(22,{amount:10.38,date:'2026-10-10',type:'REDUCE_TERM',account_id:2,existing_entry_id:49,entry_version:1}));
+  });
   it('links an existing payment with its saved date and amount and previews the account debit',async()=>{
     api.getSchedule.mockResolvedValue({...schedule(),payments_list:[{id:2,installment_month:1,due_date:'2026-01-15',paid_on:'2026-01-13',amount:77.68,budget_linked:false}]});
     vi.mocked(recordInstallment).mockResolvedValue({id:2,budget_entry_id:8});

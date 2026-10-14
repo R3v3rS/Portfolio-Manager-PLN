@@ -23,6 +23,9 @@ export interface LoanOverpaymentPayload {
   date: string;
   type?: 'REDUCE_TERM' | 'REDUCE_INSTALLMENT';
   account_id?: number;
+  existing_entry_id?: number;
+  entry_version?: number;
+  confirm_new_expense?: boolean;
 }
 
 export interface LoanStatus {

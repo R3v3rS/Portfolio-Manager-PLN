@@ -4,7 +4,7 @@ from uuid import uuid4
 from unittest.mock import patch
 from tests import test_budget_planning as fixtures
 from tests.test_budget_reserves import FrozenDate
-from scripts import audit_budget_20261007 as audit
+from tests import budget_audit_scenarios as audit
 from database import get_db
 
 

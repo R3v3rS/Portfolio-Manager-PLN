@@ -41,6 +41,17 @@ def plan_amounts(options, manual, bills):
 
 def category_workspace(db, month, through=None, pln_only=False):
     options = category_options(db)
+    activity_ids = {r[0] for r in db.execute('''SELECT category_id FROM budget_entry_lines_v2
+        UNION SELECT category_id FROM budget_plans_v2
+        UNION SELECT category_id FROM budget_default_plans
+        UNION SELECT category_id FROM budget_bills_v2
+        UNION SELECT category_id FROM budget_category_rules
+        UNION SELECT category_id FROM budget_reserves WHERE category_id IS NOT NULL
+        UNION SELECT category_id FROM loan_budget_settings WHERE category_id IS NOT NULL
+        UNION SELECT category_id FROM budget_purchase_plans WHERE category_id IS NOT NULL
+        UNION SELECT category_id FROM budget_category_policies WHERE mode!='RESET' OR decision_required=1
+        UNION SELECT category_id FROM budget_month_closing_items''')}
+    rule_counts = dict(db.execute('SELECT category_id,COUNT(*) FROM budget_category_rules WHERE active=1 GROUP BY category_id'))
     end = through or f"{month}-{calendar.monthrange(*map(int, month.split('-')))[1]:02d}"
     currency = " AND UPPER(COALESCE(a.currency,'PLN'))='PLN'" if pln_only else ''
     spent = dict(db.execute('''SELECT l.category_id,SUM(CASE WHEN e.kind='EXPENSE' THEN l.amount_cents ELSE -l.amount_cents END) FROM budget_entry_lines_v2 l
@@ -89,6 +100,8 @@ def category_workspace(db, month, through=None, pln_only=False):
         ids = [category_id, *[c['id'] for c in options if c['parent_id'] == category_id]]
         used = sum(spent.get(i, 0) for i in ids)
         result.append({**row, 'is_unassigned': bool(row['is_unassigned']),
+            'has_activity': any(i in activity_ids for i in ids) or bool(row['is_unassigned']),
+            'rule_count': rule_counts.get(category_id, 0),
             'plan_source': 'MEDIA' if category_id in media else plan_sources.get(category_id, {}).get('kind', 'NONE'),
             'plan_source_month': plan_sources.get(category_id, {}).get('month'),
             'default_plan': default_amounts[category_id]/100 if category_id in default_amounts else None,
@@ -110,6 +123,9 @@ def save_category(db, data, category_id=None):
     from routes_budget_workspace import positive_id, text_field
     from budget_category_service import require_version
     name = text_field(data.get('name'), 'Nazwa kategorii', 100)
+    description = data.get('description')
+    if description is not None and (not isinstance(description, str) or len(description) > 500):
+        raise ValidationError('Opis kategorii może mieć najwyżej 500 znaków.')
     parent_id = positive_id(data['parent_id'], 'Kategoria główna') if data.get('parent_id') is not None else None
     db.execute('BEGIN IMMEDIATE')
     try:
@@ -123,6 +139,7 @@ def save_category(db, data, category_id=None):
             require_version(current, data.get('version'))
             if current['is_unassigned']:
                 raise ValidationError('Kategoria do przypisania jest zarządzana przez aplikację.')
+        description = description.strip() if description is not None else (current['description'] if current else '')
         if any(r['id'] != category_id and r['name'].casefold() == name.casefold()
                for r in db.execute('SELECT id,name FROM budget_categories_v2')):
             raise ValidationError('Taka kategoria już istnieje.')
@@ -142,12 +159,12 @@ def save_category(db, data, category_id=None):
                 raise ValidationError('Najpierw ustaw zerowanie niewykorzystanego limitu tej kategorii, potem przenieś ją do podkategorii.')
             icon = parent['icon']
         if current:
-            db.execute('UPDATE budget_categories_v2 SET name=?,parent_id=?,icon=?,daily_pace_included=?,version=version+1 WHERE id=?',
-                       (name, parent_id, icon, int(pace_included), category_id))
+            db.execute('UPDATE budget_categories_v2 SET name=?,parent_id=?,icon=?,daily_pace_included=?,description=?,version=version+1 WHERE id=?',
+                       (name, parent_id, icon, int(pace_included), description, category_id))
         else:
             order = db.execute('SELECT COALESCE(MAX(sort_order),-1)+1 FROM budget_categories_v2').fetchone()[0]
-            category_id = db.execute('INSERT INTO budget_categories_v2(name,parent_id,icon,sort_order,daily_pace_included) VALUES (?,?,?,?,?)',
-                                     (name, parent_id, icon, order, int(pace_included))).lastrowid
+            category_id = db.execute('INSERT INTO budget_categories_v2(name,parent_id,icon,sort_order,daily_pace_included,description) VALUES (?,?,?,?,?,?)',
+                                     (name, parent_id, icon, order, int(pace_included), description)).lastrowid
         db.commit()
         return {'id': category_id}
     except Exception:

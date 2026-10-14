@@ -1,5 +1,19 @@
 # Najnowsza wersja aplikacji
 
+Stan: 14 października 2026.
+
+## Zmiany z 14 października
+
+- Zakres prognozy 30 dni, 3 lub 12 miesięcy wybierany bezpośrednio przy wykresie. Zakres dat, konto, scenariusz, tabela i kalendarz pozostają zsynchronizowane.
+- Opisy i przykłady kategorii, widoczne w ustawieniach, planie i przy wyborze kategorii wydatku.
+- Nieużywane kategorie domyślnie ukryte w planie i ustawieniach; można je pokazać przełącznikiem lub wyszukiwarką. Historia i kategorie dostępne przy dodawaniu wydatków są zachowane.
+- Czytelne odróżnienie wspólnego limitu od kwot przeznaczonych na rachunki; jawnie zapisany limit 0 zł nie jest przedstawiany jako brak planu.
+- Nadpłatę kredytu można powiązać z istniejącym wydatkiem, bez drugiego obciążenia konta. Cofnięcie powiązania przywraca poprzednią kategorię i zachowuje płatność.
+- Domyślna kategoria rachunków i rat rozpoznawana także po zmianie jej nazwy.
+- Starsze audyty przeniesione do [archiwum](archive/README.md), usunięte nieużywane skrypty diagnostyczne, robocze prompty i grafika startowa Reacta.
+- Pomocnicze scenariusze testowe przeniesione z lokalnych skryptów audytu do `backend/tests/`. Testy nie wymagają już prywatnych plików, a konfiguracja pytest ustawia ścieżki importu dla uruchomienia z repozytorium.
+- Logi, próbne bazy, pliki testowe i stare obrazy diagnostyczne uporządkowane lokalnie. Kopie bazy o nazwach `*.db.*` wyłączone z aktualnej publikowanej wersji i z przyszłych commitów; istniejące lokalne kopie pozostają zachowane. Starsza historia Git nadal zawiera wcześniej opublikowane pliki.
+
 ## Główne zmiany
 
 - Szczegółowe instrukcje całej aplikacji, budżetu, uruchamiania i kopii oraz dokumentacja modelu danych: [spis dokumentacji](README.md).

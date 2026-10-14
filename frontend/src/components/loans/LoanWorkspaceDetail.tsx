@@ -48,6 +48,7 @@ export default function LoanWorkspaceDetail() {
   const [overpaymentDate, setOverpaymentDate] = useState(localToday);
   const [overpaymentAction, setOverpaymentAction] = useState<'REDUCE_TERM' | 'REDUCE_INSTALLMENT'>('REDUCE_TERM');
   const [overpaymentAccount, setOverpaymentAccount] = useState('');
+  const [overpaymentLink, setOverpaymentLink] = useState<LoanPaymentSelection>({ready:false});
   const [rate, setRate] = useState('');
   const [rateDate, setRateDate] = useState(localToday);
   const [balance, setBalance] = useState('');
@@ -112,10 +113,13 @@ export default function LoanWorkspaceDetail() {
   };
   const saveOverpayment = async (event: FormEvent) => {
     event.preventDefault();
+    if(overpaymentAccount&&!overpaymentLink.ready)return;
     const saved = await action(() => addOverpayment(loanId, {
       amount: Number(overpaymentAmount), date: overpaymentDate, type: overpaymentAction,
-      ...(overpaymentAccount ? { account_id: Number(overpaymentAccount) } : {}),
-    }), 'Nadpłata została zapisana.');
+      ...(overpaymentAccount ? { account_id: Number(overpaymentAccount),
+        ...(overpaymentLink.existing_entry_id ? {existing_entry_id:overpaymentLink.existing_entry_id,entry_version:overpaymentLink.entry_version}
+          : overpaymentLink.confirm_new_expense ? {confirm_new_expense:true} : {}) } : {}),
+    }), overpaymentAccount&&overpaymentLink.existing_entry_id?'Nadpłata powiązana z istniejącym wydatkiem. Saldo bez zmian.':'Nadpłata została zapisana.');
     if (saved) setOverpaymentAmount('');
   };
   const saveRate = async (event: FormEvent) => {
@@ -134,7 +138,7 @@ export default function LoanWorkspaceDetail() {
     void action(() => deleteInstallment(loanId, paymentId), 'Zapis raty cofnięty.');
   };
   const undoOverpayment = (overpaymentId: number) => {
-    if (!window.confirm('Cofnąć nadpłatę? Powiązany wydatek w budżecie też zostanie cofnięty.')) return;
+    if (!window.confirm('Cofnąć zapis nadpłaty? Nowy wydatek utworzony przy zapisie zostanie cofnięty. Wcześniej istniejąca płatność pozostanie w budżecie.')) return;
     void action(() => deleteOverpayment(loanId, overpaymentId), 'Nadpłata cofnięta.');
   };
 
@@ -235,8 +239,9 @@ export default function LoanWorkspaceDetail() {
             <label>Data<input required type="date" max={localToday()} value={overpaymentDate} onChange={event => setOverpaymentDate(event.target.value)} /></label>
             <label>Cel<select value={overpaymentAction} onChange={event => setOverpaymentAction(event.target.value as 'REDUCE_TERM' | 'REDUCE_INSTALLMENT')}><option value="REDUCE_TERM">Skrócenie okresu</option><option value="REDUCE_INSTALLMENT">Zmniejszenie raty</option></select></label>
             <label>Wydatek w budżecie<select value={overpaymentAccount} onChange={event => setOverpaymentAccount(event.target.value)}><option value="">Tylko zapisz nadpłatę</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+            <LoanPaymentLink loanId={loanId} accountId={Number(overpaymentAccount)} date={overpaymentDate} amount={Number(overpaymentAmount)} onChange={setOverpaymentLink} paymentKind="nadpłaty"/>
             {accounts.length === 0 && <p className="loan-form-note">Aby połączyć nadpłatę z wydatkiem, najpierw <Link to="/budget">dodaj konto w budżecie</Link>.</p>}
-            <button type="submit" className="loan-button-primary" disabled={busy}>Zapisz nadpłatę</button></form></section></div></div>}
+            <button type="submit" className="loan-button-primary" disabled={busy||!!overpaymentAccount&&!overpaymentLink.ready}>{overpaymentAccount&&overpaymentLink.existing_entry_id?'Powiąż nadpłatę bez zmiany salda':'Zapisz nadpłatę'}</button></form></section></div></div>}
     {view === 'history' && <div className="loan-history-grid">
       <div className="loan-side-stack"><section className="loan-panel surface-card"><div className="loan-section-title"><div><p className="page-eyebrow">Potwierdzone operacje</p><h2>Zapisane spłaty</h2></div><CheckCircle2 size={20} /></div>
         {data.payments_list.length ? data.payments_list.map(payment => <div className="loan-history-row" key={payment.id}><span><strong>Rata {payment.installment_month}</strong><small>{dateLabel(payment.paid_on)}{payment.budget_linked ? ' · rozliczona w budżecie' : ' · bez wydatku w budżecie'}</small></span><b>{money(payment.amount)}</b>

@@ -16,7 +16,7 @@ function billInput(bill:BudgetBill,month:string):BillInput{
 }
 
 export function BillEditor({data,bill,reload,onClose,categoryId}:{data:BudgetWorkspace;bill:BudgetBill|null;reload:()=>Promise<void>;onClose:()=>void;categoryId?:number}){
-  const [input,setInput]=useState<BillInput>(()=>bill?billInput(bill,data.month):{title:'',amount:0,due_day:data.month===planningToday().slice(0,7)?Number(planningToday().slice(-2)):1,frequency:'ONCE',start_month:data.month,due_month:data.month,account_id:data.accounts[0]?.id??0,category_id:categoryId??data.categories.find(c=>c.name==='Rachunki')?.id??data.categories.find(c=>!c.is_unassigned)?.id??0,variable_amount:false,notes:'',reserve_id:null});
+  const [input,setInput]=useState<BillInput>(()=>bill?billInput(bill,data.month):{title:'',amount:0,due_day:data.month===planningToday().slice(0,7)?Number(planningToday().slice(-2)):1,frequency:'ONCE',start_month:data.month,due_month:data.month,account_id:data.accounts[0]?.id??0,category_id:categoryId??data.categories.find(c=>!c.parent_id&&(c.icon==='ReceiptText'||c.name==='Rachunki'))?.id??data.categories.find(c=>!c.is_unassigned)?.id??0,variable_amount:false,notes:'',reserve_id:null});
   const [requestId]=useState(()=>crypto.randomUUID()),action=usePlanningAction(reload);
   const update=<K extends keyof BillInput>(key:K,value:BillInput[K])=>setInput(old=>({...old,[key]:value}));
   const oneOff=input.frequency==='ONCE';

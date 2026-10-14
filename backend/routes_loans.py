@@ -4,7 +4,7 @@ import sqlite3
 
 from flask import Blueprint, request
 
-from api.exceptions import NotFoundError, ValidationError
+from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.response import success_response
 from database import get_db
 from loan_service import LoanService
@@ -316,23 +316,29 @@ def add_overpayment(loan_id):
         raise ValidationError('Nadpłata przekracza szacunkowy kapitał pozostały w tym dniu.')
     account_id = optional_budget_account(data)
     db = get_db()
-    budget_entry_id = loan_budget_entry(
-        db, account_id, amount_cents, f'Nadpłata kredytu: {loan["name"]}', overpayment_date,loan_id
-    ) if account_id else None
-    cursor = db.execute(
-        '''
-        INSERT INTO loan_overpayments (loan_id, amount, date, type, budget_entry_id)
-        VALUES (?, ?, ?, ?, ?)
-        ''',
-        (
-            loan_id,
-            amount_cents / 100,
-            overpayment_date,
-            overpayment_type,
-            budget_entry_id,
-        ),
-    )
-    db.commit()
+    from loan_budget_service import ensure_settings, link_expense, candidates
+    if data.get('existing_entry_id') is not None and not account_id:
+        raise ValidationError('Wybierz konto istniejącej płatności.')
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        ensure_settings(db,loan_id)
+        before = None
+        if data.get('existing_entry_id') is not None:
+            budget_entry_id,before = link_expense(db,loan_id,data,account_id,overpayment_date,amount_cents)
+        else:
+            if account_id and candidates(db,account_id,overpayment_date,amount_cents) and data.get('confirm_new_expense') is not True:
+                raise ApiError('loan_existing_payment','Znaleziono podobny wydatek. Powiąż istniejącą płatność albo potwierdź odrębną nadpłatę.',status=409)
+            budget_entry_id = loan_budget_entry(
+                db, account_id, amount_cents, f'Nadpłata kredytu: {loan["name"]}', overpayment_date,loan_id
+            ) if account_id else None
+        cursor = db.execute('''INSERT INTO loan_overpayments
+            (loan_id, amount, date, type, budget_entry_id, budget_entry_created, linked_entry_before)
+            VALUES (?, ?, ?, ?, ?, ?, ?)''',
+            (loan_id,amount_cents/100,overpayment_date,overpayment_type,budget_entry_id,int(before is None),before))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return success_response({'message': 'Overpayment added successfully', 'id': cursor.lastrowid}, status=201)
 
 
@@ -344,9 +350,18 @@ def delete_overpayment(loan_id, overpayment_id):
                      (overpayment_id, loan_id)).fetchone()
     if not row:
         raise NotFoundError('Nadpłata nie istnieje.')
-    db.execute('DELETE FROM loan_overpayments WHERE id = ?', (overpayment_id,))
-    reverse_budget_entry(db, row['budget_entry_id'])
-    db.commit()
+    from loan_budget_service import restore_expense
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        db.execute('DELETE FROM loan_overpayments WHERE id = ?', (overpayment_id,))
+        if not row['budget_entry_created']:
+            restore_expense(db,row)
+        else:
+            reverse_budget_entry(db, row['budget_entry_id'])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return success_response({'deleted': overpayment_id})
 
 

@@ -7,9 +7,10 @@ interface Props {
   date: string;
   amount: number;
   onChange: (selection: LoanPaymentSelection) => void;
+  paymentKind?: 'raty' | 'nadpłaty';
 }
 
-export default function LoanPaymentLink({ loanId, accountId, date, amount, onChange }: Props) {
+export default function LoanPaymentLink({ loanId, accountId, date, amount, onChange, paymentKind = 'raty' }: Props) {
   const [items, setItems] = useState<LoanPaymentCandidate[]>([]);
   const [selected, setSelected] = useState('NEW');
   const [confirmed, setConfirmed] = useState(false);
@@ -48,7 +49,7 @@ export default function LoanPaymentLink({ loanId, accountId, date, amount, onCha
     {error && <p role="alert">{error}</p>}
     {!loading && !error && <>
       <label>Sposób rozliczenia
-        <select aria-label="Powiązanie raty z wydatkiem" value={selected} onChange={event => {
+        <select aria-label={`Powiązanie ${paymentKind} z wydatkiem`} value={selected} onChange={event => {
           setSelected(event.target.value); setConfirmed(false);
         }}>
           <option value="NEW">Nowy wydatek — pomniejsz saldo konta</option>
@@ -58,7 +59,7 @@ export default function LoanPaymentLink({ loanId, accountId, date, amount, onCha
         </select>
       </label>
       {items.length > 0 && selected === 'NEW' && <>
-        <p className="loan-form-note">Znaleziono {items.length} możliwych płatności. Wybierz istniejący wydatek, aby nie odjąć raty drugi raz.</p>
+        <p className="loan-form-note">Znaleziono {items.length} możliwych płatności. Wybierz istniejący wydatek, aby nie odjąć {paymentKind} drugi raz.</p>
         <label className="loan-payment-confirmation">
           <input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
           Potwierdzam: to osobna płatność, dodaj nowy wydatek

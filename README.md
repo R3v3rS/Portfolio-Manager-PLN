@@ -93,4 +93,4 @@ Baza SQLite, backupy, załączniki, klucze, logi i prywatne zrzuty pozostają lo
 
 Aplikacja nie wykonuje przelewów w banku ani zleceń u brokera. Prognoza jest symulacją, a analizy zależą od kompletności historii i aktualności wyceny. Lokalna konfiguracja nie jest gotowym publicznym systemem wieloużytkownikowym.
 
-Starsze dokumenty audytowe mogą opisywać wcześniejsze zachowanie. Obecne instrukcje znajdują się w [spisie dokumentacji](docs/README.md); szczegóły historycznej własności portfeli uzupełnia [PROJECT_GUIDE_PL.md](docs/PROJECT_GUIDE_PL.md).
+Starsze dokumenty audytowe znajdują się w [archiwum dokumentacji](docs/archive/README.md) i mogą opisywać wcześniejsze zachowanie. Obecne instrukcje znajdują się w [spisie dokumentacji](docs/README.md); szczegóły historycznej własności portfeli uzupełnia [PROJECT_GUIDE_PL.md](docs/PROJECT_GUIDE_PL.md).

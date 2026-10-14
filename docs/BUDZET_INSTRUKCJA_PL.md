@@ -1,6 +1,6 @@
 # Budżet domowy — szczegółowa instrukcja
 
-Stan funkcjonalności: 13 października 2026. Wszystkie kwoty poniżej są przykładami. [Spis dokumentacji](README.md) · [Pozostałe moduły](INSTRUKCJA_OBSLUGI_PL.md)
+Stan funkcjonalności: 14 października 2026. Wszystkie kwoty poniżej są przykładami. [Spis dokumentacji](README.md) · [Pozostałe moduły](INSTRUKCJA_OBSLUGI_PL.md)
 
 ## Spis treści
 
@@ -86,6 +86,10 @@ Konto pokazuje saldo, przypisane rezerwy i kwotę poza rezerwami. Przykład: sal
 ## 4. Kategorie, podkategorie i limity
 
 Nazwę, podział oraz uwzględnianie kategorii w tempie zmienisz w **Ustawieniach → Kategorie i podkategorie**. Kwoty miesięczne edytujesz w **Planie miesiąca → Edytuj limity**. Dla podkategorii rozwiń ich listę.
+
+W edycji kategorii możesz zapisać **Opis i przykłady**. Opis jest widoczny w ustawieniach, planie i przy wyborze kategorii nowego wydatku. Warto opisać cel zakupu: posiłek kupiony z konieczności może należeć do Jedzenia, a celowe wyjście do Przyjemności. Sama nazwa restauracji nie rozstrzyga tej decyzji.
+
+Plan i ustawienia domyślnie ukrywają kategorie bez historii, planów, rachunków, rezerw oraz reguł. Przełącznik **Pokaż nieużywane kategorie** odsłania je bez usuwania danych; wyszukiwanie również je pokazuje. Kategorie z zaplanowanym wydatkiem lub jawnym limitem 0 zł pozostają widoczne. Przy podkategorii bez własnej kwoty aplikacja wyjaśnia, czy korzysta ona ze wspólnego limitu rodzica, ma plan z rachunku, czy nie ma planu.
 
 Aplikacja obsługuje dwa poziomy, np. **Transport → Paliwo / Bilety / Utrzymanie auta**. Zmiana nazwy zachowuje powiązania. Przeniesienie kategorii zmienia grupowanie jej dotychczasowych wpisów, dlatego może też zmienić prezentację wcześniejszych miesięcy.
 
@@ -340,6 +344,8 @@ Brak przyszłego planu jednej kategorii nie usuwa planów innych. Jednocześnie 
 Przyszłe szacunki nie tworzą zapisanych planów w bazie. Dlatego prognoza może zakładać wydatek, którego przyszły plan miesiąca jeszcze nie ma. Żeby oba widoki miały stałą wspólną podstawę, ustaw plan domyślny albo zapisz/kopiuj limity miesiąca.
 
 ### Jak czytać wynik
+
+Bezpośrednio nad wykresem wybierz **Zakres prognozy**: 30 dni, 3 miesiące (90 dni) albo 12 miesięcy (365 dni). Ten sam zakres można wybrać kafelkiem salda u góry. Oba wybory są zsynchronizowane i aktualizują wykres, najniższe saldo, przepływy, tabelę kont oraz kalendarz. Daty początku i końca widać przy wykresie. Przełączenie zakresu zachowuje wybrane konto i wariant symulacji.
 
 W **Planie użytym w prognozie** rozwiń miesiąc. Zobaczysz źródło każdego limitu i kwoty pozostałych przepływów. Pierwszy oraz ostatni miesiąc mogą obejmować tylko część dni; pełny limit miesiąca i część w zakresie prognozy są osobno wyjaśnione.
 

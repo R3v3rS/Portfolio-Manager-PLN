@@ -1,6 +1,6 @@
 # Dokumentacja Portfolio Manager (PLN)
 
-Stan opisanej funkcjonalności: 13 października 2026. Opisy dotyczą aktualnego interfejsu i kodu w tej wersji. Kwoty i nazwy kont w przykładach są fikcyjne.
+Stan opisanej funkcjonalności: 14 października 2026. Opisy dotyczą aktualnego interfejsu i kodu w tej wersji. Kwoty i nazwy kont w przykładach są fikcyjne.
 
 ## Od czego zacząć
 
@@ -25,4 +25,4 @@ Najkrótsza kolejność wdrożenia: uruchom aplikację, wprowadź salda kont, do
 
 [PROJECT_GUIDE_PL.md](PROJECT_GUIDE_PL.md) opisuje szczegóły własności i księgowania portfeli. [ANALYTICS_SUMMARY_API_PL.md](ANALYTICS_SUMMARY_API_PL.md) opisuje podsumowania analiz. [TEST_CATALOG_PL.md](TEST_CATALOG_PL.md) jest katalogiem wybranych testów, a nie instrukcją użytkownika.
 
-Starsze audyty i notatki wdrożeniowe mogą opisywać wcześniejsze ekrany, wykryte już poprawione błędy lub historyczne założenia. Punktem wejścia do obecnej obsługi są dokumenty z tabeli powyżej. `openapi.yaml` jest dodatkowym opisem części API; pełny aktualny zestaw tras wynika z rejestracji blueprintów i testu kontraktu API.
+Starsze audyty i notatki wdrożeniowe są w [archiwum dokumentacji](archive/README.md). Mogą opisywać wcześniejsze ekrany, wykryte już poprawione błędy lub historyczne założenia. Punktem wejścia do obecnej obsługi są dokumenty z tabeli powyżej. `openapi.yaml` jest dodatkowym opisem części API; pełny aktualny zestaw tras wynika z rejestracji blueprintów i testu kontraktu API.

@@ -9,9 +9,10 @@ def initialize(db):
         loan_id INTEGER PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
         account_id INTEGER REFERENCES budget_accounts(id), category_id INTEGER REFERENCES budget_categories_v2(id),
         version INTEGER NOT NULL DEFAULT 1)''')
-    columns={r['name'] for r in db.execute('PRAGMA table_info(loan_installment_payments)')}
-    for column,definition in [('budget_entry_created','INTEGER NOT NULL DEFAULT 1'),('linked_entry_before','TEXT')]:
-        if column not in columns: db.execute(f'ALTER TABLE loan_installment_payments ADD COLUMN {column} {definition}')
+    for table in ('loan_installment_payments','loan_overpayments'):
+        columns={r['name'] for r in db.execute(f'PRAGMA table_info({table})')}
+        for column,definition in [('budget_entry_created','INTEGER NOT NULL DEFAULT 1'),('linked_entry_before','TEXT')]:
+            if column not in columns: db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
     for loan in db.execute('SELECT id FROM loans').fetchall(): ensure_settings(db,loan['id'])
 
 
@@ -23,7 +24,7 @@ def ensure_settings(db,loan_id):
     if not category:
         category=db.execute('SELECT category_id FROM loan_budget_settings WHERE category_id IS NOT NULL ORDER BY loan_id LIMIT 1').fetchone()
     if not category:
-        category=db.execute("SELECT id FROM budget_categories_v2 WHERE name='Rachunki' COLLATE NOCASE LIMIT 1").fetchone()
+        category=db.execute("SELECT id FROM budget_categories_v2 WHERE (parent_id IS NULL AND icon='ReceiptText') OR name='Rachunki' COLLATE NOCASE ORDER BY CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END,sort_order,id LIMIT 1").fetchone()
     if not category:
         order=db.execute('SELECT COALESCE(MAX(sort_order),-1)+1 FROM budget_categories_v2').fetchone()[0]
         category_id=db.execute("INSERT INTO budget_categories_v2(name,icon,sort_order) VALUES('Rachunki','ReceiptText',?)",(order,)).lastrowid
@@ -36,7 +37,7 @@ def settings(db,loan_id):
     row=db.execute('SELECT * FROM loan_budget_settings WHERE loan_id=?',(loan_id,)).fetchone()
     # Directly inserted legacy/test loans can be read before the next migration.
     fallback=db.execute('SELECT category_id FROM loan_budget_settings WHERE category_id IS NOT NULL ORDER BY loan_id LIMIT 1').fetchone()
-    if not fallback:fallback=db.execute("SELECT id FROM budget_categories_v2 WHERE name='Rachunki' COLLATE NOCASE LIMIT 1").fetchone()
+    if not fallback:fallback=db.execute("SELECT id FROM budget_categories_v2 WHERE (parent_id IS NULL AND icon='ReceiptText') OR name='Rachunki' COLLATE NOCASE ORDER BY CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END,sort_order,id LIMIT 1").fetchone()
     result=dict(row) if row else dict(loan_id=loan_id,account_id=None,category_id=fallback[0] if fallback else None,version=0)
     result['resolved_account_id']=result['account_id'] or planning_settings(db)['resolved_loan_account_id']
     return result

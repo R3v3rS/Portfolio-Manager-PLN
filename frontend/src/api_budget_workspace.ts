@@ -15,6 +15,7 @@ export type BudgetCategory = {
   direct_spent?: number; direct_planned_bills?: number; children_plan?: number;
   carryover?: number; reserve_covered?:number; reserve_settled?:number;
   daily_pace_included?:boolean; daily_pace_effective?:boolean;
+  description?:string; has_activity?:boolean; rule_count?:number;
 };
 export type BudgetLine = { category_id: number; category_name: string; label: string; amount: number };
 export type BudgetEntry = {
@@ -88,8 +89,8 @@ export const budgetWorkspaceApi = {
   reverseSettlement:(id:number,input:SettlementPreview,request_id:string)=>client.post(`/entries/${id}/reverse-settlement`,{...input,request_id}),
   get: (month: string) => client.get<BudgetWorkspace>('', { params: { month } }),
   createAccount: (name: string, balance: number) => client.post<{ id: number }>('/accounts', { name, balance }),
-  createCategory: (name: string, parent_id: number | null = null, daily_pace_included=true) => client.post<{ id: number }>('/categories', { name, parent_id, daily_pace_included }),
-  updateCategory: (id: number, name: string, parent_id: number | null, version: number, daily_pace_included?:boolean) => client.put<{ id: number }>('/categories/' + id, { name, parent_id, version, daily_pace_included }),
+  createCategory: (name: string, parent_id: number | null = null, daily_pace_included=true, description?:string) => client.post<{ id: number }>('/categories', { name, parent_id, daily_pace_included, ...(description!==undefined?{description}:{}) }),
+  updateCategory: (id: number, name: string, parent_id: number | null, version: number, daily_pace_included?:boolean, description?:string) => client.put<{ id: number }>('/categories/' + id, { name, parent_id, version, daily_pace_included, ...(description!==undefined?{description}:{}) }),
   setPlan: (categoryId: number, month: string, amount: number) =>
     client.put('/plans/' + categoryId, { month, amount }),
   copyPlans: (source: string, target: string) => client.post<{ copied: number }>('/plans/copy', { source, target }),

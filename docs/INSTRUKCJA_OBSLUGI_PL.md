@@ -1,6 +1,6 @@
 # Instrukcja obsługi całej aplikacji
 
-Stan funkcjonalności: 13 października 2026. [Spis dokumentacji](README.md) · [Dokładna instrukcja budżetu](BUDZET_INSTRUKCJA_PL.md) · [Uruchamianie i kopie](URUCHAMIANIE_I_KOPIE_PL.md)
+Stan funkcjonalności: 14 października 2026. [Spis dokumentacji](README.md) · [Dokładna instrukcja budżetu](BUDZET_INSTRUKCJA_PL.md) · [Uruchamianie i kopie](URUCHAMIANIE_I_KOPIE_PL.md)
 
 ## 1. Jak zacząć
 
@@ -144,6 +144,8 @@ Dodaj parametry kredytu, datę rozpoczęcia, typ rat, czas spłaty i oprocentowa
 W szczegółach ustaw konto i kategorię budżetową. Potwierdź konkretny numer raty, rzeczywistą datę i kwotę. Importowaną płatność powiąż z istniejącą transakcją. Sama data potwierdzenia nie powinna być zgadywana z numeru miesiąca.
 
 Sprawdź rozróżnienie zapisu spłaty oraz księgowania w budżecie. Przy korekcie lub cofnięciu zapisu przeczytaj podgląd wpływu na istniejący wydatek i saldo. [Instrukcja budżetu](BUDZET_INSTRUKCJA_PL.md#7-rachunki-i-raty-kredytów) opisuje te sytuacje szczegółowo.
+
+Nadpłatę również możesz powiązać z istniejącą transakcją. W **Symulacji → Dodaj nadpłatę** podaj rzeczywistą kwotę, datę i konto, a następnie wybierz znalezioną płatność. Powiązanie nie odejmuje pieniędzy ponownie. Cofnięcie takiej nadpłaty zachowuje wcześniejszy wydatek; wydatek utworzony dopiero przy zapisie nadpłaty jest cofany razem z nią.
 
 Opcja **nie uwzględniaj w majątku netto** zmienia prezentację majątku. Nie usuwa kredytu, harmonogramu ani płatności z budżetu i prognozy.
 

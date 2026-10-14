@@ -265,6 +265,26 @@ class LoanWorkspaceTest(unittest.TestCase):
             status = LoanService.get_status(self.loan_id, as_of='2026-10-15')
         self.assertEqual(status['next_due_date'], '2026-10-15')
 
+    def test_overpayment_links_existing_expense_once_and_undo_preserves_cash(self):
+        account=self.budget_account()
+        category=self.payload(self.client.post('/api/budget/workspace/categories',json={'name':'Gry'}),201)['id']
+        entry=self.payload(self.client.post('/api/budget/workspace/entries',json=dict(
+            account_id=account,kind='EXPENSE',amount=10.38,date='2026-09-10',description='Rata extra',
+            lines=[dict(category_id=category,amount=10.38)])),201)['id']
+        url=f'/api/loans/{self.loan_id}/overpayments'
+        values=dict(amount=10.38,date='2026-09-10',account_id=account)
+        self.assertEqual(self.client.post(url,json=values).status_code,409)
+        payment=self.payload(self.client.post(url,json=dict(values,existing_entry_id=entry,entry_version=1)),201)
+        self.assertEqual(self.client.post(url,json=dict(values,existing_entry_id=entry,entry_version=1)).status_code,409)
+        budget=self.payload(self.client.get('/api/budget/workspace?month=2026-09'))
+        self.assertEqual((budget['totals']['balance'],budget['totals']['spent'],len(budget['entries'])),(989.62,10.38,1))
+        self.assertEqual(budget['entries'][0]['loan_id'],self.loan_id)
+        self.payload(self.client.delete(url+f'/{payment["id"]}'))
+        restored=self.payload(self.client.get('/api/budget/workspace?month=2026-09'))
+        self.assertEqual(restored['totals']['balance'],989.62)
+        self.assertEqual(restored['entries'][0]['lines'][0]['category_id'],category)
+        self.assertIsNone(restored['entries'][0]['loan_id'])
+
     def test_confirmed_balance_is_separate_from_estimate(self):
         self.payload(self.client.post(f'/api/loans/{self.loan_id}/balance-checks', json={
             'balance': 1900, 'checked_on': '2026-09-20',

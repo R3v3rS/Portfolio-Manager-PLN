@@ -93,3 +93,8 @@
 .bp-closing-decision label { display:grid; gap:.4rem; margin-top:.8rem; color:var(--muted); }
 .bp-closing-decision select { width:100%; padding:.7rem; border:1px solid var(--line); border-radius:.6rem; background:var(--surface); color:var(--ink); }
 @media(max-width:550px) { .budget-pace-values { grid-template-columns:1fr; gap:.65rem; } }
+
+.budget-category-description { color:var(--muted); font-size:.78rem; line-height:1.5; max-width:75ch; margin:.4rem 0 .7rem; font-weight:400; }
+.budget-line-row .budget-category-description { display:block; margin:.35rem 0 0; }
+.budget-page label.budget-checkbox { flex-direction:row; align-items:center; gap:.6rem; margin:.8rem 0; cursor:pointer; }
+.budget-page label.budget-checkbox input { width:1rem; height:1rem; flex:none; accent-color:var(--accent); }
