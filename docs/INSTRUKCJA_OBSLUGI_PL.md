@@ -1,6 +1,6 @@
 # Instrukcja obsługi całej aplikacji
 
-Stan funkcjonalności: 14 października 2026. [Spis dokumentacji](README.md) · [Dokładna instrukcja budżetu](BUDZET_INSTRUKCJA_PL.md) · [Uruchamianie i kopie](URUCHAMIANIE_I_KOPIE_PL.md)
+Stan funkcjonalności: 22 października 2026. [Spis dokumentacji](README.md) · [Dokładna instrukcja budżetu](BUDZET_INSTRUKCJA_PL.md) · [Uruchamianie i kopie](URUCHAMIANIE_I_KOPIE_PL.md)
 
 ## 1. Jak zacząć
 
@@ -78,6 +78,8 @@ Strategia jest wydzielonym zakresem głównego portfela. Możesz przenosić istn
 Przy nowej strategii sprawdź moment rozpoczęcia oraz wartość przenoszonych aktywów. Wynik od przeniesienia różni się od wyniku całej pozycji od jej pierwotnego zakupu; historyczny koszt pozycji i kapitał startowy strategii służą innym celom analizy.
 
 **Archiwizacja strategii** przenosi jej gotówkę i pozycje do zakresu głównego, zachowuje historię strategii i zatrzymuje jej archiwalny wynik oraz wykresy. Kwoty archiwum są zapisem stanu przy zamknięciu, a nie dodatkowym aktywnym majątkiem. Archiwizacja nie jest usunięciem historii.
+
+W aktywnym podkoncie wybierz **Archiwizuj i przenieś środki**. Operacja zachowuje pierwotne koszty pozycji i dopisuje powiązane przesunięcia. Nie tworzy nowej wpłaty na IKE. Brakujące ceny uzupełnij ręcznie, a ujemną gotówkę rozlicz przed zamknięciem. Błąd wycofuje całość, a ponowienie nie przesuwa środków drugi raz. Archiwum włączysz na liście portfeli; zamknięta strategia zachowuje końcowe podsumowanie, historię dzienną i miesięczną oraz raport wyników. Nie można ponownie przenieść jej środków ani zmienić przypisania jej transakcji.
 
 Scalanie historii strategii z głównym portfelem jest inną operacją niż archiwizacja. Przed scalaniem, zmianą zakresów i naprawą historii wykonaj kopię. Nie trzeba scalać starej historii, aby utworzyć nową strategię i od tego momentu analizować jej wynik.
 

@@ -2,6 +2,8 @@
 
 Stan funkcjonalności: 19 października 2026. Wszystkie kwoty poniżej są przykładami. [Spis dokumentacji](README.md) · [Pozostałe moduły](INSTRUKCJA_OBSLUGI_PL.md)
 
+Do codziennej pracy zacznij od [krótkiej instrukcji budżetu](BUDZET_NA_CO_DZIEN_PL.md). Poniżej znajdziesz szczegółowe zasady i przypadki szczególne.
+
 ## Spis treści
 
 1. [Podstawowe pojęcia i zakładki](#1-podstawowe-pojęcia-i-zakładki)

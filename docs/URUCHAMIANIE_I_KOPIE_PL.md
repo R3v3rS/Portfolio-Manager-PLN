@@ -89,7 +89,7 @@ Kopia samej bazy **nie zawiera zdjęć paragonów zapisanych na dysku**. Do peł
 
 W **Centrum narzędzi → Kopie bazy** możesz utworzyć ręczną kopię, przejrzeć listę i pobrać wybraną. Usługa używa kopii SQLite, sprawdza integralność oraz wymagane tabele i relacje.
 
-Przy uruchomieniu backendu tworzona jest kopia dzienna, najwyżej jedna dla danego dnia, oraz kopia przed aktualizacją, gdy zmieni się sygnatura kodu. To nie jest stale działająca kopia co godzinę — jeśli serwer nie jest ponownie uruchamiany, kolejna dzienna kopia nie powstaje tylko z upływu doby.
+Przy uruchomieniu backendu sprawdzana jest kopia dzienna, najwyżej jedna dla danego dnia, oraz kopia przed aktualizacją, gdy zmieni się sygnatura kodu. Podczas zwykłej pracy kontrola kopii dziennej jest wykonywana także przed obsługą żądań: pierwsze żądanie w nowym dniu może utworzyć kopię bez restartu. Sam upływ czasu przy bezczynnym serwerze nie uruchamia kopii. Nie jest to kopia wykonywana co godzinę ani po każdej transakcji.
 
 Automatyczna retencja pozostawia do 14 kopii dziennych i 10 kopii aktualizacji. To liczby kopii, nie gwarancja zachowania każdego kalendarzowego dnia. Warto zachować ważną kopię ręczną także poza katalogiem aplikacji.
 
@@ -97,7 +97,7 @@ Przed większą korektą historii, scalaniem, resetem lub przywróceniem wykonaj
 
 ## 6. Przywracanie i przeniesienie
 
-Przywrócenie wybranej kopii w narzędziach odtwarza **całą bazę**. Zmiany późniejsze niż kopia nie będą częścią odtworzonych danych. Przed przywróceniem aplikacja zapisuje kopię ratunkową bieżącej bazy. Po operacji odśwież widoki i ponownie uruchom backend, aby zastosować aktualne inicjalizacje schematu do starszej bazy.
+Przywrócenie wybranej kopii w narzędziach odtwarza **całą bazę**. Zmiany późniejsze niż kopia nie będą częścią odtworzonych danych. Przed przywróceniem aplikacja zapisuje kopię ratunkową bieżącej bazy, a po przywróceniu sama inicjalizuje schemat aktualnego kodu i czyści obsługiwane pamięci podręczne. Błąd inicjalizacji powoduje odtworzenie kopii ratunkowej. Po udanej operacji odśwież widoki; restart nie jest wymagany do wykonania tej inicjalizacji. Przy ręcznej podmianie pliku bazy wykonaj procedurę zatrzymania i uruchomienia poniżej.
 
 Przy ręcznym przeniesieniu:
 
@@ -134,7 +134,21 @@ Kod wysłany na gałąź PR jest już na GitHubie, ale nie musi jeszcze być w `
 
 Przy starcie przez skrypty czytaj `backend/local-backend.stderr.log`, `backend/local-backend.stdout.log` i analogiczne logi frontendu. Backend zapisuje także `backend/logs/backend.log`. W ręcznym uruchomieniu błędy są widoczne w terminalach.
 
-## 9. Kontrola wersji przed publikacją
+## 9. Opcjonalne uruchomienie AI
+
+Lokalne podsumowania inwestycji działają bez klucza. Aby włączyć generowanie odpowiedzi, zainstaluj aktualne `requirements.txt`, utwórz lub uzupełnij `backend/.env` i uruchom ponownie backend:
+
+```dotenv
+GEMINI_API_KEY=TU_WSTAW_WLASNY_KLUCZ
+# Opcjonalny model domyślny, przed pierwszym zapisem ustawień:
+# GEMINI_MODEL=gemini-3.1-flash-lite
+```
+
+Klucza nie wpisuj w konfigurację frontendu ani do repozytorium. W portfelu otwórz **Asystent → Ustawienia AI i limit kosztów** i sprawdź status konfiguracji, model, stawki i dzienny limit. Limit 0 wyłącza generowanie. Zapisane ustawienia mają pierwszeństwo przed domyślnym modelem ze środowiska.
+
+Wybranie **Analizuj z AI** wysyła pytanie i wskazany kontekst finansowy do Google Gemini. **Przygotuj szkic AI** wysyła treść materiału wybraną do analizy. Odczyt zapisów i lokalne podsumowanie nie uruchamiają generowania. [Instrukcja analiz](AI_PORTFOLIO_ANALYSIS_MODULE_PL.md) opisuje podgląd danych, koszty i bezpieczne ponowienia; limit aplikacji jest szacunkiem i nie zastępuje kontroli rozliczeń u dostawcy.
+
+## 10. Kontrola wersji przed publikacją
 
 Frontend: `npm run check`, `npm run lint`, `npm test` i `npm run build` w `frontend/`. Backend: instalacja `requirements-dev.txt` i `python -m pytest -q` w środowisku z zależnościami, z katalogu `backend/` oraz dostępnymi jego modułami w `PYTHONPATH`.
 

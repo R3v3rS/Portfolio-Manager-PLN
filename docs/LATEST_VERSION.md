@@ -4,6 +4,8 @@ Stan: 22 października 2026.
 
 ## Zmiany z 22 października
 
+- Przegląd dokumentacji: poprawione zasady kopii i przywracania, jakość wyceny, identyfikatory importu XTB oraz jednostki analiz. Krótka instrukcja budżetu, mapa testów i konfiguracja AI z opisem wysyłanych danych. OpenAPI jawnie częściowe, uzupełnione o trzy odczyty; archiwizacja ma jedną główną instrukcję.
+
 - Wspólna wycena i rzeczywiste wyniki w asystencie, poprawny zakres podportfeli, obsługa PPK, obligacji i oszczędności oraz jawne braki cen/FX.
 - Zapisane rozmowy ze stanem danych, dopytania, źródła, porównanie przeglądów i zapis do dziennika. Lokalne podsumowanie bez klucza AI.
 - Założenia strategii, udziały i symulacja nowej wpłaty. Częściowy skład ETF ze źródłem i datą, wspólna ekspozycja i jawnie nieznany udział.
