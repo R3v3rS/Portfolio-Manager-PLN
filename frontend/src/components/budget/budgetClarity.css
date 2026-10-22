@@ -1,0 +1,76 @@
+.budget-navigation { position: relative; display: grid; gap: .7rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
+.budget-navigation-tools, .budget-navigation-actions { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.budget-primary-nav { display: flex; gap: .2rem; overflow-x: auto; padding: .1rem 0 .6rem; }
+.budget-primary-nav a { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; padding: .7rem .85rem; border-radius: .7rem; color: var(--muted); font-size: .8rem; font-weight: 650; text-decoration: none; }
+.budget-primary-nav a:hover { background: var(--surface-muted); color: var(--ink); }
+.budget-primary-nav .is-active, .budget-navigation-actions .is-active { background: var(--surface-muted); color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.budget-time-context { margin: 0 0 .4rem; font-size: .72rem; color: var(--muted); }
+.budget-add-menu { position: relative; }
+.budget-add-menu summary { cursor: pointer; list-style: none; }
+.budget-add-menu summary::-webkit-details-marker { display: none; }
+.budget-add-menu > div { position: absolute; z-index: 30; right: 0; top: calc(100% + .4rem); width: 14rem; padding: .4rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--surface); box-shadow: 0 12px 35px #0005; }
+.budget-add-menu a, .budget-add-menu button { display: flex; align-items: center; gap: .5rem; width: 100%; padding: .7rem; font-size: .8rem; color: var(--ink); text-align: left; border-radius: .4rem; }
+.budget-add-menu a:hover, .budget-add-menu button:hover { background: var(--surface-muted); }
+.budget-category-allocation { display: grid; gap: .7rem; padding: .8rem 1rem; background: var(--surface-muted); border-radius: .7rem; margin: .6rem 0; }
+.budget-allocation-values { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .8rem; }
+.budget-allocation-values span, .budget-allocation-values small { display: block; font-size: .75rem; color: var(--muted); }
+.budget-allocation-values b { display: block; color: var(--ink); font-size: 1rem; font-variant-numeric: tabular-nums; margin: .2rem 0; }
+.budget-category-allocation p { margin: 0; font-size: .76rem; color: var(--muted); }
+.budget-category-payments { padding: .8rem 0; border-top: 1px solid var(--line); }
+.budget-category-payments summary { cursor: pointer; font-size: .8rem; font-weight: 700; color: var(--ink); }
+.budget-category-payment { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: .8rem; align-items: center; padding: .85rem .2rem; border-bottom: 1px solid var(--line); }
+.budget-category-payment small { display: block; color: var(--muted); font-size: .7rem; margin-top: .25rem; }
+.budget-category-payment strong { color: var(--ink); font-size: .83rem; }
+.budget-category-payment b { font-size: .84rem; font-variant-numeric: tabular-nums; }
+.budget-category-payment-actions { display: flex; gap: .4rem; align-items: center; }
+.budget-payment-status { display: inline-flex; color: var(--accent); font-size: .69rem; font-weight: 650; }
+.budget-payment-status.is-pending { color: #f1c983; }
+.budget-plan-toolbar { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; justify-content: space-between; }
+.budget-plan-toolbar p { color: var(--muted); font-size: .78rem; max-width: 44rem; }
+.budget-plan-overruns { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .6rem; color: #f1c983; font-size: .75rem; }
+.budget-plan-overruns span { padding: .5rem .7rem; border-radius: .5rem; background: #c5941814; }
+.budget-transaction-filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: .7rem; margin: 1rem 0 .6rem; }
+.budget-transaction-filters label { display: grid; gap: .35rem; color: var(--muted); font-size: .73rem; }
+.budget-transaction-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 1.1rem; font-size: .76rem; color: var(--muted); margin: .8rem 0 1.2rem; }
+.budget-transaction-day { padding-top: 1.2rem; }
+.budget-transaction-day h3 { display: flex; justify-content: space-between; gap: 1rem; font-size: .85rem; padding-bottom: .65rem; color: var(--ink); border-bottom: 1px solid var(--line); }
+.budget-transaction-day h3 span { font-size: .72rem; font-weight: 500; color: var(--muted); }
+.budget-transaction-filter-status { display: flex; gap: .6rem; align-items: center; margin-top: .7rem; font-size: .75rem; color: var(--muted); }
+.budget-category-payments .budget-transaction-filter-status input { width: auto; }
+.budget-category-payments label.budget-transaction-filter-status { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; width:fit-content; gap:.55rem; }
+.budget-category-payment h4 { margin-top: .8rem; }
+.budget-category-payment small { font-size: .76rem; line-height:1.5; }
+.budget-payment-status { font-size: .74rem; margin-top: .2rem; }
+.budget-plan-group { scroll-margin-top: 1rem; }
+.budget-settings-categories { display: grid; gap: .6rem; }
+.budget-settings-category { padding: .65rem 0; display: flex; gap: .7rem; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.budget-settings-category small { display: block; color: var(--muted); font-size: .7rem; }
+@media (max-width: 850px) { .budget-primary-nav a { padding: .6rem; font-size: .73rem; } .budget-transaction-filters { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 580px) { .budget-navigation-tools { flex-wrap: wrap; } .budget-navigation-actions { margin-left: auto; } .budget-allocation-values { grid-template-columns: 1fr; } .budget-category-payment { grid-template-columns: minmax(0,1fr) auto; } .budget-category-payment-actions { grid-column: 1/-1; } .budget-transaction-day h3 { flex-wrap: wrap; } }
+.budget-plan-provenance { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; font-size: .72rem; color: var(--muted); padding: .5rem .2rem; }
+.budget-default-list { display: grid; gap: .15rem; }
+.budget-default-plans .budget-default-list { max-height: 30rem; overflow-y: auto; padding-right: .3rem; }
+.budget-default-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(7rem,10rem); gap: .7rem; align-items: center; padding: .7rem .3rem; border-bottom: 1px solid var(--line); }
+.budget-default-row.is-child { padding-left: 1.2rem; }
+.budget-default-row strong { font-size: .8rem; }
+.budget-default-row small { display: block; font-size: .7rem; color: var(--muted); margin-top: .25rem; }
+.budget-default-row b { font-size: .8rem; text-align: right; font-variant-numeric: tabular-nums; }
+.budget-default-row label { font-size: .7rem; }
+.budget-default-plans fieldset, .bp-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: .7rem; }
+.budget-copy-selection { display: grid; gap: .5rem; max-height: 14rem; overflow-y: auto; }
+.budget-copy-preview .cf-table-wrap { max-height: 22rem; overflow: auto; margin-bottom: .8rem; }
+.budget-copy-preview table { border-collapse: collapse; width: 100%; font-size: .74rem; }
+.budget-copy-preview th, .budget-copy-preview td { padding: .65rem; text-align: left; border-bottom: 1px solid var(--line); }
+.budget-copy-preview td small { display: block; color: var(--muted); margin-top: .2rem; }
+.budget-copy-preview th { position: sticky; top: 0; background: var(--surface); }
+.budget-forecast-months { display: grid; gap: .5rem; margin-top: .8rem; }
+.budget-forecast-months > details { background: var(--surface-muted); border-radius: .6rem; }
+.budget-forecast-months summary { display: grid; grid-template-columns: 5rem repeat(5,minmax(0,1fr)); gap: .7rem; align-items: center; padding: .85rem; cursor: pointer; font-size: .74rem; list-style: none; }
+.budget-forecast-months summary > strong::before { content: '› '; color: var(--accent); }
+.budget-forecast-months details[open] summary > strong::before { content: '⌄ '; }
+.budget-forecast-months summary span { color: var(--muted); }
+.budget-forecast-months summary b { display: block; color: var(--ink); font-size: .78rem; font-variant-numeric: tabular-nums; margin-top: .25rem; }
+.budget-forecast-months summary small { grid-column: 2/-1; color: var(--muted); }
+.budget-forecast-month-detail { padding: 0 .85rem .85rem; }
+@media(max-width:900px) { .budget-forecast-months summary { grid-template-columns: repeat(3,minmax(0,1fr)); } .budget-forecast-months summary > strong { grid-column: 1/-1; } .budget-forecast-months summary small { grid-column: 1/-1; } }
+@media(max-width:500px) { .budget-default-row { grid-template-columns: minmax(0,1fr) 7rem; } .budget-forecast-months summary { grid-template-columns: repeat(2,minmax(0,1fr)); } }

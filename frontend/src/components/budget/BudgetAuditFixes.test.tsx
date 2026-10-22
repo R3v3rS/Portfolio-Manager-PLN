@@ -14,12 +14,13 @@ describe('Budget audit corrections',()=>{
   it('does not describe media payments as money saved',()=>{
     show(<BudgetReservePlans data={data} reload={async()=>{}}/>);
     const header=document.querySelector('.bp-saving-total')!;
-    expect(within(header as HTMLElement).getByText(/Odłożono/)).toHaveTextContent('Odłożono 0,00');
+    expect(within(header as HTMLElement).getByText(/Wykonano plan/)).toHaveTextContent('180,00');
+    expect(within(header as HTMLElement).getByText(/Dodatkowe wpłaty/)).toHaveTextContent('0,00');
     expect(within(header as HTMLElement).getByText(/Obciążenie puli mediów/)).toHaveTextContent('180,00');
   });
   it('switches between cash and budget burden using server series',()=>{
     show(<BudgetCharts data={data}/>);
-    expect(screen.getByRole('heading',{name:'Tempo codziennych wydatków'})).toBeInTheDocument();
+    expect(screen.getByRole('heading',{name:'Tempo wybranych kategorii'})).toBeInTheDocument();
     expect(screen.getByTestId('chart')).toHaveTextContent('"spent":40');
     fireEvent.click(screen.getByRole('button',{name:'Obciążenie budżetu'}));
     expect(screen.getByTestId('chart')).toHaveTextContent('"spent":250');

@@ -145,6 +145,10 @@ def validate_entry(data):
     kind = data.get('kind')
     if kind not in ('INCOME', 'EXPENSE'):
         raise ValidationError('Rodzaj wpisu musi być przychodem albo wydatkiem.')
+    if kind == 'INCOME':
+        from budget_account_types import is_credit
+        if is_credit(get_db().execute('SELECT * FROM budget_accounts WHERE id=?',(account_id,)).fetchone()):
+            raise ValidationError('Spłatę karty zapisz jako przelew z konta bankowego. Zwrot zakupu dodaj przy pierwotnym wydatku. Te operacje nie są dochodem.')
     amount_cents = cents(data.get('amount'))
     return {
         'account_id': account_id,
@@ -203,11 +207,14 @@ def entry_row(entry_id):
 @workspace_bp.get('/')
 @workspace_bp.get('')
 def workspace():
-    from budget_planning_service import workspace as planning_workspace
     month = month_value(request.args.get('month') or date.today().strftime('%Y-%m'))
-    db = get_db()
+    return success_response(workspace_data(get_db(), month))
+
+
+def workspace_data(db, month):
+    from budget_planning_service import workspace as planning_workspace
     accounts = [dict(row) for row in db.execute(
-        'SELECT id, name, ROUND(balance, 2) AS balance, currency FROM budget_accounts ORDER BY id'
+        'SELECT id, name, ROUND(balance, 2) AS balance, currency, account_type FROM budget_accounts ORDER BY id'
     ).fetchall()]
     categories = category_workspace(db, month)
     labels = {c['id']: c['selection_label'] for c in categories}
@@ -271,15 +278,53 @@ def workspace():
     planning=planning_workspace(db,month)
     from budget_month_plan_service import rows as month_plan
     planning['month_plan']=month_plan(db,month,categories,bills,planning['loans'],planning['reserve_plans'],totals)
+    from budget_plan_read_service import category_details
+    allocations=category_details(db,month,categories,bills,planning['loans'],planning['reserve_plans'])
+    for category in categories:category['plan_details']=allocations[category['id']]
+    for item in planning['month_plan']:
+        if item['kind']=='RESERVES':
+            ordinary=[r for r in planning['reserve_plans'] if r.get('monthly_amount') is None or r.get('open_ended')]
+            item['plan_done']=round(sum(min(r['funded'],r['planned']) for r in ordinary),2)
+            item['extra']=round(sum(max(0,r['funded']-r['planned']) for r in ordinary),2)
+        elif item['kind']=='DAILY':
+            roots=[c for c in categories if c['parent_id'] is None]
+            item['plan_done']=round(sum(min(c['plan_details']['ordinary_spent'],c['plan_details']['ordinary_planned']) for c in roots),2)
+            item['extra']=round(sum(c['plan_details']['ordinary_over'] for c in roots),2)
+        else:
+            item['plan_done']=min(item['done'],item['planned'])
+            item['extra']=round(max(0,item['done']-item['planned']),2)
     from budget_chart_service import pace,fixed_summary
-    return success_response({
+    bank_transfers=[dict(r,amount=r['amount_cents']/100,description=r['notes']) for r in db.execute('''SELECT t.id,t.date,t.notes,t.amount_cents,t.source_account_id,t.target_account_id,
+        t.move_money,t.reserve_action,s.name source_name,a.name target_name,r.name reserve_name
+        FROM budget_account_transfers t JOIN budget_accounts s ON s.id=t.source_account_id
+        JOIN budget_accounts a ON a.id=t.target_account_id LEFT JOIN budget_reserves r ON r.id=t.reserve_id
+        WHERE substr(t.date,1,7)=? ORDER BY t.date DESC,t.id DESC''',(month,))]
+    return {
         'chart':pace(db,month,categories,bills,planning['loans'],planning['reserve_plans'],totals),
         'fixed_costs':fixed_summary(bills,planning['loans']),
         'month': month, 'accounts': accounts, 'categories': categories,
-        'bills': bills, 'entries': entries,
+        'bills': bills, 'entries': entries, 'bank_transfers':bank_transfers,
         'totals': totals,
         'planning': planning,
-    })
+    }
+
+
+@workspace_bp.get('/plans/year')
+def year_plan():
+    from budget_usability_service import annual_plan
+    return success_response(annual_plan(get_db(), request.args.get('start') or date.today().strftime('%Y-%m')))
+
+
+@workspace_bp.post('/plans/transfer-preview')
+def plan_transfer_preview():
+    from budget_usability_service import transfer_preview
+    return success_response(transfer_preview(get_db(), body()))
+
+
+@workspace_bp.post('/plans/transfer')
+def plan_transfer():
+    from budget_usability_service import transfer_plan
+    return success_response(transfer_plan(get_db(), body()))
 
 
 @workspace_bp.post('/accounts')
@@ -324,12 +369,49 @@ def copy_plans():
     if source == target:
         raise ValidationError('Wybierz inny miesiąc docelowy.')
     db = get_db()
-    cursor = db.execute('''
-        INSERT OR IGNORE INTO budget_plans_v2 (category_id, month, amount_cents)
-        SELECT category_id, ?, amount_cents FROM budget_plans_v2 WHERE month = ?
-    ''', (target, source))
+    from budget_default_plan_service import resolve
+    amounts,_=resolve(db,source)
+    copied=0
+    for category_id,amount in amounts.items():
+        copied+=db.execute('INSERT OR IGNORE INTO budget_plans_v2(category_id,month,amount_cents) VALUES(?,?,?)',
+                           (category_id,target,amount)).rowcount
     db.commit()
-    return success_response({'copied': cursor.rowcount})
+    return success_response({'copied': copied})
+
+
+@workspace_bp.get('/plans/defaults')
+def get_default_plans():
+    from budget_default_plan_service import defaults
+    month=month_value(request.args.get('month') or date.today().strftime('%Y-%m'))
+    return success_response(defaults(get_db(),month))
+
+
+@workspace_bp.put('/plans/defaults')
+def put_default_plans():
+    from budget_default_plan_service import save_defaults
+    return success_response(save_defaults(get_db(),body()))
+
+
+@workspace_bp.post('/plans/copy-preview')
+def preview_plan_copy():
+    from budget_default_plan_service import copy_preview
+    return success_response(copy_preview(get_db(),body()))
+
+
+@workspace_bp.post('/plans/copy-range')
+def save_plan_copy():
+    from budget_default_plan_service import copy_range
+    return success_response(copy_range(get_db(),body()))
+
+
+@workspace_bp.delete('/plans/<int:category_id>')
+def reset_plan(category_id):
+    exists('budget_categories_v2',category_id,'Kategoria')
+    month=month_value(request.args.get('month'))
+    db=get_db()
+    db.execute('DELETE FROM budget_plans_v2 WHERE category_id=? AND month=?',(category_id,month))
+    db.commit()
+    return success_response({'category_id':category_id,'month':month})
 
 
 @workspace_bp.post('/entries')

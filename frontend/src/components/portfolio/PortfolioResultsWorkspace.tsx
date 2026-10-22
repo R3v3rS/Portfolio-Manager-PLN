@@ -10,7 +10,7 @@ import {chartColors,chartTooltip} from '../charts/chartTheme';
 import ActualResultsPanel from './ActualResultsPanel';
 import MonthlyResults from './MonthlyResults';
 import InstrumentHistory from './InstrumentHistory';
-import {money,percent} from './researchModel';
+import {money} from './researchModel';
 import {extractErrorMessageFromUnknown} from '../../http/response';
 import './resultsWorkspace.css';
 

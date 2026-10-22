@@ -9,6 +9,7 @@ from budget_reserves_service import (
     _account, _fingerprint, _now, _request_id, _row, last_reserve_day, reserved_cents,
 )
 from routes_budget_workspace import positive_id, text_field
+from budget_account_types import require_cash
 
 
 def budget_pool(db, reserve_id):
@@ -30,6 +31,7 @@ def fund(db, reserve_id, target_id, amount, day, notes, token, *, history=False)
         # The first historical payment can precede the date the goal was created.
         db.execute('UPDATE budget_reserves SET start_date=? WHERE id=?', (day, reserve_id))
     account = _account(db, target_id)
+    require_cash(account)
     if amount > max(0, round(float(account['balance'])*100)-reserved_cents(db, target_id)):
         raise ValidationError('Na koncie docelowym brakuje wolnych środków na tę rezerwę. Sprawdź saldo i tryb importu.')
     db.execute('''INSERT INTO budget_reserve_movements
@@ -72,7 +74,7 @@ def save_rule(data, rule_id=None):
     db = get_db()
     try:
         db.execute('BEGIN IMMEDIATE')
-        _account(db, source); _account(db, target)
+        require_cash(_account(db, source)); require_cash(_account(db, target))
         reserve = _row(db, reserve_id)
         if active and (reserve['is_archived'] or reserve['completed_at']):
             raise ValidationError('Reguła wymaga aktywnej rezerwy.')

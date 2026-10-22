@@ -13,6 +13,60 @@ const show=(path='/budget/accounts')=>render(<MemoryRouter initialEntries={[path
 beforeEach(()=>{vi.resetAllMocks();vi.mocked(accountsApi.get).mockResolvedValue(workspace());vi.mocked(accountsApi.create).mockResolvedValue({id:3});vi.mocked(accountsApi.transfer).mockResolvedValue({id:1});vi.mocked(accountsApi.reconcile).mockResolvedValue({id:1});});
 
 describe('Budget accounts',()=>{
+  it('creates a credit card using the outstanding debt, without using the credit limit as cash',async()=>{
+    show();await screen.findByRole('heading',{name:'Konto osobiste'});
+    fireEvent.click(screen.getByRole('button',{name:'Dodaj konto'}));
+    fireEvent.change(screen.getByLabelText('Rodzaj konta'),{target:{value:'CREDIT_CARD'}});
+    fireEvent.change(screen.getByLabelText('Nazwa konta'),{target:{value:'Kredytówka'}});
+    fireEvent.change(screen.getByLabelText('Obecne zadłużenie w PLN'),{target:{value:'300'}});
+    expect(screen.getByText(/Nie wpisuj limitu kredytowego/)).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Dodaj konto'}));
+    await waitFor(()=>expect(accountsApi.create).toHaveBeenCalledWith('Kredytówka',-300,expect.any(String),'CREDIT_CARD'));
+  });
+
+  it('repays a card with a transfer and previews cash and debt instead of recording an expense',async()=>{
+    const data=workspace();data.accounts.push({id:3,name:'Kredytówka',account_type:'CREDIT_CARD',balance:-300,reserved:0,available:-300,verified_on:null,allocations:[]});
+    data.totals={...data.totals,balance:9700,available:8900,cash_balance:10000,credit_card_debt:300};
+    vi.mocked(accountsApi.get).mockResolvedValue(data);
+    show();const card=(await screen.findByRole('heading',{name:'Kredytówka'})).closest('article')!;
+    expect(card).toHaveTextContent('Zadłużenie do spłaty300,00');
+    expect(within(card).queryByText('Odłożone na tym koncie')).not.toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button',{name:'Zapisz spłatę'}));
+    const dialog=within(screen.getByRole('dialog',{name:'Zapisz spłatę karty'}));
+    expect(dialog.getByLabelText('Kwota w PLN')).toHaveValue(300);
+    expect(dialog.getByLabelText('Na konto')).toHaveValue('3');
+    expect(dialog.queryByLabelText('Cel przelewu')).not.toBeInTheDocument();
+    expect(dialog.getByRole('status')).toHaveTextContent(/300,00.*0,00/);
+    expect(within(dialog.getByLabelText('Z konta')).queryByRole('option',{name:'Kredytówka'})).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button',{name:'Zapisz spłatę'}));
+    await waitFor(()=>expect(accountsApi.transfer).toHaveBeenCalledWith(expect.objectContaining({source_account_id:1,target_account_id:3,amount:300,reserve_id:null,move_money:true,reserve_action:'MOVE'}),expect.any(String)));
+    await screen.findByText(/Spłata karty zapisana.*nie jest drugim kosztem/);
+  });
+
+  it('blocks repayment when the selected bank account has insufficient unreserved cash',async()=>{
+    const data=workspace();data.accounts.push({id:3,name:'Kredytówka',account_type:'CREDIT_CARD',balance:-7800,reserved:0,available:-7800,verified_on:null,allocations:[]});
+    vi.mocked(accountsApi.get).mockResolvedValue(data);
+    show();await screen.findByRole('heading',{name:'Kredytówka'});
+    fireEvent.click(screen.getByRole('button',{name:'Zapisz spłatę'}));
+    expect(screen.getByText(/Brakuje środków poza rezerwami na koncie spłaty/)).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByRole('button',{name:'Zapisz spłatę'})).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Kwota w PLN'),{target:{value:'7500'}});
+    expect(within(screen.getByRole('dialog')).getByRole('button',{name:'Zapisz spłatę'})).toBeEnabled();
+    expect(accountsApi.transfer).not.toHaveBeenCalled();
+  });
+
+  it('allows signed balance reconciliation for a card without a reserve shortage warning',async()=>{
+    const data=workspace();data.accounts[1]={...data.accounts[1],name:'Kredytówka',account_type:'CREDIT_CARD',balance:-300,available:-300,reserved:0,allocations:[]};
+    vi.mocked(accountsApi.get).mockResolvedValue(data);
+    show();const card=(await screen.findByRole('heading',{name:'Kredytówka'})).closest('article')!;
+    fireEvent.click(within(card).getByRole('button',{name:'Sprawdź saldo'}));
+    fireEvent.change(screen.getByLabelText('Saldo karty w PLN (minus oznacza dług)'),{target:{value:'-350'}});
+    fireEvent.change(screen.getByLabelText('Powód różnicy / notatka'),{target:{value:'Brakujący zapis'}});
+    expect(screen.queryByText(/Saldo będzie niższe niż zapisane rezerwy/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Potwierdź saldo'}));
+    await waitFor(()=>expect(accountsApi.reconcile).toHaveBeenCalledWith(2,-350,-300,'Brakujący zapis',expect.any(String)));
+  });
+
   it('marks an existing correction as opening data while preserving the current balance',async()=>{
     const data=workspace();data.accounts[1]={...data.accounts[1],name:'Alior Bank',balance:847,opening_balance:null,opening_record_id:null,inferred_opening_balance:0};
     data.history=[{id:'r1',kind:'RECONCILIATION',date:'2026-10-03',created_at:'2026-10-03',account_id:2,

@@ -45,7 +45,9 @@ class PPKRefreshTestCase(unittest.TestCase):
         self.db = get_db()
         self.pid = self.db.execute("INSERT INTO portfolios(name,account_type,current_cash) VALUES ('PPK','PPK',0)").lastrowid
         self.db.commit()
-        self.monday = date.today() - timedelta(days=date.today().weekday()+7)
+        # Both the Monday and the later point (+10 days) must stay in the past,
+        # including when the suite runs early in the current week.
+        self.monday = date.today() - timedelta(days=date.today().weekday()+14)
 
     def tearDown(self):
         self.ctx.pop(); self.tmp.cleanup()

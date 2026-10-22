@@ -1,0 +1,122 @@
+/* One dark palette and a compact hierarchy for the household budget. */
+.budget-page .budget-heading,.budget-page .br-heading { margin-bottom:0; padding-block:.4rem; }
+.budget-page .page-eyebrow { margin-bottom:.35rem; }
+.budget-page .budget-subtitle,.budget-page .br-heading p:not(.page-eyebrow) { font-size:.9rem; }
+.budget-navigation { position:sticky; top:0; z-index:25; background:var(--canvas,#0d191f); padding:.7rem 0 .3rem; }
+.budget-secondary-nav { display:flex; gap:1rem; padding:.5rem .1rem; color:var(--muted); font-size:.85rem; }
+.budget-secondary-nav .is-active { color:var(--accent); font-weight:650; }
+.budget-topline-compact { display:block; padding:.3rem .1rem; color:var(--muted); font-size:.82rem; }
+.budget-topline-compact summary { cursor:pointer; }
+.budget-topline-compact .budget-account-list { padding-top:.6rem; }
+.budget-page .budget-three-highlights { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.budget-plan-support { color:var(--muted); font-size:.86rem; padding:.55rem .2rem; }
+.budget-plan-support.is-needed { color:var(--ink); border-left:3px solid #edbd69; padding-left:.8rem; }
+.budget-view-toolbar { display:flex; justify-content:space-between; align-items:center; gap:.8rem; flex-wrap:wrap; }
+.budget-view-toolbar .br-tabs { margin:0; }
+.budget-plan-summary { display:flex; flex-wrap:wrap; gap:1rem 2rem; padding:1rem 1.2rem; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.budget-plan-summary span { display:grid; gap:.25rem; color:var(--muted); font-size:.8rem; }
+.budget-plan-summary b { color:var(--ink); font-size:1.1rem; font-variant-numeric:tabular-nums; }
+.budget-table-scroll { overflow-x:auto; }
+.budget-compact-table { width:100%; border-collapse:collapse; font-size:.88rem; }
+.budget-compact-table th,.budget-compact-table td { text-align:right; padding:.9rem .8rem; border-bottom:1px solid var(--line); vertical-align:middle; font-variant-numeric:tabular-nums; }
+.budget-compact-table th:first-child { text-align:left; }
+.budget-compact-table thead th { color:var(--muted); font-size:.77rem; font-weight:550; white-space:nowrap; background:var(--surface); }
+.budget-compact-table td small,.budget-compact-table th small { display:block; color:var(--muted); font-size:.75rem; font-weight:400; margin-top:.25rem; }
+.budget-compact-table tr.is-over>td { background:rgba(255,112,137,.035); }
+.budget-category-table-panel { padding:1rem; }
+.budget-category-table { min-width:720px; }
+.budget-category-table tbody th { min-width:190px; }
+.budget-category-toggle { display:flex; align-items:center; text-align:left; gap:.6rem; color:var(--ink); width:100%; }
+.budget-category-toggle span { min-width:0; }
+.budget-category-toggle strong { font-weight:650; }
+.budget-category-toggle small { max-width:220px; }
+.budget-category-detail-row>td { text-align:left; background:rgba(255,255,255,.015); }
+.budget-category-detail { padding:.5rem; }
+.budget-category-detail .budget-section-heading { align-items:flex-start; }
+.budget-category-detail p { font-size:.85rem; color:var(--muted); max-width:60rem; }
+.budget-limit-editor { display:flex; align-items:center; justify-content:flex-end; gap:.4rem; }
+.budget-limit-editor input { width:105px; min-width:0; text-align:right; font-variant-numeric:tabular-nums; }
+.budget-limit-editor button { padding:.5rem .7rem; font-size:.78rem; }
+.budget-child-limits>div { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1rem; padding:.8rem 0; border-bottom:1px solid var(--line); }
+.budget-child-limits>div>div:first-child { flex:1; min-width:200px; }
+.budget-child-limits small { display:block; }
+.budget-child-limits>div>span { font-size:.8rem; font-variant-numeric:tabular-nums; }
+.budget-count { display:inline-flex; padding:.1rem .5rem; border-radius:20px; background:var(--surface-raised,var(--surface)); color:var(--accent); }
+.budget-review-queue>summary { cursor:pointer; font-weight:650; display:flex; gap:.7rem; align-items:center; }
+.budget-review-queue>label { max-width:300px; margin:.75rem 0; }
+.budget-task-list { list-style:none; padding:0; }
+.budget-task-list li { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.85rem 0; border-bottom:1px solid var(--line); }
+.budget-task-list small { display:block; color:var(--muted); margin-top:.25rem; font-size:.8rem; }
+.budget-year-plan .budget-compact-table { min-width:940px; font-size:.82rem; }
+.budget-year-plan .budget-compact-table thead th { white-space:normal; }
+.budget-year-plan td:last-child { text-align:left; max-width:270px; }
+.budget-year-plan td details ul { font-size:.77rem; padding-left:1rem; margin-top:.5rem; }
+.budget-year-plan td details summary { cursor:pointer; color:var(--muted); font-size:.78rem; }
+.budget-transfer-preview { border:1px solid var(--line); border-radius:12px; padding:1rem; background:var(--surface); }
+.budget-form-stack { display:grid; gap:1rem; border:0; padding:0; }
+.budget-settings-tabs { flex-wrap:wrap; }
+.budget-page .budget-entry { padding:.7rem 0; gap:.8rem; }
+.budget-page .budget-entry-description>strong { font-size:.88rem; }
+.budget-page .budget-entry-description>span,.budget-page .budget-classification { font-size:.77rem; }
+.budget-entry-details>summary { cursor:pointer; color:var(--accent); font-size:.78rem; padding:.25rem 0; }
+.budget-entry-details .budget-entry-actions { justify-content:flex-start; margin-top:.5rem; }
+.budget-saved-filters { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin:.7rem 0; }
+.budget-filter-chip { display:flex; gap:.4rem; align-items:center; border:1px solid var(--line); border-radius:20px; padding:.3rem .6rem; color:var(--accent); font-size:.78rem; }
+.budget-filter-chip button:last-child { color:var(--muted); }
+.budget-filter-save { display:flex; gap:.5rem; }
+.budget-filter-save input { max-width:200px; }
+.cf-section-tabs { margin:.4rem 0; }
+.cf-quality-note { border-left:3px solid #edbd69; padding:.7rem 1rem; font-size:.85rem; color:var(--ink); background:var(--surface); }
+.cf-horizons .cf-horizon-foot { color:var(--muted); }
+.cf-risk-timing { color:#edbd69; font-size:.8rem; }
+@media(max-width:1000px) {
+  .budget-page .budget-three-highlights { grid-template-columns:1fr; }
+  .budget-navigation { position:static; }
+  .budget-plan-summary { gap:.7rem 1rem; }
+  .budget-view-toolbar>div { width:100%; }
+}
+@media(max-width:600px) {
+  .budget-compact-table th,.budget-compact-table td { padding:.7rem .5rem; }
+  .budget-navigation-actions { flex-wrap:wrap; }
+  .budget-view-toolbar .br-actions { gap:.5rem; }
+  .budget-view-toolbar button { font-size:.78rem; }
+  .budget-task-list li { align-items:flex-start; }
+  .budget-filter-save { width:100%; }
+}
+
+.budget-page.budget-page { gap:1rem; }
+.budget-page .budget-entry-open { text-align:left; font-size:.88rem; font-weight:650; color:var(--ink); }
+.budget-account-options { order:3; }
+.budget-account-options summary { cursor:pointer; font-size:.8rem; color:var(--muted); }
+.budget-account-options[open] button { display:block; margin-top:.5rem; }
+.budget-cash-context { display:flex; gap:.75rem 2rem; flex-wrap:wrap; font-size:.83rem; color:var(--muted); }
+.budget-cash-context span { display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; }
+.budget-calculation-help { font-size:.85rem; color:var(--muted); }
+.budget-calculation-help summary { cursor:pointer; }
+
+.budget-category-setting-group { border-top:1px solid var(--line); padding:.6rem 0; }
+.budget-category-setting-group>details { font-size:.8rem; color:var(--muted); padding:.2rem .5rem; }
+.budget-category-setting-group>details>summary { cursor:pointer; }
+.budget-category-root-description { padding:.6rem 0; }
+.budget-category-root-description small { display:block; }
+.budget-page .budget-category-setting-group .budget-settings-category { border:0; padding:.4rem 0; }
+.budget-page .budget-category-setting-group .budget-settings-child { padding:.7rem .5rem; border-top:1px solid var(--line); }
+.budget-detail-amount { display:block; font-size:1.8rem; font-variant-numeric:tabular-nums; }
+.budget-detail-lines { padding:1rem 0; }
+.budget-detail-lines>div { display:flex; gap:1rem; justify-content:space-between; padding:.7rem 0; border-bottom:1px solid var(--line); }
+.budget-detail-lines small { display:block; color:var(--muted); }
+.budget-detail-actions { padding-top:1rem; }
+
+@media(max-width:600px) {
+  .budget-navigation-actions { width:100%; gap:.3rem; justify-content:space-between; }
+  .budget-navigation-actions>a,.budget-navigation-actions>button,.budget-navigation-actions .budget-add-menu>summary { font-size:.72rem; padding:.55rem .5rem; gap:.3rem; }
+}
+
+.budget-page .budget-basic-filters { grid-template-columns:minmax(0,2fr) minmax(180px,1fr); }
+.budget-advanced-filters { font-size:.82rem; color:var(--muted); margin:.6rem 0; }
+.budget-advanced-filters>summary { cursor:pointer; display:flex; align-items:center; gap:.6rem; list-style:disclosure-closed; }
+.budget-advanced-filters[open]>summary { list-style:disclosure-open; }
+.budget-advanced-filters[open]>summary { margin-bottom:.7rem; }
+@media(max-width:600px) { .budget-page .budget-basic-filters { grid-template-columns:1fr; } }
+
+.budget-advanced-filters[open]>summary>svg { transform:rotate(180deg); }

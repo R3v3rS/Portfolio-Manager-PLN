@@ -135,6 +135,8 @@ def set_lines(db, entry, category_id=None, lines=None):
         JOIN budget_bills_v2 b ON b.id=p.bill_id WHERE p.entry_id=?''',(entry['id'],)).fetchone()
     if bill and any(line['category_id']!=bill['category_id'] for line in validated):
         raise ValidationError('Wydatek rozlicza rachunek. Najpierw cofnij jego rozliczenie, zanim zmienisz kategorię płatności.')
+    if db.execute('SELECT 1 FROM loan_installment_payments WHERE budget_entry_id=?',(entry['id'],)).fetchone():
+        raise ValidationError('Wydatek rozlicza ratę kredytu. Najpierw cofnij powiązanie w kredycie, zanim zmienisz kategorię płatności.')
     db.execute('DELETE FROM budget_entry_lines_v2 WHERE entry_id=?', (entry['id'],))
     for line in validated:
         db.execute('INSERT INTO budget_entry_lines_v2 (entry_id,category_id,label,amount_cents) VALUES (?,?,?,?)',

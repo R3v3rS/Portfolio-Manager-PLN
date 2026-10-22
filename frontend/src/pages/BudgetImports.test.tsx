@@ -38,6 +38,27 @@ beforeEach(()=>{
 afterEach(()=>{cleanup();vi.restoreAllMocks();document.body.style.overflow='';});
 
 describe('Budget imports',()=>{
+  it('requires an explicit cash choice before preparing a new CSV import',async()=>{
+    show('/budget/imports?tab=csv');
+    fireEvent.change(await screen.findByLabelText('Bankowy plik CSV'),{target:{files:[new File(['csv'],'nowy.csv')]}});
+    const prepare=await screen.findByRole('button',{name:'Przygotuj do sprawdzenia'});
+    expect(screen.getByLabelText('Czy saldo konta już uwzględnia te operacje?')).toHaveValue('');
+    expect(prepare).toBeDisabled();expect(budgetImportsApi.stage).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Czy saldo konta już uwzględnia te operacje?'),{target:{value:'APPLY'}});
+    fireEvent.click(prepare);
+    await waitFor(()=>expect(budgetImportsApi.stage).toHaveBeenCalledWith(expect.any(File),expect.objectContaining({balance_mode:'APPLY'}),expect.any(String)));
+  });
+  it('requires a cash choice for a new receipt and saves the chosen account debit',async()=>{
+    const next=receipt();next.candidates=[];
+    vi.mocked(budgetImportsApi.receipt).mockResolvedValue(next);
+    show('/budget/imports?tab=receipt');await screen.findByLabelText('Zdjęcie lub PDF paragonu');await uploadPhoto();
+    const choice=screen.getByLabelText('Czy saldo konta już uwzględnia ten zakup?');expect(choice).toHaveValue('');
+    expect(screen.getByRole('button',{name:'Zapisz wydatek z paragonem'})).toBeDisabled();
+    expect(budgetImportsApi.commitReceipt).not.toHaveBeenCalled();
+    fireEvent.change(choice,{target:{value:'APPLY'}});
+    fireEvent.click(screen.getByRole('button',{name:'Zapisz wydatek z paragonem'}));
+    await waitFor(()=>expect(budgetImportsApi.commitReceipt).toHaveBeenCalledWith(6,expect.objectContaining({action:'NEW',balance_mode:'APPLY',expected_balance:10000}),2,expect.any(String)));
+  });
   it('replaces the draft with a fresh readout only after confirming',async()=>{
     vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     vi.mocked(budgetImportsApi.recognizeReceipt).mockResolvedValue({id:6});
@@ -115,7 +136,7 @@ describe('Budget imports',()=>{
     vi.mocked(budgetImportsApi.session).mockResolvedValue(draft);
     show();await ready();fireEvent.click(screen.getByRole('tab',{name:'Import CSV'}));
     fireEvent.change(screen.getByLabelText('Bankowy plik CSV'),{target:{files:[new File(['csv'],'bank.csv')]}});
-    await screen.findByRole('button',{name:'Przygotuj do sprawdzenia'});
+    await screen.findByRole('button',{name:'Przygotuj do sprawdzenia'});fireEvent.change(screen.getByLabelText('Czy saldo konta już uwzględnia te operacje?'),{target:{value:'HISTORY'}});
     fireEvent.click(screen.getByRole('button',{name:'Przygotuj do sprawdzenia'}));
     await screen.findByLabelText('Rezerwa operacji 1');
     expect(screen.getByText(/Odłożenia na rezerwy: 300,00/)).toBeInTheDocument();
@@ -142,7 +163,7 @@ describe('Budget imports',()=>{
     expect(screen.getByRole('link',{name:'Podziel ręcznie: Zakupy LIDL'})).toHaveAttribute('href','/budget?view=entries&month=2026-10&edit_entry=9');
   });
   it('creates an ENEA rule with a new category and optional account scope',async()=>{
-    show();await ready();fireEvent.click(screen.getByRole('button',{name:'Dodaj regułę'}));
+    show();await ready();fireEvent.click(screen.getByRole('tab',{name:'Reguły kategorii i rezerw'}));fireEvent.click(screen.getByRole('button',{name:'Nowa reguła'}));
     const dialog=screen.getByRole('dialog');fireEvent.change(within(dialog).getByLabelText('Tekst do dopasowania'),{target:{value:'ENEA'}});
     fireEvent.change(within(dialog).getByLabelText('Kategoria docelowa'),{target:{value:'NEW'}});
     fireEvent.change(within(dialog).getByLabelText('Nazwa nowej kategorii'),{target:{value:'Prąd / media'}});
@@ -153,7 +174,7 @@ describe('Budget imports',()=>{
   });
   it('retains the same request identity after an uncertain rule save and closes after success',async()=>{
     vi.mocked(budgetImportsApi.saveRule).mockRejectedValueOnce(new Error('Brak odpowiedzi'));
-    show();await ready();fireEvent.click(screen.getByRole('button',{name:'Dodaj regułę'}));
+    show();await ready();fireEvent.click(screen.getByRole('tab',{name:'Reguły kategorii i rezerw'}));fireEvent.click(screen.getByRole('button',{name:'Nowa reguła'}));
     fireEvent.change(screen.getByLabelText('Tekst do dopasowania'),{target:{value:'LIDL'}});
     fireEvent.click(screen.getByRole('button',{name:'Zapisz regułę'}));await screen.findByRole('alert');
     const token=vi.mocked(budgetImportsApi.saveRule).mock.calls[0][1];
@@ -172,7 +193,7 @@ describe('Budget imports',()=>{
     vi.mocked(budgetImportsApi.commit).mockResolvedValue({created:1,linked:0,transfers:0,skipped:0,balance:10000,balance_mode:'HISTORY',bill_matches:[{bill_id:8,title:'ENEA',month:'2026-10',entry_ids:[9]}]});
     show();await ready();fireEvent.click(screen.getByRole('tab',{name:'Import CSV'}));
     const file=new File(['csv'],'wyciag.csv',{type:'text/csv'});fireEvent.change(screen.getByLabelText('Bankowy plik CSV'),{target:{files:[file]}});
-    await screen.findByRole('button',{name:'Przygotuj do sprawdzenia'});fireEvent.click(screen.getByRole('button',{name:'Przygotuj do sprawdzenia'}));
+    await screen.findByRole('button',{name:'Przygotuj do sprawdzenia'});fireEvent.change(screen.getByLabelText('Czy saldo konta już uwzględnia te operacje?'),{target:{value:'HISTORY'}});fireEvent.click(screen.getByRole('button',{name:'Przygotuj do sprawdzenia'}));
     await screen.findByText('Reguła: Prąd');expect(budgetImportsApi.stage).toHaveBeenCalledWith(file,expect.objectContaining({account_id:2,balance_mode:'HISTORY',header_index:0,mapping:expect.objectContaining({amount:'2'})}),expect.any(String));
     expect(budgetImportsApi.commit).not.toHaveBeenCalled();expect(screen.getByLabelText('Kategoria operacji 1')).toHaveValue('3');
     fireEvent.click(screen.getByRole('button',{name:'Zatwierdź import'}));
@@ -223,7 +244,7 @@ describe('Budget imports',()=>{
   });
   it('requires explicit confirmation when creating a new receipt expense despite a similar bank purchase',async()=>{
     show('/budget/imports?tab=receipt');await screen.findByLabelText('Zdjęcie lub PDF paragonu');await uploadPhoto();
-    fireEvent.change(screen.getByLabelText('Do którego wpisu dołączyć paragon'),{target:{value:''}});
+    fireEvent.change(screen.getByLabelText('Do którego wpisu dołączyć paragon'),{target:{value:''}});fireEvent.change(screen.getByLabelText('Czy saldo konta już uwzględnia ten zakup?'),{target:{value:'HISTORY'}});
     expect(screen.getByRole('button',{name:'Zapisz wydatek z paragonem'})).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox',{name:/Potwierdzam, że to odrębny zakup/}));
     fireEvent.click(screen.getByRole('button',{name:'Zapisz wydatek z paragonem'}));

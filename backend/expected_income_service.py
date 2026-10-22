@@ -63,7 +63,8 @@ def save(data,income_id=None):
     db,now=get_db(),_now()
     try:
         db.execute('BEGIN IMMEDIATE')
-        _account(db,account_id)
+        from budget_account_types import require_cash
+        require_cash(_account(db,account_id))
         if income_id is None:
             token,fingerprint=_request_id(data),_fingerprint(data)
             previous=db.execute('SELECT * FROM budget_expected_incomes WHERE request_id=?',(token,)).fetchone()
@@ -113,7 +114,8 @@ def receive(income_id,data):
         received={(r['income_id'],r['occurrence_date']) for r in db.execute('SELECT income_id,occurrence_date FROM budget_expected_income_receipts WHERE income_id=?',(income_id,))}
         if is_received(row,occurrence,received):
             raise ApiError('income_already_received','Ten termin jest już rozliczony.',status=409)
-        _account(db,row['account_id'])
+        from budget_account_types import require_cash
+        require_cash(_account(db,row['account_id']))
         if data.get('existing_entry_id') is not None:
             entry_id=positive_id(data['existing_entry_id'],'istniejący wpływ')
             entry=db.execute('SELECT * FROM budget_entries_v2 WHERE id=?',(entry_id,)).fetchone()

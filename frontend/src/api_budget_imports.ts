@@ -4,7 +4,7 @@ export type CategoryState = 'UNASSIGNED'|'GENERAL'|'SPLIT';
 export type BalanceMode = 'HISTORY'|'APPLY';
 export type CsvField = 'date'|'amount'|'description'|'merchant'|'currency'|'reference'|'debit'|'credit';
 export type CsvMapping = Record<CsvField,string>;
-export interface ImportAccount { id:number;name:string;balance:number;verified_on:string|null }
+export interface ImportAccount { id:number;name:string;balance:number;verified_on:string|null;account_type?:'BANK'|'CREDIT_CARD' }
 export interface CategoryRuleInput { name?:string;pattern:string;match_field:'ANY'|'MERCHANT'|'DESCRIPTION';match_type:'CONTAINS'|'EQUALS'|'STARTS_WITH';category_id:number|null;new_category?:string;account_id:number|null;priority:number;active:boolean }
 export interface CategoryRule extends CategoryRuleInput { id:number;version:number;name:string;category_name:string;account_name:string|null }
 export interface ReserveTransferRuleInput { pattern:string;source_account_id:number;target_account_id:number;reserve_id:number;active:boolean }

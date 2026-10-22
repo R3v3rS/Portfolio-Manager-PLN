@@ -5,6 +5,7 @@ import { ideasApi, type IdeaPlan, type Publication, type ResearchIdea, type Rese
 import { radarApi } from '../api_radar';
 import { extractErrorMessageFromUnknown } from '../http/response';
 import './investmentIdeas.css';
+import MaterialAnalysis from '../components/ai/MaterialAnalysis';
 
 const opinions:Record<string,string>={MENTION:'Wspomina',WATCH:'Obserwuje',HOLD:'Deklaruje posiadanie',BUY:'Deklaruje zakup',SELL:'Deklaruje sprzedaż'};
 const stages:Record<string,string>={NEW:'Do sprawdzenia',ANALYZING:'Analizuję',WATCHING:'Obserwuję',REJECTED:'Odrzucone'};
@@ -15,6 +16,8 @@ const dateText=(value:string|null)=>value?new Date(value.length===10?value+'T12:
 export default function InvestmentIdeas(){
   const [month,setMonth]=useState(localDay().slice(0,7));
   const [source,setSource]=useState('all');
+  const [format,setFormat]=useState('articles');
+  const [material,setMaterial]=useState<Publication>();
   const [query,setQuery]=useState('');
   const [topic,setTopic]=useState('investing');
   const [tab,setTab]=useState<'publications'|'ideas'|'compare'>('publications');
@@ -24,7 +27,7 @@ export default function InvestmentIdeas(){
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [addLink,setAddLink]=useState(false);
-  const [link,setLink]=useState({source_id:'podlacki',url:'',title:'',published_on:localDay()});
+  const [link,setLink]=useState({source_id:'inwestomat',url:'',title:'',published_on:localDay()});
   const [edit,setEdit]=useState<{id?:number;plan:IdeaPlan}>();
   const [selected,setSelected]=useState<string[]>([]);
   const editor=useRef<HTMLFormElement>(null);
@@ -41,7 +44,7 @@ export default function InvestmentIdeas(){
     finally{setBusy(false);}
   };
   const matches=(item:{source_id:string;title:string;ticker?:string;company_name?:string})=>(source==='all'||item.source_id===source)&&`${item.title} ${item.ticker||''} ${item.company_name||''}`.toLowerCase().includes(query.toLowerCase().trim());
-  const publications=(data?.publications.filter(item=>matches(item)&&(topic==='all'||/spół|spol|akcj|portfel|ike|ikze|dywidend|pomysł|pomysl|typy|strategi/i.test(item.title)))||[])
+  const publications=(data?.publications.filter(item=>matches(item)&&(format==='all'||(data.sources.find(s=>s.id===item.source_id)?.kind==='youtube'?'videos':'articles')===format)&&(topic==='all'||/spół|spol|akcj|portfel|ike|ikze|dywidend|pomysł|pomysl|typy|strategi|etf|obligac|wynik/i.test(item.title)))||[])
     .sort((a,b)=>Number(/spół(?:ek|ki) na|typy na/i.test(b.title))-Number(/spół(?:ek|ki) na|typy na/i.test(a.title)));
   const ideas=data?.ideas.filter(matches)||[];
   const names=Object.fromEntries((data?.sources||[]).map(item=>[item.id,item.name]));
@@ -52,9 +55,9 @@ export default function InvestmentIdeas(){
   },[ideas]);
   const start=(publication:Publication,ticker='')=>{setEdit({plan:blank(publication.id,ticker)});setAddLink(false);};
   const change=(key:keyof IdeaPlan,value:string)=>setEdit(current=>current?{...current,plan:{...current.plan,[key]:value}}:current);
-  const sourceCards=(data?.sources||[]).map(item=><article key={item.id} className="ri-source">
+  const sourceCards=[...(data?.sources||[])].sort((a,b)=>Number(a.kind==='youtube')-Number(b.kind==='youtube')).map(item=><article key={item.id} className="ri-source">
     <div className="ri-inline"><span className="ri-badge">{item.kind==='youtube'?'YouTube':'Tekstowe omówienia'}</span><span className={`ri-source-state ${item.status==='unavailable'?'ri-warning':''}`}>{item.status==='ok'?'Połączone':item.status==='unavailable'?'Niedostępne':'Gotowe do odświeżenia'}</span></div>
-    <h2>{item.name}</h2><p>{item.kind==='youtube'?'Nowe filmy i opisy publikacji. Szczegóły wypowiedzi potwierdzasz w materiale.':'Artykuły wspominające Podlackiego. Autor tekstu i osoba cytowana mogą być różni.'}</p>
+    <h2>{item.name}</h2><p>{item.kind==='youtube'?'Filmy jako dodatkowe źródło. Analiza wymaga treści filmu lub transkrypcji.':item.id==='inwestomat'?'Artykuły o strategiach, ETF i budowie portfela. Pobierz treść, sprawdź ją i przeanalizuj.':'Analizy i omówienia spółek. Oddzielamy autora tekstu od cytowanych osób.'}</p>
     <small>{dateText(item.checked_at)}{item.message&&` · ${item.message}`}</small>
     <a href={item.url} target="_blank" rel="noopener noreferrer">Przejdź do źródła <ArrowUpRight size={14}/></a>
   </article>);
@@ -63,8 +66,9 @@ export default function InvestmentIdeas(){
       <div className="ri-inline"><button className="ri-button" disabled={busy} onClick={()=>{setAddLink(!addLink);setEdit(undefined);}}><Plus size={16}/>Dodaj materiał</button>
       <button className="ri-button ri-primary" disabled={busy} onClick={()=>void run(()=>ideasApi.refresh(),'Sprawdzono źródła. Ich status pokazuje, które udało się odczytać.')}><RefreshCw size={16}/>{busy?'Przetwarzanie…':'Odśwież publikacje'}</button></div></header>
     {error&&<div className="ri-error" role="alert">{error}</div>}{notice&&<div className="ri-notice" role="status"><Check size={16}/>{notice}</div>}
-    <div className="ri-sources">{sourceCards}</div>
-    <div className="ri-context"><BookOpen size={20}/><p><strong>Inspiracje z widocznym źródłem.</strong> Opisy filmów nie zastępują ich treści. Rozpoznane tickery są podpowiedziami do sprawdzenia; opinię autora potwierdzasz fragmentem lub momentem wypowiedzi. Odświeżanie pobiera ostatnie publikacje udostępniane przez źródła, a nie pełną historię kanałów. Comparic sprawdzamy wśród ostatnich 20 artykułów; starsze omówienia możesz dodać linkiem.</p></div>
+    <details className="ri-panel"><summary>Źródła i aktualność publikacji · {sourceCards.length}</summary><div className="ri-sources">{sourceCards}</div></details>
+    <div className="ri-context"><BookOpen size={20}/><p><strong>Analizuj treść, sprawdzaj źródło.</strong> Domyślnie pokazujemy artykuły. Odświeżanie pobiera listę ostatnich publikacji; treść wybranego artykułu pobierzesz w „Analizuj treść”. Wnioski AI pozostają szkicem do Twojego potwierdzenia. Filmy są dostępne w osobnym filtrze; sam opis nie jest podstawą analizy.</p></div>
+    {material&&<MaterialAnalysis key={material.id} publication={material} onClose={()=>setMaterial(undefined)} onSaved={()=>void run(async()=>{},'Zaktualizowano zapisane analizy.')}/>}
     {addLink&&<form className="ri-panel ri-editor" onSubmit={event=>{event.preventDefault();void run(async()=>{await ideasApi.publication(link);setAddLink(false);setLink({...link,url:'',title:''});},'Zapisano materiał. Jeśli wybrany miesiąc jest inny, znajdziesz go w jego miesiącu publikacji.');}}>
       <div className="ri-section-heading"><h2>Dodaj link do materiału</h2><button type="button" className="ri-icon" aria-label="Zamknij dodawanie materiału" onClick={()=>setAddLink(false)}><X size={18}/></button></div>
       <p>Link zostanie zapisany bez pobierania treści. Autora i datę przypisujesz ręcznie. Starsze materiały trafią do odpowiedniego miesiąca.</p>
@@ -89,12 +93,14 @@ export default function InvestmentIdeas(){
         <label>Miesiąc<select aria-label="Miesiąc publikacji" disabled={busy} value={month} onChange={event=>{setMonth(event.target.value);setEdit(undefined);setSelected([]);}}><option value="">Wszystkie zapisane</option>{Array.from(new Set([localDay().slice(0,7),month,...(data?.months||[])])).filter(Boolean).sort().reverse().map(item=><option key={item} value={item}>{new Date(item+'-01T12:00:00').toLocaleDateString('pl-PL',{month:'long',year:'numeric'})}</option>)}</select></label></div>
       <div className="ri-filters"><label className="ri-search"><Search size={16}/><input aria-label="Szukaj materiału lub spółki" type="search" placeholder="Szukaj materiału lub spółki…" value={query} onChange={event=>setQuery(event.target.value)}/></label>
       <select aria-label="Filtr źródła" value={source} onChange={event=>setSource(event.target.value)}><option value="all">Wszystkie źródła</option>{data?.sources.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select>
+      {tab==='publications'&&<select aria-label="Format materiału" value={format} onChange={e=>setFormat(e.target.value)}><option value="articles">Artykuły</option><option value="videos">Filmy</option><option value="all">Wszystkie formaty</option></select>}
       {tab==='publications'&&<select aria-label="Temat materiałów" value={topic} onChange={event=>setTopic(event.target.value)}><option value="investing">Spółki, portfele i strategie</option><option value="all">Wszystkie publikacje</option></select>}</div>
       {loading?<p className="ri-empty" role="status">Ładowanie zapisanych materiałów…</p>:tab==='publications'?<div className="ri-publications">
         {!publications.length&&<div className="ri-empty"><FileText size={28}/><h2>Brak materiałów w tym widoku</h2><p>Odśwież publikacje, wybierz wszystkie zapisane miesiące albo dodaj starszy materiał przez link.</p></div>}
         {publications.map(item=><article className="ri-publication" key={item.id}><div className="ri-inline"><span className="ri-badge">{names[item.source_id]}</span><time>{dateText(item.published_on)}</time>{item.provenance==='MANUAL'&&<span className="ri-badge">Dodano ręcznie</span>}</div>
           <h2><a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}<ArrowUpRight size={17}/></a></h2>
-          <p className="ri-help">{item.publisher&&`Autor / kanał: ${item.publisher} · `}{item.source_id==='comparic'?'Omówienie redakcyjne; sprawdź, czyja jest wypowiedź.':'Opis publikacji; pełną wypowiedź sprawdzisz w filmie.'}</p>
+          <p className="ri-help">{item.publisher&&`Autor / kanał: ${item.publisher} · `}{data?.sources.find(s=>s.id===item.source_id)?.kind==='rss'?'Artykuł; sprawdź autora oraz osoby cytowane.':'Opis publikacji; pełną wypowiedź sprawdzisz w filmie.'}</p>
+          <button className="ri-button" disabled={busy} onClick={()=>setMaterial(item)}>Analizuj treść</button>
           {item.excerpt&&<details><summary>Opis ze źródła</summary><p className="ri-excerpt">{item.excerpt}</p></details>}
           {!!item.suggestions.length&&<div className="ri-suggestions"><span>Możliwe spółki · do potwierdzenia:</span>{item.suggestions.map(ticker=><button key={ticker} disabled={busy} onClick={()=>start(item,ticker)}>{ticker}<Plus size={12}/></button>)}</div>}
           <div className="ri-card-bottom"><span>{data?.ideas.filter(idea=>idea.publication_id===item.id).length||0} zapisanych analiz</span><button className="ri-button" disabled={busy} onClick={()=>start(item)}><Plus size={15}/>Przypisz spółkę i analizuj</button></div></article>)}</div>:tab==='ideas'?<div className="ri-idea-list">

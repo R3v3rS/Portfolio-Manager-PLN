@@ -145,7 +145,8 @@ def save(data, reserve_id=None):
                 if previous['request_payload'] != fingerprint:
                     raise ApiError('reserve_request_conflict', 'Ten zapis został już przyjęty z innymi danymi.', status=409)
                 return dict(id=previous['id'])
-        _account(db, account_id)
+        from budget_account_types import require_cash
+        require_cash(_account(db, account_id))
         category_id=positive_id(data['category_id'],'kategorię') if data.get('category_id') else None
         if category_id and not db.execute('SELECT 1 FROM budget_categories_v2 WHERE id=? AND is_unassigned=0',(category_id,)).fetchone(): raise ValidationError('Wybierz kategorię przyszłego wydatku.')
         if monthly is not None and not open_ended and not category_id: raise ValidationError('Wybierz kategorię miesięcznej puli, np. Prąd lub Woda.')
@@ -207,7 +208,20 @@ def save(data, reserve_id=None):
                 (name,notes,account_id,amount,due,anniversary,frequency,now,reserve_id))
         monthly_start=None
         if monthly is not None:
-            monthly_start=old['monthly_start_month'] if old is not None and old['monthly_amount_cents'] is not None else date.today().strftime('%Y-%m')
+            monthly_start=(old['monthly_start_month'] or old['start_date'][:7]) if old is not None and old['monthly_amount_cents'] is not None else date.today().strftime('%Y-%m')
+            if data.get('monthly_start_month') is not None:
+                from routes_budget_workspace import month_value
+                requested_start=month_value(data['monthly_start_month'])
+                if not '2000-01' <= requested_start <= '2100-12':
+                    raise ValidationError('Początek odkładania: wybierz miesiąc w latach 2000–2100.')
+                if requested_start!=monthly_start:
+                    if requested_start<date.today().strftime('%Y-%m'):
+                        raise ValidationError('Nowy początek odkładania ustaw na bieżący lub przyszły miesiąc.')
+                    if old is not None and old['monthly_amount_cents'] is not None and db.execute('''
+                        SELECT 1 FROM budget_reserve_movements WHERE reserve_id=?
+                        UNION ALL SELECT 1 FROM budget_account_transfers WHERE reserve_id=? LIMIT 1''',(reserve_id,reserve_id)).fetchone():
+                        raise ValidationError('Pula ma już odłożenia lub rozliczenia. Zachowaj miesiąc rozpoczęcia; na nowy okres utwórz osobną rezerwę.')
+                monthly_start=requested_start
         db.execute('UPDATE budget_reserves SET category_id=?,monthly_amount_cents=?,monthly_start_month=?,open_ended=? WHERE id=?',(category_id,monthly,monthly_start,int(open_ended),reserve_id))
         db.commit()
         return dict(id=reserve_id)
@@ -245,7 +259,7 @@ def workspace():
     db, today = get_db(), date.today()
     accounts = []
     warnings = []
-    for row in db.execute("SELECT * FROM budget_accounts WHERE UPPER(COALESCE(currency,'PLN'))='PLN' ORDER BY id"):
+    for row in db.execute("SELECT * FROM budget_accounts WHERE UPPER(COALESCE(currency,'PLN'))='PLN' AND account_type='BANK' ORDER BY id"):
         reserved = reserved_cents(db,row['id'])/100
         available = round(float(row['balance'])-reserved,2)
         accounts.append(dict(id=row['id'],name=row['name'],balance=float(row['balance']),reserved=reserved,available=available))
@@ -261,17 +275,20 @@ def workspace():
         status = 'ARCHIVED' if row['is_archived'] else 'COMPLETED' if row['completed_at'] else 'ACTIVE'
         item = dict(id=row['id'],name=row['name'],notes=row['notes'],account_id=row['account_id'],account_name=row['account_name'],category_id=row['category_id'],
             monthly_amount=row['monthly_amount_cents']/100 if row['monthly_amount_cents'] is not None else None,
+            monthly_start_month=(row['monthly_start_month'] or row['start_date'][:7]) if row['monthly_amount_cents'] is not None else None,
+            monthly_started=today.strftime('%Y-%m')>=(row['monthly_start_month'] or row['start_date'][:7]),
             open_ended=bool(row['open_ended']),
             target_amount=row['target_cents']/100,saved=saved/100,due_date=row['due_date'],start_date=row['start_date'],
             frequency=row['frequency'],cycle=row['cycle'],version=row['version'],status=status,funded_this_month=funded)
         item.update(plan(row['target_cents'],saved,row['start_date'],row['due_date'],today,funded))
         if row['monthly_amount_cents'] is not None:
             from budget_planning_service import reserve_plans
-            current=next(r for r in reserve_plans(db,today.strftime('%Y-%m')) if r['reserve_id']==row['id']) if status=='ACTIVE' else None
+            current=next((r for r in reserve_plans(db,today.strftime('%Y-%m')) if r['reserve_id']==row['id']),None) if status=='ACTIVE' else None
             left=current['remaining'] if current else 0
             item.update(month_planned=current['planned'] if current else 0,month_allocated=current['funded'] if current else 0)
             item.update(monthly_required=left,remaining=left,months_left=0,progress_percent=0,surplus=0,
-                urgent=False,overdue=False,next_contribution_date=today.isoformat() if left else None)
+                urgent=False,overdue=False,next_contribution_date=today.isoformat() if left else
+                (row['monthly_start_month']+'-01' if status=='ACTIVE' and not item['monthly_started'] else None))
         item['locations'] = locations(db,row['id'])
         if status!='ACTIVE':
             item.update(monthly_required=0,next_contribution_date=None,urgent=False,overdue=False)
@@ -332,7 +349,11 @@ def move(reserve_id,data, *, within_transaction=False):
         if previous:
             if previous['request_payload']!=fingerprint:
                 raise ApiError('reserve_request_conflict','Ten zapis został już przyjęty z innymi danymi.',status=409)
-            return dict(id=previous['id'],budget_entry_id=previous['budget_entry_id'])
+            prior_receipt = db.execute('SELECT result_json FROM budget_reserve_operation_receipts WHERE request_id=?',(token,)).fetchone()
+            return json.loads(prior_receipt[0]) if prior_receipt else dict(id=previous['id'],budget_entry_id=previous['budget_entry_id'])
+        from budget_reserve_operations_service import accounts_snapshot, account_changes, check_state, receipt, surplus_options, transfer_surplus
+        check_state(db,data.get('expected_state'))
+        before_accounts = accounts_snapshot(db)
         row = _row(db,reserve_id,_version(data))
         if row['is_archived'] or row['completed_at']:
             raise ValidationError('Ta rezerwa nie jest aktywna.')
@@ -341,7 +362,12 @@ def move(reserve_id,data, *, within_transaction=False):
             raise ValidationError('Data nie może poprzedzać początku cyklu ani ostatniej operacji. Zwolnij błędną kwotę i zapisz poprawne odłożenie.')
         account_id = positive_id(data.get('account_id',row['account_id']),'konto')
         account = _account(db,account_id)
+        from budget_account_types import require_cash
+        require_cash(account)
         saved = _balance(db,reserve_id)
+        surplus_mode, surplus, next_due = ('KEEP',0,None)
+        if kind=='SPEND':
+            surplus_mode,surplus,next_due = surplus_options(row,data,saved,amount,day)
         at_account = location_cents(db,reserve_id,account_id)
         all_reserved = reserved_cents(db,account_id)
         balance = round(float(account['balance'])*100)
@@ -383,7 +409,7 @@ def move(reserve_id,data, *, within_transaction=False):
                     raise ValidationError('Płatność musi korzystać z kategorii miesięcznej puli.')
             if amount>balance-(all_reserved-at_account):
                 raise ValidationError('Płatność naruszałaby środki innych rezerw lub przekraczała saldo konta.')
-            released = saved if row['frequency']=='ONCE' and row['monthly_amount_cents'] is None else min(saved,amount)
+            released = saved if row['monthly_amount_cents'] is None and surplus_mode in ('FREE','RESERVE') else min(saved,amount)
             # The expense is paid from exactly one account. Earmarks consumed on
             # other accounts are released there, without fictitious bank transfers.
             first_release = min(at_account,released)
@@ -413,9 +439,11 @@ def move(reserve_id,data, *, within_transaction=False):
                         db.execute('UPDATE budget_bills_v2 SET version=version+1 WHERE id=?',(linked['id'],))
             if row['monthly_amount_cents'] is not None:
                 pass # Payments consume earmarks; the envelope stays active.
-            elif row['frequency']=='YEARLY':
-                next_due = _next_year(row,date.fromisoformat(day))
+            elif row['frequency']=='YEARLY' or surplus_mode=='KEEP':
+                next_due = next_due or _next_year(row,date.fromisoformat(day))
                 db.execute('UPDATE budget_reserves SET due_date=?,start_date=?,cycle=cycle+1 WHERE id=?',(next_due,day,reserve_id))
+                if row['frequency']=='ONCE':
+                    db.execute('UPDATE budget_reserves SET anniversary=? WHERE id=?',(next_due,reserve_id))
             else:
                 db.execute('UPDATE budget_reserves SET completed_at=? WHERE id=?',(now,reserve_id))
         movement_id = None
@@ -432,13 +460,31 @@ def move(reserve_id,data, *, within_transaction=False):
             if index==0:
                 movement_id = inserted
             movement_ids.append(inserted)
+        surplus_transfer = None
+        if kind=='SPEND' and surplus_mode=='RESERVE' and surplus>0:
+            surplus_transfer = transfer_surplus(db,row,data,surplus,releases,min(saved,amount),budget_cost,token,day,now)
         if kind=='SPEND':
+            settlement_before = dict(row)
+            if surplus_transfer:
+                settlement_before['_surplus_transfer'] = surplus_transfer
             db.execute('''INSERT INTO budget_settlements(entry_id,reserve_id,created_entry,before_json,movement_ids,recorded_at)
-                VALUES(?,?,?,?,?,?)''',(entry_id,reserve_id,int(existing is None),json.dumps(dict(row)),json.dumps(movement_ids),now))
+                VALUES(?,?,?,?,?,?)''',(entry_id,reserve_id,int(existing is None),json.dumps(settlement_before),json.dumps(movement_ids),now))
         db.execute('UPDATE budget_reserves SET version=version+1,updated_at=? WHERE id=?',(now,reserve_id))
+        changes = account_changes(db,before_accounts,include_ids=(account_id,))
+        summary = dict(kind=kind,date=day,reserve_name=row['name'],reserve_id=reserve_id,amount=amount/100,
+            reserve_before=saved/100,reserve_after=_balance(db,reserve_id)/100,
+            covered=min(saved,amount)/100 if kind=='SPEND' else 0,
+            released=released/100 if kind!='ADD' else 0,
+            surplus=surplus/100,surplus_mode=surplus_mode,
+            surplus_reserve_name=surplus_transfer['before']['name'] if surplus_transfer else None,
+            existing_expense=bool(kind=='SPEND' and existing is not None),
+            available_change=round(sum(a['available_after']-a['available_before'] for a in changes),2),
+            accounts=changes,budget_entry_id=entry_id)
+        result = dict(id=movement_id,budget_entry_id=entry_id,summary=summary)
+        receipt(db,token,reserve_id,entry_id,kind,fingerprint,result)
         if not within_transaction:
             db.commit()
-        return dict(id=movement_id,budget_entry_id=entry_id)
+        return result
     except Exception:
         if not within_transaction:
             db.rollback()

@@ -5,9 +5,10 @@ export interface ExpectedIncome extends ExpectedIncomePlan { id:number;account_n
 export interface ForecastOptions { income_percent?:number;buffer?:number;variable_monthly?:number;excluded?:string;purchase_id?:number;purchase_amount?:number;purchase_date?:string }
 export interface ForecastSummary { days:number;date:string;balance:number|null;available:number|null;reserved:number;minimum:number|null;minimum_date:string;minimum_balance:number|null;first_shortfall:string|null;first_below_buffer:string|null;totals:Record<ForecastKind,number> }
 export interface ForecastEvent { key:string;date:string;scheduled_date:string;kind:ForecastKind;title:string;amount:number;cash_delta:number;reserved_delta:number;href:string;detail:string;recorded:boolean;account_id?:number|null;account_name?:string|null }
-export interface AccountForecast {id:number;name:string;opening:{balance:number;reserved:number;available:number};points:CashForecast['points'];summaries:{days:number;date:string;balance:number;reserved:number;available:number;minimum:number;first_shortfall:string|null}[]}
+export interface AccountForecast {id:number;name:string;account_type?:'BANK'|'CREDIT_CARD';opening:{balance:number;reserved:number;available:number};points:CashForecast['points'];summaries:{days:number;date:string;balance:number;reserved:number;available:number;minimum:number;first_shortfall:string|null}[]}
 export interface CashForecast {
-  as_of:string;end_date:string;accounts:{id:number;name:string;balance:number}[];
+  month_plans?:ForecastMonthPlan[];
+  as_of:string;end_date:string;accounts:{id:number;name:string;balance:number;account_type?:'BANK'|'CREDIT_CARD'}[];
   opening:{balance:number;reserved:number;available:number};
   options:{income_percent:number;buffer:number;variable_monthly:number|null;default_variable_monthly:number;excluded:string[]};
   points:{date:string;balance:number;available:number;reserved:number}[];summaries:ForecastSummary[];events:ForecastEvent[];
@@ -17,6 +18,7 @@ export interface CashForecast {
   transfer_suggestions?:{source_account_id:number;source_name:string;target_account_id:number;target_name:string;amount:number;by_date:string;reason:string}[];
   before_income?:{next_payday:string;through:string;minimum:number;must_pay:number;balance:number;available:number};
 }
+export interface ForecastMonthPlan {month:string;ordinary_limit:number;ordinary_remaining:number;income:number;bills:number;loans:number;reserves:number;reserve_payments:number;investments:number;scenario:boolean;categories:{category_id:number;name:string;amount:number;source:'DEFAULT'|'MONTH'|'ESTIMATE'|'MEDIA'|'NONE';source_month:string|null}[]}
 export interface IncomeReceiptInput { occurrence_date:string;amount?:number;date?:string;existing_entry_id?:number }
 const client=createApiClient('/budget/forecast');
 export const forecastApi={

@@ -21,10 +21,20 @@ def preview(db, entry_id):
     reserve=None;restore=0
     if settlement and settlement['reserve_id']:
         before=json.loads(settlement['before_json']);ids=json.loads(settlement['movement_ids'])
+        surplus=before.get('_surplus_transfer')
+        if surplus:
+            target=db.execute('SELECT * FROM budget_reserves WHERE id=?',(surplus['before']['id'],)).fetchone()
+            if not target or target['version']!=surplus['before']['version']+1:
+                raise ApiError('settlement_surplus_changed','Po przeniesieniu nadwyżki zmieniono docelową rezerwę. Najpierw rozlicz jej późniejsze operacje.',status=409)
+            if db.execute('SELECT 1 FROM budget_account_transfers WHERE reserve_id=? AND created_at>?',(target['id'],settlement['recorded_at'])).fetchone():
+                raise ValidationError('Po płatności przeniesiono nadwyżkę na inne konto. Najpierw rozlicz ten przelew.')
         reserve=db.execute('SELECT * FROM budget_reserves WHERE id=?',(settlement['reserve_id'],)).fetchone()
         later=db.execute('SELECT 1 FROM budget_reserve_movements WHERE reserve_id=? AND id>?',(reserve['id'],max(ids))).fetchone()
-        immutable=('name','notes','account_id','target_cents','category_id','monthly_amount_cents','open_ended','is_archived','frequency','anniversary')
-        if later or any(reserve[k]!=before[k] for k in immutable):
+        immutable=('name','notes','account_id','target_cents','category_id','monthly_amount_cents','open_ended','is_archived','frequency')
+        original=db.execute('SELECT request_payload FROM budget_reserve_movements WHERE id=?',(ids[0],)).fetchone()
+        payload=json.loads(original[0]) if original else {}
+        expected_anchor=payload.get('next_due_date') if before['frequency']=='ONCE' and payload.get('surplus_mode')=='KEEP' else before['anniversary']
+        if later or reserve['anniversary']!=expected_anchor or any(reserve[k]!=before[k] for k in immutable):
             raise ApiError('settlement_reserve_changed','Po płatności zmieniono rezerwę. Najpierw rozlicz jej późniejsze operacje.',status=409)
         restore=sum(db.execute('SELECT amount_cents FROM budget_reserve_movements WHERE id=?',(i,)).fetchone()[0] for i in ids)
         if db.execute('SELECT 1 FROM budget_account_transfers WHERE reserve_id=? AND created_at>?',(reserve['id'],settlement['recorded_at'])).fetchone():
@@ -56,17 +66,25 @@ def reverse(entry_id,data):
         movements=[]
         if settlement and settlement['reserve_id']:
             ids=json.loads(settlement['movement_ids']);before=json.loads(settlement['before_json'])
+            surplus=before.get('_surplus_transfer')
+            if surplus:
+                for target_movement_id in surplus['movement_ids']:
+                    target_movement=db.execute('SELECT * FROM budget_reserve_movements WHERE id=?',(target_movement_id,)).fetchone()
+                    movements.append(dict(target_movement))
+                    db.execute('DELETE FROM budget_reserve_movements WHERE id=?',(target_movement_id,))
+                db.execute('UPDATE budget_reserves SET version=version+1,updated_at=? WHERE id=?',(_now(),surplus['before']['id']))
             for i in ids:
                 movements.append(dict(db.execute('SELECT * FROM budget_reserve_movements WHERE id=?',(i,)).fetchone()))
                 if db.execute('SELECT 1 FROM budget_month_closing_items WHERE movement_id=?',(i,)).fetchone(): raise ValidationError('Ta operacja należy do zamknięcia miesiąca.')
                 db.execute('DELETE FROM budget_reserve_movements WHERE id=?',(i,))
-            db.execute('''UPDATE budget_reserves SET due_date=?,start_date=?,cycle=?,completed_at=?,version=version+1,updated_at=? WHERE id=?''',
-                (before['due_date'],before['start_date'],before['cycle'],before['completed_at'],_now(),settlement['reserve_id']))
+            db.execute('''UPDATE budget_reserves SET due_date=?,anniversary=?,start_date=?,cycle=?,completed_at=?,version=version+1,updated_at=? WHERE id=?''',
+                (before['due_date'],before['anniversary'],before['start_date'],before['cycle'],before['completed_at'],_now(),settlement['reserve_id']))
         for saved in [*payments,*movements]:
             if saved.get('request_id'): db.execute('INSERT OR IGNORE INTO budget_cancelled_requests VALUES(?)',(saved['request_id'],))
         for payment in payments: db.execute('UPDATE budget_bills_v2 SET version=version+1 WHERE id=?',(payment['bill_id'],))
         db.execute('DELETE FROM budget_bill_payments_v2 WHERE entry_id=?',(entry_id,))
         db.execute('DELETE FROM budget_settlements WHERE entry_id=?',(entry_id,))
+        db.execute('UPDATE budget_reserve_operation_receipts SET cancelled=1 WHERE entry_id=?',(entry_id,))
         if view['delete_expense']:
             db.execute('UPDATE budget_accounts SET balance=? WHERE id=?',(view['balance_after'],view['account_id']))
             db.execute('DELETE FROM budget_entry_lines_v2 WHERE entry_id=?',(entry_id,))

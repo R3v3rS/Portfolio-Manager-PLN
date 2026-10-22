@@ -27,7 +27,7 @@ def benchmark_returns(portfolio_id,start,end,ticker):
     return {'items':items,'from':start.isoformat(),'to':end.isoformat(),'ticker':ticker,'method':'buy_and_hold_PLN_price_return'}
 
 
-def attribution(portfolio_id, start, end):
+def attribution(portfolio_id, start, end, own_only=False, cached_only=False):
     if start > end or end > date.today():
         raise ValidationError('Invalid analysis dates')
     db = get_db()
@@ -38,12 +38,24 @@ def attribution(portfolio_id, start, end):
         return {'items': [], 'status': 'unsupported_account', 'from': start.isoformat(), 'to': end.isoformat()}
     if portfolio['parent_portfolio_id']:
         scope, params = 'portfolio_id = ? AND sub_portfolio_id = ?', (portfolio['parent_portfolio_id'], portfolio_id)
+    elif own_only:
+        scope, params = 'portfolio_id = ? AND (sub_portfolio_id IS NULL OR sub_portfolio_id=0)', (portfolio_id,)
     else:
         scope, params = History._sql_parent_scope_transactions(), (portfolio_id, portfolio_id)
     rows = db.execute(f'SELECT * FROM transactions WHERE {scope} AND date(date) <= ? ORDER BY date(date), id',
                       (*params, end.isoformat())).fetchall()
     tickers = {row['ticker'] for row in rows if row['ticker'] and row['ticker'] != 'CASH'}
-    currencies, prices = History._build_price_context(portfolio_id, tickers, start - timedelta(days=1), portfolio['account_type'])
+    if cached_only:
+        currencies = {r['ticker']: r['currency'] for r in db.execute('SELECT ticker,currency FROM asset_metadata') if r['currency']}
+        for r in db.execute('SELECT ticker,currency FROM holdings WHERE portfolio_id=?', (portfolio['parent_portfolio_id'] or portfolio_id,)):
+            if r['currency']: currencies[r['ticker']] = r['currency']
+        needed = tickers | {f'{c}PLN=X' for c in currencies.values() if c != 'PLN'}
+        prices = defaultdict(dict)
+        for r in db.execute('SELECT ticker,date,close_price FROM stock_prices WHERE date(date)<=?', (end.isoformat(),)):
+            if r['ticker'] in needed and r['close_price'] and float(r['close_price']) > 0:
+                prices[r['ticker']][str(r['date'])[:10]] = float(r['close_price'])
+    else:
+        currencies, prices = History._build_price_context(portfolio_id, tickers, start - timedelta(days=1), portfolio['account_type'])
     price_index = History._build_sorted_price_index(prices)
     getter = lambda ticker, day: History._price_at(price_index, ticker, day)
     opening, closing, flows = defaultdict(float), defaultdict(float), defaultdict(float)
@@ -64,7 +76,7 @@ def attribution(portfolio_id, start, end):
         elif not before and row['type'] == 'DIVIDEND':
             dividends[ticker] += float(row['total_value'] or 0)
     items, missing = [], []
-    live={h['ticker']:h for h in PortfolioValuationService.get_holdings(portfolio_id,cached_prices_only=True)} if end==date.today() else {}
+    live={h['ticker']:h for h in PortfolioValuationService.get_holdings(portfolio_id,cached_prices_only=True,aggregate=not own_only)} if end==date.today() else {}
     for ticker in sorted(tickers):
         start_value, missing_start = History._holding_value({ticker: opening[ticker]}, currencies, getter, start - timedelta(days=1))
         end_value, missing_end = History._holding_value({ticker: closing[ticker]}, currencies, getter, end)

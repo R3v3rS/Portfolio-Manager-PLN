@@ -58,6 +58,8 @@ def transfer_investment_cash(account_id, portfolio_id, amount, direction, descri
         account = db.execute('SELECT * FROM budget_accounts WHERE id = ?', (account_id,)).fetchone()
         if not account:
             raise ValueError('Budget Account not found')
+        from budget_account_types import require_cash
+        require_cash(account)
         if (account['currency'] or 'PLN').upper() != 'PLN':
             raise ValidationError('Transfer wymaga konta budżetowego w PLN.')
         portfolio = db.execute('SELECT * FROM portfolios WHERE id = ?', (target_id,)).fetchone()

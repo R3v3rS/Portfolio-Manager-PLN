@@ -4,7 +4,7 @@ import sqlite3
 
 from flask import Blueprint, request
 
-from api.exceptions import NotFoundError, ValidationError
+from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.response import success_response
 from database import get_db
 from loan_service import LoanService
@@ -109,11 +109,13 @@ def parse_schedule_inputs():
     return simulation_overpayments, monthly_overpayment, monthly_overpayment_strategy
 
 
-def loan_budget_entry(db, account_id, amount_cents, description, paid_on):
-    account = db.execute('SELECT id FROM budget_accounts WHERE id = ?', (account_id,)).fetchone()
+def loan_budget_entry(db, account_id, amount_cents, description, paid_on, loan_id=None):
+    account = db.execute("SELECT id FROM budget_accounts WHERE id = ? AND UPPER(COALESCE(currency,'PLN'))='PLN'", (account_id,)).fetchone()
     if not account:
-        raise ValidationError('Wybrane konto budżetowe nie istnieje.')
-    category = db.execute(
+        raise ValidationError('Wybierz istniejące konto budżetowe w PLN.')
+    from loan_budget_service import settings
+    configured=settings(db,loan_id)['category_id'] if loan_id else None
+    category = db.execute('SELECT id FROM budget_categories_v2 WHERE id=?',(configured,)).fetchone() if configured else db.execute(
         "SELECT id FROM budget_categories_v2 WHERE name = 'Rachunki' COLLATE NOCASE"
     ).fetchone()
     if category:
@@ -181,6 +183,8 @@ def create_loan():
     )
 
     loan_id = cursor.lastrowid
+    from loan_budget_service import ensure_settings
+    ensure_settings(db,loan_id)
 
     cursor.execute(
         '''
@@ -222,6 +226,38 @@ def update_net_worth_inclusion(loan_id):
     return success_response({'id': loan_id, 'exclude_from_net_worth': excluded})
 
 
+@loans_bp.put('/<int:loan_id>/budget-settings')
+def save_loan_budget_settings(loan_id):
+    ensure_loan_exists(loan_id)
+    from loan_budget_service import ensure_settings,settings
+    from budget_category_service import require_version
+    data=require_json_body();db=get_db()
+    account_id=optional_budget_account(data)
+    category_id=positive_id(data.get('category_id'),'kategorię rat')
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT * FROM loan_budget_settings WHERE loan_id=?',(loan_id,)).fetchone()
+        require_version(row or {'version':0},data.get('version'),'Ustawienia kredytu')
+        if account_id and not db.execute("SELECT 1 FROM budget_accounts WHERE id=? AND UPPER(COALESCE(currency,'PLN'))='PLN'",(account_id,)).fetchone():
+            raise ValidationError('Wybierz konto w PLN.')
+        if not db.execute('SELECT 1 FROM budget_categories_v2 WHERE id=? AND is_unassigned=0',(category_id,)).fetchone():
+            raise ValidationError('Wybierz kategorię rat.')
+        ensure_settings(db,loan_id)
+        db.execute('UPDATE loan_budget_settings SET account_id=?,category_id=?,version=version+1 WHERE loan_id=?',(account_id,category_id,loan_id))
+        db.commit();return success_response(settings(db,loan_id))
+    except Exception:db.rollback();raise
+
+
+@loans_bp.get('/<int:loan_id>/payment-candidates')
+def loan_payment_candidates(loan_id):
+    ensure_loan_exists(loan_id)
+    from loan_budget_service import candidates
+    day=require_date_string(dict(request.args),'paid_on')
+    amount=cents(request.args.get('amount'))
+    account=positive_id(request.args.get('account_id'),'konto')
+    return success_response({'items':candidates(get_db(),account,day,amount)})
+
+
 @loans_bp.route('/<int:loan_id>', methods=['DELETE'])
 def delete_loan(loan_id):
     ensure_loan_exists(loan_id)
@@ -231,6 +267,7 @@ def delete_loan(loan_id):
     db.execute('DELETE FROM loan_installment_payments WHERE loan_id = ?', (loan_id,))
     db.execute('DELETE FROM loan_balance_checks WHERE loan_id = ?', (loan_id,))
     db.execute('DELETE FROM loan_overpayments WHERE loan_id = ?', (loan_id,))
+    db.execute('DELETE FROM loan_budget_settings WHERE loan_id = ?', (loan_id,))
     db.execute('DELETE FROM loans WHERE id = ?', (loan_id,))
 
     db.commit()
@@ -279,23 +316,29 @@ def add_overpayment(loan_id):
         raise ValidationError('Nadpłata przekracza szacunkowy kapitał pozostały w tym dniu.')
     account_id = optional_budget_account(data)
     db = get_db()
-    budget_entry_id = loan_budget_entry(
-        db, account_id, amount_cents, f'Nadpłata kredytu: {loan["name"]}', overpayment_date
-    ) if account_id else None
-    cursor = db.execute(
-        '''
-        INSERT INTO loan_overpayments (loan_id, amount, date, type, budget_entry_id)
-        VALUES (?, ?, ?, ?, ?)
-        ''',
-        (
-            loan_id,
-            amount_cents / 100,
-            overpayment_date,
-            overpayment_type,
-            budget_entry_id,
-        ),
-    )
-    db.commit()
+    from loan_budget_service import ensure_settings, link_expense, candidates
+    if data.get('existing_entry_id') is not None and not account_id:
+        raise ValidationError('Wybierz konto istniejącej płatności.')
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        ensure_settings(db,loan_id)
+        before = None
+        if data.get('existing_entry_id') is not None:
+            budget_entry_id,before = link_expense(db,loan_id,data,account_id,overpayment_date,amount_cents)
+        else:
+            if account_id and candidates(db,account_id,overpayment_date,amount_cents) and data.get('confirm_new_expense') is not True:
+                raise ApiError('loan_existing_payment','Znaleziono podobny wydatek. Powiąż istniejącą płatność albo potwierdź odrębną nadpłatę.',status=409)
+            budget_entry_id = loan_budget_entry(
+                db, account_id, amount_cents, f'Nadpłata kredytu: {loan["name"]}', overpayment_date,loan_id
+            ) if account_id else None
+        cursor = db.execute('''INSERT INTO loan_overpayments
+            (loan_id, amount, date, type, budget_entry_id, budget_entry_created, linked_entry_before)
+            VALUES (?, ?, ?, ?, ?, ?, ?)''',
+            (loan_id,amount_cents/100,overpayment_date,overpayment_type,budget_entry_id,int(before is None),before))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return success_response({'message': 'Overpayment added successfully', 'id': cursor.lastrowid}, status=201)
 
 
@@ -307,62 +350,101 @@ def delete_overpayment(loan_id, overpayment_id):
                      (overpayment_id, loan_id)).fetchone()
     if not row:
         raise NotFoundError('Nadpłata nie istnieje.')
-    db.execute('DELETE FROM loan_overpayments WHERE id = ?', (overpayment_id,))
-    reverse_budget_entry(db, row['budget_entry_id'])
-    db.commit()
+    from loan_budget_service import restore_expense
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        db.execute('DELETE FROM loan_overpayments WHERE id = ?', (overpayment_id,))
+        if not row['budget_entry_created']:
+            restore_expense(db,row)
+        else:
+            reverse_budget_entry(db, row['budget_entry_id'])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return success_response({'deleted': overpayment_id})
 
 
 @loans_bp.route('/<int:loan_id>/payments', methods=['POST'])
 def record_installment(loan_id):
-    loan = ensure_loan_exists(loan_id)
-    data = require_json_body()
-    installment_month = require_positive_int(data, 'installment_month')
-    paid_on = require_date_string(data, 'paid_on')
-    if paid_on < str(loan['start_date'])[:10] or paid_on > date.today().isoformat():
+    loan=ensure_loan_exists(loan_id);data=require_json_body()
+    month=require_positive_int(data,'installment_month');paid_on=require_date_string(data,'paid_on')
+    if paid_on<str(loan['start_date'])[:10] or paid_on>date.today().isoformat():
         raise ValidationError('Data spłaty musi mieścić się między początkiem kredytu a dziś.')
-    db = get_db()
-    if db.execute('''
-        SELECT 1 FROM loan_installment_payments WHERE loan_id = ? AND installment_month = ?
-    ''', (loan_id, installment_month)).fetchone():
-        raise ValidationError('Ta rata jest już zapisana jako opłacona.')
-    schedule = LoanService.generate_amortization_schedule(loan_id)['simulation']['schedule']
-    installment = next((row for row in schedule if row['month'] == installment_month
-                        and row['installment'] > 0 and not row.get('is_mid_month')), None)
-    if not installment:
-        raise ValidationError('Nie znaleziono raty w harmonogramie.')
-    amount_cents = cents(data.get('amount', installment['installment']))
-    account_id = optional_budget_account(data)
-    budget_entry_id = loan_budget_entry(
-        db, account_id, amount_cents,
-        f'Rata kredytu: {loan["name"]} ({installment_month}/{loan["duration_months"]})', paid_on,
-    ) if account_id else None
+    from loan_budget_service import candidates,link_expense,ensure_settings
+    db=get_db();account=optional_budget_account(data)
+    applying=data.get('apply_to_budget') is True
+    if applying and not account:raise ValidationError('Wybierz konto płatności.')
     try:
-        cursor = db.execute('''
-            INSERT INTO loan_installment_payments
-            (loan_id, installment_month, due_date, paid_on, amount_cents, budget_entry_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (loan_id, installment_month, installment['date'], paid_on, amount_cents, budget_entry_id))
-    except sqlite3.IntegrityError as exc:
-        db.rollback()
-        raise ValidationError('Ta rata jest już zapisana jako opłacona.') from exc
-    db.commit()
-    return success_response({'id': cursor.lastrowid, 'budget_entry_id': budget_entry_id}, status=201)
+        db.execute('BEGIN IMMEDIATE');ensure_settings(db,loan_id)
+        previous=db.execute('SELECT * FROM loan_installment_payments WHERE loan_id=? AND installment_month=?',(loan_id,month)).fetchone()
+        if applying:
+            if not previous or previous['id']!=positive_id(data.get('payment_id'),'zapis spłaty'):
+                raise NotFoundError('Nie znaleziono zapisanej spłaty.')
+            amount=cents(data.get('amount'))
+            if (previous['paid_on'],previous['amount_cents'])!=(paid_on,amount):
+                raise ValidationError('Zapis spłaty zmienił się. Odśwież dane.')
+        else:
+            if previous:raise ValidationError('Ta rata jest już zapisana jako opłacona.')
+            schedule=LoanService.generate_amortization_schedule(loan_id)['simulation']['schedule']
+            installment=next((r for r in schedule if r['month']==month and r['installment']>0 and not r.get('is_mid_month')),None)
+            if not installment:raise ValidationError('Nie znaleziono raty w harmonogramie.')
+            amount=cents(data.get('amount',installment['installment']))
+        if previous and previous['budget_entry_id']:
+            entry=db.execute('SELECT account_id FROM budget_entries_v2 WHERE id=?',(previous['budget_entry_id'],)).fetchone()
+            if not entry or entry['account_id']!=account or (data.get('existing_entry_id') and data['existing_entry_id']!=previous['budget_entry_id']):
+                raise ValidationError('Ta spłata jest już rozliczona. Nie pomniejszamy salda ponownie.')
+            return success_response({'id':previous['id'],'budget_entry_id':previous['budget_entry_id']},status=201)
+        entry_id=None;entry_before=None;created=True
+        if data.get('existing_entry_id'):
+            if not account:raise ValidationError('Wybierz konto istniejącego wydatku.')
+            entry_id,entry_before=link_expense(db,loan_id,data,account,paid_on,amount);created=False
+        elif account:
+            if candidates(db,account,paid_on,amount) and data.get('confirm_new_expense') is not True:
+                raise ValidationError('Znaleziono możliwą płatność w budżecie. Powiąż istniejący wydatek albo potwierdź, że to osobna płatność.')
+            entry_id=loan_budget_entry(db,account,amount,f'Rata kredytu: {loan["name"]} ({month}/{loan["duration_months"]})',paid_on,loan_id)
+        if applying:
+            db.execute('UPDATE loan_installment_payments SET budget_entry_id=?,budget_entry_created=?,linked_entry_before=? WHERE id=?',
+                (entry_id,int(created),entry_before,previous['id']))
+            payment_id=previous['id']
+        else:
+            payment_id=db.execute('''INSERT INTO loan_installment_payments
+                (loan_id,installment_month,due_date,paid_on,amount_cents,budget_entry_id,budget_entry_created,linked_entry_before)
+                VALUES(?,?,?,?,?,?,?,?)''',(loan_id,month,installment['date'],paid_on,amount,entry_id,int(created),entry_before)).lastrowid
+        if account:
+            # The first booked payment establishes a default for future raty.
+            # An explicitly configured account remains unchanged by a one-off payment elsewhere.
+            db.execute('UPDATE loan_budget_settings SET account_id=?,version=version+1 WHERE loan_id=? AND account_id IS NULL',(account,loan_id))
+        db.commit();return success_response({'id':payment_id,'budget_entry_id':entry_id},status=201)
+    except Exception:db.rollback();raise
+    finally:
+        if db.in_transaction:db.rollback()
 
 
 @loans_bp.route('/<int:loan_id>/payments/<int:payment_id>', methods=['DELETE'])
 def delete_installment(loan_id, payment_id):
     ensure_loan_exists(loan_id)
     db = get_db()
-    row = db.execute('''
-        SELECT * FROM loan_installment_payments WHERE id = ? AND loan_id = ?
-    ''', (payment_id, loan_id)).fetchone()
-    if not row:
-        raise NotFoundError('Zapis raty nie istnieje.')
-    db.execute('DELETE FROM loan_installment_payments WHERE id = ?', (payment_id,))
-    reverse_budget_entry(db, row['budget_entry_id'])
-    db.commit()
-    return success_response({'deleted': payment_id})
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('''
+            SELECT * FROM loan_installment_payments WHERE id = ? AND loan_id = ?
+        ''', (payment_id, loan_id)).fetchone()
+        if not row:
+            raise NotFoundError('Zapis raty nie istnieje.')
+        if row['budget_entry_id'] and db.execute('SELECT 1 FROM budget_purchase_refunds WHERE purchase_entry_id=?',(row['budget_entry_id'],)).fetchone():
+            raise ValidationError('Najpierw cofnij zwrot powiązany z tym wydatkiem.')
+        db.execute('DELETE FROM loan_installment_payments WHERE id = ?', (payment_id,))
+        if row['budget_entry_created']:
+            reverse_budget_entry(db, row['budget_entry_id'])
+        else:
+            from loan_budget_service import restore_expense
+            restore_expense(db,row)
+        db.commit()
+        return success_response({'deleted': payment_id})
+    except Exception:
+        db.rollback()
+        raise
 
 
 @loans_bp.route('/<int:loan_id>/balance-checks', methods=['POST'])
@@ -400,11 +482,14 @@ def get_schedule(loan_id):
     )
     db = get_db()
     result['status'] = LoanService.get_status(loan_id)
+    from loan_budget_service import settings
+    result['budget_settings']=settings(db,loan_id)
     result['payments_list'] = [
         {
             'id': row['id'], 'installment_month': row['installment_month'],
             'due_date': row['due_date'], 'paid_on': row['paid_on'],
             'amount': row['amount_cents'] / 100, 'budget_linked': bool(row['budget_entry_id']),
+            'budget_entry_created':bool(row['budget_entry_created']),
         }
         for row in db.execute('''
             SELECT * FROM loan_installment_payments WHERE loan_id = ?

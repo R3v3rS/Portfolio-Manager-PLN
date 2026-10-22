@@ -12,6 +12,7 @@ from budget_reserves_service import _account, _fingerprint, _now, _request_id
 from routes_budget_workspace import cents, insert_entry, positive_id, text_field
 import budget_reserve_funding_service as funding
 from budget_reserves_service import _row as reserve_row, reserved_cents
+from budget_account_types import is_credit, require_cash
 
 
 def merchant_matches(a, b):
@@ -169,6 +170,9 @@ def stage(content, filename, data):
                 proposed, proposed_id = transfer_proposal(db,account_id,item)
                 if proposed:
                     action,entry_id,transfer_id=proposed,None,proposed_id
+            if not item['errors'] and is_credit(_account(db,account_id)) and item['bank_kind']=='INCOME' and action!='MATCH':
+                action='SKIP'
+                item['warnings'].append('Wpływ na kartę nie jest dochodem. Spłatę oznacz jako przelew własny z konta bankowego; zwrot dodaj przy pierwotnym zakupie i połącz z zapisanym zwrotem.')
             used_identities.add(identity)
             db.execute('''INSERT INTO budget_import_rows (session_id,row_number,source_identity,data_json,action,entry_id,transfer_id)
                 VALUES (?,?,?,?,?,?,?)''', (session_id, index, identity, json.dumps(item, ensure_ascii=False), action, entry_id,transfer_id))
@@ -367,11 +371,17 @@ def commit(session_id, data):
                     source_id, target_id = (session['account_id'], target['id']) if original == 'EXPENSE' else (target['id'], session['account_id'])
                     reserve_id = item.get('reserve_id')
                     reserve = reserve_row(db,reserve_id) if reserve_id else None
+                    require_cash(_account(db,source_id))
+                    if reserve:
+                        require_cash(_account(db,target_id))
                     if reserve and effect:
                         source = _account(db,source_id)
                         if item['amount_cents']>max(0,round(float(source['balance'])*100)-reserved_cents(db,source_id)):
                             raise ValidationError('Przelew na rezerwę przekracza wolne środki na koncie źródłowym.')
                     if effect:
+                        destination = _account(db,target_id)
+                        if is_credit(destination) and item['amount_cents']>max(0,-round(float(destination['balance'])*100)):
+                            raise ValidationError('Spłata przekracza zadłużenie karty. Połącz z istniejącą spłatą albo najpierw uzupełnij brakujące zakupy; nie zapisuj przelewu drugi raz.')
                         db.execute('UPDATE budget_accounts SET balance=ROUND(balance-?,2) WHERE id=?', (item['amount_cents']/100, source_id))
                         db.execute('UPDATE budget_accounts SET balance=ROUND(balance+?,2) WHERE id=?', (item['amount_cents']/100, target_id))
                     transfer_token = str(uuid4())
@@ -392,6 +402,10 @@ def commit(session_id, data):
                     raise ValidationError('Dwie operacje w tym imporcie nie mogą wskazywać tego samego zakupu.')
                 linked_entries.add(entry_id)
             else:
+                if item.get('card_payment_hint'):
+                    raise ValidationError('Spłatę karty oznacz jako przelew własny. Jeśli jest już zapisana, połącz z istniejącym przelewem — nie dodawaj drugiego wydatku.')
+                if is_credit(_account(db,session['account_id'])) and item['bank_kind']=='INCOME':
+                    raise ValidationError('Wpływ na kredytówkę: spłatę oznacz jako przelew własny i wskaż konto bankowe. Zwrot zakupu powiąż z pierwotnym wydatkiem, a ten wiersz pomiń lub połącz z zapisanym zwrotem.')
                 if item.get('category_id') is not None:
                     category(db, item['category_id'])
                 entry_id = insert_entry(db, dict(account_id=session['account_id'], kind=item['bank_kind'], amount_cents=item['amount_cents'],

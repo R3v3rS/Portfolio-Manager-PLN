@@ -1,224 +1,76 @@
-# Dokumentacja modułu AI: analiza portfela (`/api/ai/portfolio-analysis`)
+# Inwestycje: asystent, plan udziałów i materiały
 
-## 1) Cel modułu i zakres odpowiedzialności
-Moduł AI odpowiada za **opisową analizę portfela inwestycyjnego** na podstawie realnych danych użytkownika zapisanych w bazie. Funkcja działa jako warstwa interpretacyjna nad danymi transakcyjnymi i cenowymi — nie składa zleceń, nie podejmuje decyzji automatycznie i nie modyfikuje portfela.
+Stan: 22 października 2026. Przykłady są fikcyjne. Funkcje analityczne nie księgują transakcji i nie wysyłają zleceń do brokera.
 
-Główna rola modułu:
-- zebrać stan aktualnych pozycji,
-- policzyć najważniejsze wskaźniki kontekstowe (wartość pozycji, PnL, udział w portfelu),
-- przekazać je do modelu LLM w uporządkowanym promptcie,
-- zwrócić użytkownikowi zwięzłą rekomendacyjną odpowiedź po polsku.
+## Nawigacja
 
-To rozwiązanie jest podpięte pod UI „🤖 Zapytaj AI o portfel”.
+Portfel akcyjny ma pięć głównych sekcji: **Przegląd**, **Wyniki**, **Ryzyko i struktura**, **Historia i strategie**, **Asystent**. W historii są transakcje, strategie, archiwum, sprzedaże i cykle pozycji. Ryzyko i struktura zawiera także dywidendy, plan udziałów i wnętrze ETF. PPK, obligacje i oszczędności zachowują własne podsumowania; opis założeń znajduje się przy asystencie.
 
----
+Przegląd pokazuje najwyżej trzy sprawy dotyczące wyceny i założeń. Zwijana sekcja materiałów zawiera Twoje zapisane analizy oraz potwierdzone szkice do posiadanych spółek.
 
-## 2) Endpoint API
-- **Metoda:** `POST`
-- **URL:** `/api/ai/portfolio-analysis`
-- **Content-Type:** `application/json`
+## Asystent krok po kroku
 
-### 2.1 Wejście (request body)
-```json
-{
-  "portfolio_id": 1,
-  "question": "Gdzie są największe ryzyka w moim portfelu?"
-}
-```
+1. Wybierz okres wyników i czy uwzględniasz podportfele. Wyłączenie podportfeli usuwa ich pozycje, gotówkę i operacje z zakresu. Bieżące pozycje pokazują obecny stan, nawet przy analizie dawnego okresu wyników.
+2. Sprawdź czas przygotowania danych, ostrzeżenia oraz **Dane i źródła przekazywane do analizy**. Pozycje zawierają daty ceny i FX, jeśli są dostępne, oraz oznaczenie podstawy wyceny.
+3. **Zapisz podsumowanie danych** działa lokalnie, bez klucza AI. Pokazuje obliczone wyniki, przepływy, wkład instrumentów i ograniczenia.
+4. Wpisz pytanie i kliknij **Analizuj z AI**. Dopiero ten przycisk wysyła dane z podglądu oraz pytanie do Google Gemini. Otwieranie widoku i czytanie dawnych rozmów nie wysyłają danych do AI.
+5. Odpowiedź ma sekcje: co się zmieniło, dlaczego, co sprawdzić, źródła i braki. Akapity wskazują źródła w aplikacji. Nieznany identyfikator źródła jest odrzucany; prawidłowy odnośnik nie gwarantuje poprawnej interpretacji modelu.
+6. Dopytania korzystają z tej samej zapisanej kopii danych. **Nowy przegląd** pobiera aktualny stan. Późniejsze importy i notowania nie przepisują dawnych rozmów.
+7. **Zapisz w dzienniku** tworzy jeden wpis obserwacji. Ponowienie nie tworzy duplikatu. W dzienniku możesz dopisać wnioski i termin przeglądu.
 
-### 2.2 Wymagania wejściowe
-- `portfolio_id`:
-  - wymagane,
-  - liczba całkowita,
-  - wartość dodatnia (`> 0`).
-- `question`:
-  - wymagane,
-  - niepusty string,
-  - po `trim()` nie może być pusty.
+Kontekst obejmuje wspólną wycenę, rzeczywiste wyniki okresu, wkład instrumentów, założenia, do 20 aktywnych wpisów dziennika i do 20 przypisanych materiałów. Dla ETF obejmuje również znany skład i ograniczenia. Poprzedni przegląd jest kontekstem porównawczym przy zgodnym zakresie podportfeli. Różnica wartości aktywów obejmuje przepływy i nie oznacza samego zysku.
 
-### 2.3 Walidacja backendowa
-Endpoint korzysta z helperów:
-- `require_json_body()` — wymusza poprawne JSON body,
-- `require_positive_int(..., 'portfolio_id')` — waliduje `portfolio_id`,
-- `require_non_empty_string(..., 'question')` — waliduje pytanie.
+PPK rozróżnia wartość jednostek, wynik inwestowania i szacowany zwrot. Obligacje korzystają z modelu obligacji aplikacji, a oszczędności z wartości konta i naliczanych odsetek. Brak ceny lub FX pozostaje brakiem danych. Cena zakupu nie zastępuje notowania; ręczne i stare ceny zachowują oznaczenie jakości.
 
-Jeśli walidacja nie przejdzie, zwracany jest kontrolowany błąd API (status 4xx/5xx zależnie od scenariusza).
+## Konfiguracja, ponowienia i koszty AI
 
----
+Zainstaluj `backend/requirements.txt`, ustaw `GEMINI_API_KEY` w `backend/.env` i uruchom ponownie backend. Klucz pozostaje na serwerze. Domyślny model to `gemini-3.1-flash-lite`; `GEMINI_MODEL` zmienia domyślną wartość przed pierwszym zapisem ustawień. Ustawienia zapisane w formularzu mają pierwszeństwo.
 
-## 3) Dane wejściowe do analizy: skąd pochodzą
-Dane są pobierane z SQLite zapytaniem łączącym:
-- `holdings h` (pozycje portfela),
-- `price_cache pc` (ostatnia znana cena po tickerze).
+W **Ustawieniach AI i limicie kosztów** wybierasz model, dzienny limit USD, stawki za milion tokenów oraz długość odpowiedzi. Limit 0 blokuje generowanie. Limit jest wspólny dla materiałów i portfeli, a dzień rozliczany według UTC. Przed generowaniem aplikacja liczy tokeny u dostawcy i atomowo rezerwuje szacowany koszt wejścia oraz maksymalnej odpowiedzi. Po wykonaniu zapisuje zgłoszone zużycie. Jednoczesne żądania uwzględniają rezerwacje innych żądań.
 
-Wybierane kolumny:
-- `ticker`,
-- `quantity`,
-- `total_cost`,
-- `sector`,
-- `currency`,
-- `current_price` (`pc.price`).
+To **limit szacowany tej aplikacji**, a nie blokada rachunku Google. Taryfa może zależeć od modelu i rodzaju wejścia, zwłaszcza dźwięku/wideo. Sprawdź [cennik Google](https://ai.google.dev/gemini-api/docs/pricing) i ustaw konserwatywną stawkę dla używanych mediów. Limit nie obejmuje innych aplikacji, podatków ani przeliczenia waluty rachunku.
 
-Filtry:
-- tylko wskazany `portfolio_id`,
-- tylko pozycje otwarte: `h.quantity > 0`.
+Identyfikator żądania chroni przed powtórnym wykonaniem; zmieniona treść z tym samym identyfikatorem jest odrzucana. Niepewny błąd dostawcy zachowuje rezerwację kosztu i nie uruchamia automatycznej płatnej próby. **Przygotuj nowe żądanie** nadaje nowy identyfikator; kolejna próba może być płatna. Gdy proces przerwano w trakcie wywołania, rozpocznij nowy przegląd. Pusta rozmowa po nieudanej pierwszej odpowiedzi nadal zachowuje stan wejściowy.
 
-Sortowanie:
-- malejąco po `h.total_cost` (największa ekspozycja kosztowa na początku).
+## Plan udziałów i dopłata
 
-Jeżeli zapytanie nie zwróci żadnych pozycji, endpoint odpowiada błędem `portfolio_empty` (HTTP 404).
+W **Ryzyko i struktura → Plan udziałów** zapisz cel, horyzont i ograniczenia. Plan może dotyczyć instrumentów z gotówką (`CASH`) albo, na głównym koncie z aktywnymi podportfelami, strategii i części głównej (`OWN`). Udziały sumują się do 100%. Opis może istnieć bez udziałów. Plan archiwalnej strategii nie jest edytowalny.
 
----
+Po zapisaniu planu wpisz kwotę i wybierz **Oblicz podział**. Symulacja ustala udziały po dopłacie, a nową wpłatę rozdziela proporcjonalnie do braków niedoważonych pozycji. Nie proponuje sprzedaży i nie wydaje obecnej gotówki. Niewykorzystana część pozostaje w gotówce/części głównej. Podział groszy zachowuje sumę wpłaty.
 
-## 4) Co dokładnie moduł wylicza i jak
-Po pobraniu rekordów backend przelicza każdą pozycję do wspólnego zestawu metryk.
+Wynik pokazuje kwoty, nie liczbę akcji. Nie obejmuje prowizji, podatków ani całych jednostek zakupu. Niepełna wycena blokuje obliczenia, stare dostępne ceny powodują ostrzeżenie. Samą nową wpłatą nie zawsze można osiągnąć plan.
 
-### 4.1 Normalizacja danych liczbowych
-Dla każdego wiersza:
-- `quantity = float(row['quantity'] or 0)`
-- `total_cost = float(row['total_cost'] or 0)`
-- `current_price`:
-  - jeśli `pc.price` jest `NULL` → `0.0`,
-  - jeśli parsowanie się nie powiedzie (`ValueError`/`TypeError`) → `0.0`.
+## Wewnątrz ETF
 
-To zabezpiecza endpoint przed przerwaniem analizy przez pojedynczy wadliwy rekord ceny.
+Sekcja łączy bezpośrednie akcje i zapisany skład funduszy. Filtr pokazuje spółki występujące przez więcej niż jeden instrument. Udziały dotyczą wycenionych pozycji, bez gotówki.
 
-### 4.2 Metryki pozycji
-Dla każdej pozycji liczone są:
+Skład można pobrać z Yahoo albo wpisać z dokumentu emitenta: ticker funduszu, link HTTPS, data składu oraz wiersze `TICKER;udział procentowy`, np. `ABC;6,25`. Zapis zastępuje poprzedni skład. Suma poniżej 100% jest dozwolona; reszta pozostaje nierozpoznana. Powtórzenia i suma powyżej 100% są odrzucane.
 
-1. **Aktualna wartość pozycji**
-   - `current_value = quantity * current_price`
+Yahoo często podaje tylko największe pozycje. Data pobrania nie oznacza daty składu. Brak daty lub skład starszy niż 90 dni wywołują ostrzeżenie. Fundusze rozpoznajemy po nazwie, sektorze albo zapisanym składzie; nierozpoznany fundusz należy uzupełnić. Łączone są identyczne tickery, bez zgadywania odpowiedników giełdowych. Rozwijany jest jeden poziom składu. Skład nie służy do liczenia historycznych stóp zwrotu.
 
-2. **Niezrealizowany wynik kwotowo**
-   - `unrealized_pnl = current_value - total_cost`
+HHI ma nazwę **Rozproszenie instrumentów**. Jeden ETF może zawierać wiele spółek, więc ten wskaźnik nie ocenia dywersyfikacji wewnątrz ETF.
 
-3. **Niezrealizowany wynik procentowo**
-   - `unrealized_pnl_pct = (unrealized_pnl / total_cost) * 100`, gdy `total_cost > 0`
-   - w przeciwnym razie `0.0` (ochrona przed dzieleniem przez zero)
+## Materiały autorów: artykuły i tekst źródłowy
 
-4. **Udział pozycji w portfelu (`weight_pct`)**
-   - najpierw liczona jest suma `total_portfolio_value = Σ current_value`,
-   - potem:
-     - `weight_pct = (current_value / total_portfolio_value) * 100`, gdy `total_portfolio_value > 0`,
-     - w przeciwnym razie `0.0`.
+**Pomysły inwestycyjne** domyślnie pokazują artykuły Inwestomatu i Comparic. Filmy Marcina Podlackiego i Zawodu Inwestor pozostają pod filtrem **Filmy**. Odświeżanie pobiera ostatnie publikacje z kanałów, nie całe archiwum. Starszy materiał można dodać linkiem z właściwym źródłem i datą.
 
-### 4.3 Jakie pola trafiają dalej do promptu
-Dla każdej pozycji budowany jest obiekt zawierający co najmniej:
-- `ticker`,
-- `sector` (fallback: `Nieznany`),
-- `currency` (fallback: `PLN`),
-- `quantity`,
-- `total_cost`,
-- `current_price`,
-- `current_value`,
-- `unrealized_pnl`,
-- `unrealized_pnl_pct`,
-- `weight_pct`.
+1. Wybierz **Analizuj treść**. Dla artykułu kliknij **Pobierz treść artykułu** i sprawdź podgląd oraz datę pobrania. Odczytywany jest publiczny tekst ze wspieranych domen, bez obchodzenia logowania i płatnego dostępu. Jeśli pobranie się nie uda, wklej dostępny fragment.
+2. Tekst dłuższy niż 60 000 znaków jest skracany z widocznym ostrzeżeniem. Analiza dotyczy wyłącznie przekazanej części. Tytuł i opis z RSS nie wystarczają do przypisania opinii autora.
+3. **Przygotuj szkic AI** przesyła tekst z podglądu do Gemini. Film można analizować jako publiczne wideo lub wkleić transkrypcję. Dostępność filmu zależy od dostawcy. Opis wypowiedzi z filmu jest parafrazą AI z proponowanym momentem, nie zweryfikowanym cytatem.
+4. Sprawdź ticker, osobę wypowiadającą się, opinię, fragment, tezę, ryzyka i horyzont. Dopasowanie fragmentu do tekstu potwierdza tylko obecność słów, nie interpretację.
+5. Zaznacz **Sprawdziłem źródło, ticker i przypisanie opinii** i zapisz. Dopiero wtedy powstaje analiza spółki. Gdy analiza danej spółki w materiale już istnieje, edytuj ją zamiast tworzyć drugi wpis.
 
----
+Wzmianka, obserwacja, deklaracja posiadania, zakupu i sprzedaży są osobnymi typami. Wypowiedź gościa nie jest automatycznie opinią prowadzącego. Szkice nie tworzą transakcji ani automatycznych rekomendacji. Materiały i transkrypcje są niezaufanymi danymi, a nie instrukcjami dla asystenta.
 
-## 5) Budowa promptu: na jakiej podstawie AI odpowiada
-Model dostaje 3 główne bloki informacji:
-1. **Rola i kontekst** (doradca finansowy analizujący portfel).
-2. **Stan portfela** (łączna wartość + lista pozycji z wagą, sektorem i PnL%).
-3. **Pytanie użytkownika** (`question`).
+## Dane, API i testy
 
-Do tego dokładane są instrukcje formatu odpowiedzi:
-- odpowiedź po polsku,
-- fokus na ryzyku koncentracji/sektora/strat,
-- wskazanie pozycji relatywnie mocnych,
-- propozycje „dokupić/sprzedać” z uzasadnieniem,
-- limit długości do ~300 słów.
+Nowe tabele są addytywne: `investment_ai_settings`, `investment_ai_runs`, `investment_ai_sessions`, `investment_ai_messages`, `investment_strategy_plans`, `investment_fund_compositions`, `investment_material_reviews`, `investment_material_confirmations`, `research_publication_text`. Rozmowy, stan danych, teksty i koszty pozostają w bazie i lokalnych kopiach.
 
-### Ważne
-AI **nie dostaje pełnej historii transakcji** ani makroekonomii; bazuje głównie na:
-- bieżącym przekroju pozycji,
-- wagach,
-- niezrealizowanych wynikach,
-- treści pytania użytkownika.
+- `/api/ai/context/<pid>`, `/sessions/<pid>`, `/session/<sid>`: podgląd i historia.
+- `/api/ai/portfolio-analysis`: POST z `portfolio_id`, `request_id` UUID, `question`, `mode` (`data`/`ai`), `include_subportfolios`, `from`, `to`. Dopytanie dodaje `session_id` i `expected_last_id`.
+- `/api/ai/messages/<mid>/journal`: idempotentny zapis do dziennika. `/api/ai/settings`: wersjonowane ustawienia GET/PUT.
+- `/api/investment-analysis/plans/<pid>` i `/simulate`: plan i symulacja.
+- `/api/investment-analysis/exposure/<pid>`, `/funds/<ticker>`, `/funds/<ticker>/refresh`: ekspozycja i skład.
+- `/api/investment-analysis/materials/<pid>` oraz `/text`, `/analyze`: publikacje i odczyty. `/material-reviews/<rid>/<index>/confirm`: potwierdzenie. `/related/<pid>`: materiały posiadanych spółek.
 
----
-
-## 6) Wymagania techniczne i środowiskowe
-Aby endpoint działał poprawnie, środowisko musi mieć:
-
-1. **Pakiet Python**
-   - `google-generativeai` (importowany jako `google.generativeai`).
-
-2. **Zmienną środowiskową**
-   - `GEMINI_API_KEY` (klucz API).
-
-3. **Dostęp do bazy danych**
-   - tabele `holdings` i `price_cache` z danymi portfela/cen.
-
-### Konfiguracja modelu
-- `genai.configure(api_key=..., transport='rest')`
-- model: `gemini-3.1-flash-lite-preview`
-
----
-
-## 7) Kontrakt odpowiedzi
-### 7.1 Sukces
-```json
-{
-  "payload": {
-    "answer": "...odpowiedź AI..."
-  }
-}
-```
-
-Pole `answer` to tekst gotowy do wyświetlenia w UI.
-
-### 7.2 Błędy kontrolowane
-- `portfolio_empty` (404) — brak otwartych pozycji,
-- `gemini_unavailable` (500) — brak pakietu `google-generativeai`,
-- `gemini_config_error` (500) — brak `GEMINI_API_KEY`,
-- `gemini_empty_response` (502) — pusta odpowiedź od modelu,
-- `debug_error` (500) — nieobsłużony wyjątek runtime.
-
----
-
-## 8) Integracja frontendowa
-Komponent: `frontend/src/components/ai/PortfolioAIChat.tsx`.
-
-UI zapewnia:
-- gotowe szybkie pytania (quick actions),
-- ręczne pytanie w `textarea`,
-- stan ładowania (`Analizuję portfel...`),
-- prezentację błędu po stronie klienta,
-- render odpowiedzi zwróconej w `payload.answer`.
-
-Wywołanie:
-```ts
-http.post('/api/ai/portfolio-analysis', {
-  portfolio_id: portfolioId,
-  question: trimmed,
-})
-```
-
----
-
-## 9) Ograniczenia interpretacyjne i jakość danych
-Najważniejsze ograniczenia tej analizy:
-- jeżeli ceny w `price_cache` są nieaktualne lub puste, wnioski AI mogą być zaniżone/zaburzone,
-- `current_price = 0.0` dla braków danych obniża `current_value`, a więc także `weight_pct`,
-- analiza jest punktowa (snapshot), nie uwzględnia pełnej dynamiki historycznej,
-- odpowiedź ma charakter informacyjny i edukacyjny (nie jest poradą inwestycyjną).
-
----
-
-## 10) Przykład użycia (curl)
-```bash
-curl -X POST "http://localhost:5000/api/ai/portfolio-analysis" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "portfolio_id": 1,
-    "question": "Jak oceniasz ryzyko koncentracji i co mógłbym zdywersyfikować?"
-  }'
-```
-
----
-
-## 11) Powiązane pliki
-- Backend endpoint i logika promptu: `backend/routes_ai.py`
-- Frontend UI i obsługa odpowiedzi: `frontend/src/components/ai/PortfolioAIChat.tsx`
+Odpowiedzi używają standardowej koperty API. Integracja używa `google-genai` zamiast `google-generativeai`. Testy zastępują model atrapą; nie przesyłają danych użytkownika. Archiwum strategii zachowuje zamrożony wynik i nie jest dostępne dla nowego przeglądu AI.

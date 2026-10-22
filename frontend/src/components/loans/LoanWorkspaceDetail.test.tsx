@@ -2,10 +2,11 @@ import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import LoanWorkspaceDetail from './LoanWorkspaceDetail';
+import { recordInstallment,addOverpayment } from '../../api_loans';
 
-const api = vi.hoisted(() => ({ getSchedule: vi.fn(), setLoanNetWorthExclusion: vi.fn() }));
+const api = vi.hoisted(() => ({ getSchedule: vi.fn(), setLoanNetWorthExclusion: vi.fn(), getLoanPaymentCandidates:vi.fn(), saveLoanBudgetSettings:vi.fn() }));
 vi.mock('../../api_loans', () => ({ ...api, addOverpayment: vi.fn(), addRate: vi.fn(), deleteInstallment: vi.fn(), deleteOverpayment: vi.fn(), recordBalanceCheck: vi.fn(), recordInstallment: vi.fn() }));
-vi.mock('../../api_budget_workspace', () => ({ budgetWorkspaceApi: { get: async () => ({ accounts: [] }) } }));
+vi.mock('../../api_budget_workspace', () => ({ budgetWorkspaceApi: { get: async () => ({ accounts: [{id:1,name:'PKO',balance:1000,currency:'PLN'},{id:2,name:'Alior',balance:500,currency:'PLN'}],categories:[{id:10,name:'Opłaty'},{id:11,name:'Transport'}] }) } }));
 vi.mock('../charts/ChartKit', () => ({ TrendChart: () => null }));
 vi.mock('./LoanPaymentChart', () => ({ default: () => null }));
 
@@ -18,7 +19,69 @@ const schedule = (excluded = false) => ({
 });
 const show = () => render(<MemoryRouter initialEntries={['/loans/22']}><Routes><Route path="/loans/:id" element={<LoanWorkspaceDetail/>}/></Routes></MemoryRouter>);
 describe('Loan net worth setting', () => {
-  beforeEach(() => { cleanup(); vi.clearAllMocks(); api.getSchedule.mockResolvedValue(schedule()); });
+  beforeEach(() => { cleanup(); vi.clearAllMocks(); api.getSchedule.mockResolvedValue(schedule()); api.getLoanPaymentCandidates.mockResolvedValue({items:[]}); });
+  it('links an existing extra payment to an overpayment without a new debit',async()=>{
+    api.getLoanPaymentCandidates.mockResolvedValue({items:[{id:49,date:'2026-10-10',description:'Rata extra',amount:10.38,version:1,account_id:2,cash_effect:1}]});
+    vi.mocked(addOverpayment).mockResolvedValue({id:1,message:'Saved'});
+    show();fireEvent.click(await screen.findByRole('button',{name:'Symulacja'}));
+    fireEvent.change(screen.getByLabelText('Kwota (PLN)'),{target:{value:'10.38'}});
+    fireEvent.change(screen.getByLabelText('Data'),{target:{value:'2026-10-10'}});
+    fireEvent.change(screen.getByLabelText('Wydatek w budżecie'),{target:{value:'2'}});
+    await screen.findByText(/Znaleziono 1 możliwych płatności/);
+    expect(screen.getByRole('button',{name:'Zapisz nadpłatę'})).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Powiązanie nadpłaty z wydatkiem'),{target:{value:'49'}});
+    fireEvent.click(screen.getByRole('button',{name:'Powiąż nadpłatę bez zmiany salda'}));
+    await waitFor(()=>expect(addOverpayment).toHaveBeenCalledWith(22,{amount:10.38,date:'2026-10-10',type:'REDUCE_TERM',account_id:2,existing_entry_id:49,entry_version:1}));
+  });
+  it('links an existing payment with its saved date and amount and previews the account debit',async()=>{
+    api.getSchedule.mockResolvedValue({...schedule(),payments_list:[{id:2,installment_month:1,due_date:'2026-01-15',paid_on:'2026-01-13',amount:77.68,budget_linked:false}]});
+    vi.mocked(recordInstallment).mockResolvedValue({id:2,budget_entry_id:8});
+    show();await screen.findByRole('button',{name:'Historia i dane'});
+    fireEvent.click(screen.getByRole('button',{name:'Historia i dane'}));
+    expect(screen.getByText(/bez wydatku w budżecie/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Rozlicz w budżecie'}));
+    const submit=screen.getByRole('button',{name:'Pomniejsz saldo i rozlicz'});
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Konto płatności'),{target:{value:'1'}});
+    expect(screen.getByText(/→/)).toHaveTextContent(/922,32/);
+    await waitFor(()=>expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    await waitFor(()=>expect(recordInstallment).toHaveBeenCalledWith(22,{installment_month:1,paid_on:'2026-01-13',amount:77.68,account_id:1,apply_to_budget:true,payment_id:2}));
+  });
+  it('links a bank expense without a second account debit and blocks an accidental duplicate',async()=>{
+    api.getSchedule.mockResolvedValue({...schedule(),payments_list:[{id:2,installment_month:1,due_date:'2026-01-15',paid_on:'2026-01-13',amount:77.68,budget_linked:false}]});
+    api.getLoanPaymentCandidates.mockResolvedValue({items:[{id:8,date:'2026-01-13',description:'Przelew z banku',amount:77.68,version:3,account_id:1,cash_effect:1}]});
+    vi.mocked(recordInstallment).mockResolvedValue({id:2,budget_entry_id:8});
+    show();fireEvent.click(await screen.findByRole('button',{name:'Historia i dane'}));
+    fireEvent.click(screen.getByRole('button',{name:'Rozlicz w budżecie'}));
+    fireEvent.change(screen.getByLabelText('Konto płatności'),{target:{value:'1'}});
+    await screen.findByText(/Znaleziono 1 możliwych płatności/);
+    expect(screen.getByRole('button',{name:'Pomniejsz saldo i rozlicz'})).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Powiązanie raty z wydatkiem'),{target:{value:'8'}});
+    expect(screen.getByText(/→/)).toHaveTextContent(/1\s?000,00.*1\s?000,00/);
+    fireEvent.click(screen.getByRole('button',{name:'Powiąż bez zmiany salda'}));
+    await waitFor(()=>expect(recordInstallment).toHaveBeenCalledWith(22,{installment_month:1,paid_on:'2026-01-13',amount:77.68,account_id:1,apply_to_budget:true,payment_id:2,existing_entry_id:8,entry_version:3}));
+  });
+  it('saves the account and category separately for a loan',async()=>{
+    api.getSchedule.mockResolvedValue({...schedule(),budget_settings:{loan_id:22,account_id:2,resolved_account_id:2,category_id:10,version:4}});
+    api.saveLoanBudgetSettings.mockResolvedValue({loan_id:22,account_id:1,resolved_account_id:1,category_id:11,version:5});
+    show();fireEvent.click(await screen.findByText('Budżet tego kredytu · konto i kategoria rat'));
+    const account=screen.getByLabelText('Domyślne konto rat kredytu');
+    expect(account).toHaveValue('2');
+    fireEvent.change(account,{target:{value:'1'}});
+    fireEvent.change(screen.getByLabelText('Kategoria rat kredytu'),{target:{value:'11'}});
+    fireEvent.click(screen.getByRole('button',{name:'Zapisz konto i kategorię rat'}));
+    await waitFor(()=>expect(api.saveLoanBudgetSettings).toHaveBeenCalledWith(22,{account_id:1,category_id:11,version:4}));
+  });
+  it('opens the next installment with its own account instead of an old unconfirmed row',async()=>{
+    const oldRow={month:1,date:'2026-01-15',installment:77.68,interest_rate:0,remaining_balance:1000};
+    const nextRow={...oldRow,month:11,date:'2026-11-15'};
+    api.getSchedule.mockResolvedValue({...schedule(),actual:{schedule:[oldRow,nextRow]},status:{...schedule().status,next_due_date:'2026-11-15',next_installment:77.68},budget_settings:{loan_id:22,account_id:2,resolved_account_id:2,category_id:10,version:1}});
+    show();fireEvent.click(await screen.findByRole('button',{name:'Zapisz spłatę'}));
+    expect(screen.getByText('Rata 11')).toBeInTheDocument();
+    expect(screen.getByLabelText('Konto budżetowe')).toHaveValue('2');
+    await waitFor(()=>expect(api.getLoanPaymentCandidates).toHaveBeenCalledWith(22,2,expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),77.68));
+  });
   it('saves exclusion, restores it after loading and can include the loan again', async () => {
     api.setLoanNetWorthExclusion.mockResolvedValueOnce({ id: 22, exclude_from_net_worth: true });
     const page = show();

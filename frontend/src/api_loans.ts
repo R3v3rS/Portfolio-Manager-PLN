@@ -23,6 +23,9 @@ export interface LoanOverpaymentPayload {
   date: string;
   type?: 'REDUCE_TERM' | 'REDUCE_INSTALLMENT';
   account_id?: number;
+  existing_entry_id?: number;
+  entry_version?: number;
+  confirm_new_expense?: boolean;
 }
 
 export interface LoanStatus {
@@ -83,12 +86,17 @@ export interface LoanInstallmentPayment {
   paid_on: string;
   amount: number;
   budget_linked: boolean;
+  budget_entry_created?:boolean;
 }
+export interface LoanBudgetSettings {loan_id:number;account_id:number|null;category_id:number|null;resolved_account_id:number|null;version:number}
+export interface LoanPaymentCandidate {id:number;date:string;description:string;amount:number;version:number;account_id:number;cash_effect:number}
+export interface LoanPaymentSelection {existing_entry_id?:number;entry_version?:number;confirm_new_expense?:boolean;ready:boolean}
 
 export interface LoanRate { id: number; interest_rate: number; valid_from_date: string }
 export interface LoanBalanceCheck { id: number; balance: number; checked_on: string }
 
 export interface LoanScheduleResponse {
+  budget_settings?:LoanBudgetSettings;
   loan: {
     exclude_from_net_worth?: boolean;
     id: number;
@@ -236,6 +244,7 @@ const normalizeLoanSchedule = (value: unknown): LoanScheduleResponse => {
   const simulatedMetrics = normalizeMetrics(source.simulated_metrics);
 
   return {
+    budget_settings:isRecord(source.budget_settings)?source.budget_settings as unknown as LoanBudgetSettings:undefined,
     loan: {
       id: toNumber(loan.id),
       name: toString(loan.name),
@@ -277,7 +286,7 @@ const normalizeLoanSchedule = (value: unknown): LoanScheduleResponse => {
       return {
         id: toNumber(item.id), installment_month: toNumber(item.installment_month),
         due_date: toString(item.due_date), paid_on: toString(item.paid_on),
-        amount: toNumber(item.amount), budget_linked: Boolean(item.budget_linked),
+        amount: toNumber(item.amount), budget_linked: Boolean(item.budget_linked),budget_entry_created:item.budget_entry_created===undefined?true:Boolean(item.budget_entry_created),
       };
     }) : [],
     rates_list: Array.isArray(source.rates_list) ? source.rates_list.map(value => {
@@ -305,8 +314,10 @@ export const setLoanNetWorthExclusion = (id: number, excluded: boolean) =>
 export const addRate = (id: number, data: LoanRatePayload) => loansHttp.post<LoanMutationDto>(loanPath.rates(id), data);
 export const addOverpayment = (id: number, data: LoanOverpaymentPayload) => loansHttp.post<LoanMutationDto>(loanPath.overpayments(id), data);
 export const deleteOverpayment = (id: number, overpaymentId: number) => loansHttp.delete(loanPath.overpayments(id) + '/' + overpaymentId);
-export const recordInstallment = (id: number, data: { installment_month: number; paid_on: string; amount: number; account_id?: number }) =>
+export const recordInstallment = (id: number, data: { installment_month: number; paid_on: string; amount: number; account_id?: number; apply_to_budget?:boolean;payment_id?:number;existing_entry_id?:number;entry_version?:number;confirm_new_expense?:boolean }) =>
   loansHttp.post<{ id: number; budget_entry_id: number | null }>(loanPath.payments(id), data);
+export const saveLoanBudgetSettings=(id:number,data:Pick<LoanBudgetSettings,'account_id'|'category_id'|'version'>)=>loansHttp.put<LoanBudgetSettings>(loanPath.byId(id)+'/budget-settings',data);
+export const getLoanPaymentCandidates=(id:number,account_id:number,paid_on:string,amount:number)=>loansHttp.get<{items:LoanPaymentCandidate[]}>(loanPath.byId(id)+'/payment-candidates',{params:{account_id,paid_on,amount}});
 export const deleteInstallment = (id: number, paymentId: number) => loansHttp.delete(loanPath.payments(id) + '/' + paymentId);
 export const recordBalanceCheck = (id: number, data: { balance: number; checked_on: string }) =>
   loansHttp.post<{ id: number }>(loanPath.balanceChecks(id), data);

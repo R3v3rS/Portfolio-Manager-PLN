@@ -2,7 +2,15 @@
 .test-deps/
 .runtime-deps/
 __pycache__/
+.pytest_cache/
 *.db
+*.db.*
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
 .env
 node_modules/
 dist/
@@ -17,6 +25,7 @@ large_results.json
 medium_results.json
 before.json
 .local-servers.json
+/.local-artifacts/
 
 # Local financial data, diagnostics and generated reports
 backend/backups/

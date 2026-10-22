@@ -10,7 +10,7 @@ import {planningMoney as money,planningDay as day,planningToday,usePlanningActio
 function PurchaseEditor({data,purchase,reload,onClose}:{data:BudgetWorkspace;purchase:PurchasePlan|null;reload:()=>Promise<void>;onClose:()=>void}){
   const [input,setInput]=useState<PurchaseInput>(()=>purchase?{name:purchase.name,amount:purchase.amount,low:purchase.low,high:purchase.high,due_date:purchase.due_date,
     account_id:purchase.account_id,category_id:purchase.category_id,status:purchase.status==='COMPLETED'?'PLANNED':purchase.status,notes:purchase.notes,reserve_version:purchase.reserve_version}:
-    {name:'',amount:0,low:0,high:0,due_date:planningToday(),account_id:data.accounts[0]?.id??0,category_id:null,status:'IDEA',notes:''});
+    {name:'',amount:0,low:0,high:0,due_date:planningToday(),account_id:data.accounts.find(a=>a.account_type!=='CREDIT_CARD')?.id??0,category_id:null,status:'IDEA',notes:''});
   const [requestId]=useState(()=>crypto.randomUUID()),action=usePlanningAction(reload);
   const update=<K extends keyof PurchaseInput>(key:K,value:PurchaseInput[K])=>setInput(old=>({...old,[key]:value}));
   return <ImportDialog title={purchase?'Edytuj plan zakupu':'Zakup lub wydarzenie'} busy={action.busy} onClose={onClose}>
@@ -20,7 +20,7 @@ function PurchaseEditor({data,purchase,reload,onClose}:{data:BudgetWorkspace;pur
       <label>Termin<input type="date" required min={input.status==='PLANNED'?planningToday():undefined} max="2100-12-31" value={input.due_date} onChange={e=>update('due_date',e.target.value)}/></label>
       <label>Przewidywany koszt w PLN<input type="number" required min="0.01" step="0.01" value={input.amount||''} onChange={e=>{const amount=Number(e.target.value);setInput(old=>({...old,amount,low:old.low||amount,high:old.high||amount}));}}/></label>
       <div className="budget-form-grid"><label>Wariant oszczędny<input type="number" required min="0.01" max={input.amount||undefined} step="0.01" value={input.low||''} onChange={e=>update('low',Number(e.target.value))}/></label><label>Wariant rozszerzony<input type="number" required min={input.amount||'0.01'} step="0.01" value={input.high||''} onChange={e=>update('high',Number(e.target.value))}/></label></div>
-      <label>Konto odkładania i płatności<select required value={input.account_id} onChange={e=>update('account_id',Number(e.target.value))}>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+      <label>Konto odkładania i płatności<select required value={input.account_id} onChange={e=>update('account_id',Number(e.target.value))}>{data.accounts.filter(a=>a.account_type!=='CREDIT_CARD').map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
       <label>Kategoria zakupu<select value={input.category_id??''} onChange={e=>update('category_id',e.target.value?Number(e.target.value):null)}><option value="">Wybiorę przy płatności</option>{data.categories.filter(c=>!c.is_unassigned).map(c=><option key={c.id} value={c.id}>{c.selection_label??c.name}</option>)}</select></label>
       <label>Notatka<textarea maxLength={2000} value={input.notes} onChange={e=>update('notes',e.target.value)}/></label>
       <p className="bp-help">Zaplanowany zakup korzysta z jednej rezerwy. Płatność zapiszesz w tej rezerwie; prognoza uwzględni koszt tylko raz. Zmiana kwoty lub terminu przeliczy odkładanie. Przed anulowaniem zwolnij odłożone środki.</p>

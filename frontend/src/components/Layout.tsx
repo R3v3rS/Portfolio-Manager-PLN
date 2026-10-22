@@ -77,7 +77,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     };
   }, [isMobileNavOpen]);
 
-  const active = (path: string) => path === '/' ? pathname === '/' :
+  const active = (path: string) => path === '/budget' ? pathname === '/budget' || pathname.startsWith('/budget/') : path === '/' ? pathname === '/' :
     path === '/portfolios' ? pathname === path || pathname.startsWith('/portfolio/') :
     pathname === path;
 
@@ -96,12 +96,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       {navLink('Raport miesięczny', '/reports/monthly', FileText)}
       <p className="app-nav-section">Inwestycje</p>
       {investmentLinks.map(({ name, path, icon }) => navLink(name, path, icon))}
-      <div className="app-nav-divider" />
+      <p className="app-nav-section">Finanse domowe</p>
       {navLink('Budżet', '/budget', PiggyBank)}
-      {(pathname === '/budget' || pathname.startsWith('/budget/')) && <div className="app-nav-subitems">{[
-        {path:'/budget/imports',name:'Importy i paragony'}, {path:'/budget/forecast',name:'Prognoza pieniędzy'},
-        {path:'/budget/accounts',name:'Konta i przelewy'}, {path:'/budget/reserves',name:'Rezerwy na wydatki'},
-      ].map(item=><Link key={item.path} to={item.path} className={cn('app-nav-sublink',pathname===item.path&&'is-active')} aria-current={pathname===item.path?'page':undefined}>{item.name}</Link>)}</div>}
       {navLink('Kredyty', '/loans', Landmark)}
       <div className="app-nav-tools">
         <p className="app-nav-section">Narzędzia</p>

@@ -65,10 +65,10 @@ describe('Household planning controls',()=>{
   it('shows monthly income funds independently of the account cash card',()=>{
     const data=fixture();data.totals={...data.totals,income:1000,expected_income:200,monthly_income_total:1200,monthly_income_cost:300,monthly_income_remaining_plan:800,monthly_income_to_plan:100};
     show(<BudgetPlanningOverview data={data} forecast={null} failed={false}/>);
-    const monthly=within(screen.getByRole('article',{name:'Wolne z przychodów miesiąca'}));
+    const monthly=within(screen.getByLabelText('Wolne z przychodów miesiąca'));
     expect(monthly.getByText('100,00 zł',{exact:false})).toBeInTheDocument();
-    expect(screen.getByText(/otrzymano.*1\s?000,00.*oczekiwane.*200,00/)).toBeInTheDocument();
-    expect(monthly.getByText(/Bez wcześniejszych sald/)).toBeInTheDocument();
+    expect(screen.getByText(/W tym oczekiwane wpływy:.*200,00/)).toBeInTheDocument();
+    expect(monthly.getByText(/Z samych przychodów miesiąca/)).toBeInTheDocument();
     expect(screen.getByText(/3\s?500,00/,{selector:'strong'})).toBeInTheDocument();
   });
   it('keeps an open reserve plan fixed and available for manual funding at zero',()=>{
@@ -140,7 +140,19 @@ describe('Household planning controls',()=>{
     expect(dialog.getByText(/Transport → OC auta/)).toBeInTheDocument();
     expect(planningApi.closeMonth).not.toHaveBeenCalled();
     fireEvent.click(dialog.getByRole('button',{name:'Potwierdź zamknięcie'}));
-    await waitFor(()=>expect(planningApi.closeMonth).toHaveBeenCalledWith('2026-09',{'3':2},expect.any(String),{'3':200},undefined));
+    await waitFor(()=>expect(planningApi.closeMonth).toHaveBeenCalledWith('2026-09',{'3':2},expect.any(String),{'3':200},undefined,{}));
+  });
+  it('requires an explicit end-of-month destination and an account for investment savings',async()=>{
+    const data=fixture();data.month='2026-09';data.planning!.policies=[{category_id:3,name:'Transport',mode:'DECIDE',reserve_id:null,start_month:'2026-09',version:2}];
+    show(<BudgetCarryoverPolicies data={data} reload={reload}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Zamknij miesiąc i rozlicz limity'}));
+    const dialog=within(screen.getByRole('dialog'));
+    expect(dialog.getByRole('button',{name:'Potwierdź zamknięcie'})).toBeDisabled();
+    fireEvent.change(dialog.getByLabelText('Przeznaczenie limitu: Transport'),{target:{value:'INVESTMENTS'}});
+    expect(dialog.getByRole('button',{name:'Potwierdź zamknięcie'})).toBeDisabled();
+    fireEvent.change(dialog.getByLabelText('Konto dla limitu: Transport'),{target:{value:'2'}});
+    fireEvent.click(dialog.getByRole('button',{name:'Potwierdź zamknięcie'}));
+    await waitFor(()=>expect(planningApi.closeMonth).toHaveBeenCalledWith('2026-09',{'3':2},expect.any(String),{'3':200},undefined,{'3':{destination:'INVESTMENTS',account_id:2}}));
   });
   it('opens a purchase variant only as a forecast scenario',()=>{
     const data=fixture();data.planning!.purchases=[{id:5,name:'Wakacje',amount:1200,low:900,high:1800,due_date:'2027-01-15',account_id:2,account_name:'Alior',category_id:3,status:'PLANNED',notes:'',reserve_id:4,saved:100,monthly_required:300,version:1,reserve_version:2}];
@@ -168,7 +180,7 @@ describe('Household planning controls',()=>{
     await waitFor(()=>expect(budgetWorkspaceApi.payBill).toHaveBeenCalledWith(8,'2026-10',expect.any(String),expect.objectContaining({amount:480,version:4,reserve_version:2,request_id:expect.any(String)})));
   });
   it('saves the payday boundary and accounts used by the forecast',async()=>{
-    show(<BudgetPayCycle data={fixture()} forecast={null} reload={reload}/>);
+    show(<BudgetPayCycle data={fixture()} forecast={null} reload={reload} settingsOnly/>);
     fireEvent.change(screen.getByLabelText('Dzień początku okresu'),{target:{value:'31'}});
     fireEvent.change(screen.getByLabelText('Konto rat kredytów'),{target:{value:'2'}});
     fireEvent.click(screen.getByRole('button',{name:'Zapisz ustawienia'}));
