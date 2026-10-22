@@ -1,6 +1,6 @@
 # Architektura i zasady obliczeń
 
-Stan funkcjonalności: 19 października 2026. Ten dokument opisuje implementację; praktyczne kroki znajdują się w [instrukcji budżetu](BUDZET_INSTRUKCJA_PL.md) i [instrukcji całej aplikacji](INSTRUKCJA_OBSLUGI_PL.md).
+Stan funkcjonalności: 22 października 2026. Ten dokument opisuje implementację; praktyczne kroki znajdują się w [instrukcji budżetu](BUDZET_INSTRUKCJA_PL.md) i [instrukcji całej aplikacji](INSTRUKCJA_OBSLUGI_PL.md).
 
 ## 1. Warstwy
 
@@ -132,7 +132,7 @@ Ta konfiguracja uruchomienia jest przeznaczona do pracy lokalnej. Nie stanowi go
 
 Zmiana wspólnych obliczeń wymaga testów modeli: podkategorii, zwrotów, rachunków, rat, rezerw, zamknięć i prognozy. Testy interfejsu sprawdzają m.in. rozdzielenie podglądu i zapisu oraz skutki powiązań. Daty testowe powinny być stałe albo tak dobrane, aby punkty historii nie stawały się przypadkiem przyszłe.
 
-## 12. Przegląd planu i przesuwanie limitów
+## 11. Przegląd planu i przesuwanie limitów
 
 `GET /api/budget/workspace/plans/year?start=YYYY-MM` odczytuje dwanaście workspace od wskazanego miesiąca. Nie zapisuje planów. Wynik miesiąca jest miarą `monthly_income_to_plan`; obciążenie to wykonane koszty finansowane z przychodów plus pozostały plan. Kategorie nadrzędne i podrzędne nie są dodawane po raz drugi. Przyszłe przeniesienia są jawnie oznaczone jako orientacyjne; nie jest to symulacja przyszłych sald ani cykli rezerw.
 
@@ -142,7 +142,7 @@ Zmiana wspólnych obliczeń wymaga testów modeli: podkategorii, zwrotów, rachu
 
 Widoki prognozy nie resetują symulacji przy zmianie zakładki. Założenia miesiąca są prezentowane według rzeczywistych dat zdarzeń prognozy do wybranego końca zakresu, z pominięciem zapisanych już operacji. Filtry transakcji są osobnym ustawieniem `localStorage` przeglądarki i nie należą do kopii SQLite.
 
-## Karty kredytowe
+## 12. Karty kredytowe
 
 Migracja addytywna w `budget_import_schema.initialize` dodaje `budget_accounts.account_type` z domyślnym `BANK`. Istniejące salda i transakcje nie są przepisywane. `CREDIT_CARD` przechowuje zadłużenie jako saldo ujemne, nadpłatę jako dodatnie. Otwarcie i korekty kart obsługują obie wartości; nie tworzą dochodów ani wydatków.
 
@@ -152,10 +152,17 @@ Zakup i zwrot korzystają z istniejących wpisów oraz podziałów kategorii. Sp
 
 Prognoza zachowuje sumę sald ze znakami, dodaje typ do przebiegów kont i nie traktuje ujemnego salda karty jako niedoboru fizycznej gotówki ani celu propozycji przelewu. Nie planuje automatycznie przyszłej spłaty bez ustalonego terminu. Rezerwy i finansowanie inwestycji wymagają `BANK`, również przy dodatniej nadpłacie karty.
 
-## Podglądy i historia rezerw
+## 13. Podglądy i historia rezerw
 
 `budget_reserve_operations_service` wykonuje podgląd przy użyciu tej samej ścieżki księgowania w transakcji zakończonej rollbackiem. Skrót stanu obejmuje salda kont, wersje rezerw, wpisów i planów rezerw; zatwierdzenie chroni przed zapisem na nieaktualnym podglądzie. Zbiorcze odłożenia korzystają ze wspólnej transakcji i deterministycznych identyfikatorów pozycji. `budget_reserve_operation_receipts` przechowuje wynik, aby ponowienie oddało ten sam rezultat.
 
 Dla przekazanej nadwyżki źródłowa operacja zwalnia kwotę, a docelowa rezerwa otrzymuje ruch ADD na tych samych kontach. Część `budget_cost_cents` przenosi niewykorzystaną podstawę wcześniejszych odłożeń, zamiast naliczać ją drugi raz. Dane do cofnięcia są zapisane w `budget_settlements.before_json._surplus_transfer`; późniejsze zmiany docelowej rezerwy blokują cofnięcie. Cofnięte podsumowanie pozostaje oznaczone `cancelled`.
 
 `budget_reserve_history_service` grupuje ruchy jednej płatności i łączy transfer FUND z odpowiadającym mu odłożeniem. Starsze rozliczenia otrzymują podsumowanie odczytane z istniejących danych, bez migracji kwot. Zestawienie miesiąca dotyczy przypisanych środków: początek + ADD − pokrycie płatności − zwolnienia = koniec. Kwota wydatku bankowego jest osobną miarą. Przeniesienia MOVE nie zmieniają łącznej kwoty rezerwy.
+
+
+## 14. Analizy inwestycji i AI
+
+[Referencja analiz](AI_PORTFOLIO_ANALYSIS_MODULE_PL.md) opisuje kontekst, tabele i trasy: `/api/ai` oraz `/api/investment-analysis`. `investment_ai_context` korzysta ze wspólnej wyceny i rzeczywistych wyników; rozmowa zachowuje niezmienny stan danych. `investment_ai_provider` obsługuje wersjonowane ustawienia, identyfikatory żądań i atomową rezerwację szacowanego kosztu. Materiały źródłowe wymagają osobnej analizy i potwierdzenia szkicu. Symulacja dopłaty i rozwinięcie częściowego składu ETF nie księgują transakcji.
+
+Rozmowy, stany danych, teksty materiałów i rejestr kosztów są w lokalnej bazie oraz jej kopiach. Wywołanie generowania przesyła wskazane dane do Google Gemini. Konfigurację i zakres wysyłania opisuje [uruchomienie AI](URUCHAMIANIE_I_KOPIE_PL.md#9-opcjonalne-uruchomienie-ai). Tylko część tras ma opis OpenAPI; [zakres specyfikacji](API_ZAKRES_PL.md) rozróżnia katalog tras, kontrakt koperty i schematy pól.

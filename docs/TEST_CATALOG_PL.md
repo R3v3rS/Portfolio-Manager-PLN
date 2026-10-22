@@ -1,392 +1,62 @@
-# Katalog testów (frontend + backend)
-
-## Frontend
-
-### `frontend/src/http.response.test.ts`
-- `extractPayload returns payload and throws for invalid envelope` — waliduje rozpakowanie envelope `payload` i fallback dla błędnego kontraktu.
-- `extractErrorMessage prefers message, then details and code` — sprawdza priorytet mapowania `error.message`/`error.details`/`error.code`.
-- `extractErrorMessageFromUnknown handles body and plain errors` — normalizacja błędu z nieznanego źródła.
-- `parseJsonApiResponse unwraps payload on success` — mapowanie odpowiedzi sukcesu.
-- `parseJsonApiResponse sets error.body for non-2xx API errors` — zachowanie szczegółów envelope błędu.
-
-### `frontend/src/http.test.ts`
-- `serializes query params and skips undefined/null values` — serializacja query params i pomijanie pustych wartości.
-- `sends JSON body by default and keeps explicit body for text requests` — poprawna struktura request body i nagłówków.
-- `wraps parser errors into HttpError for status 400/401/403/404/409/422/500` — tabelaryczne pokrycie kodów błędów HTTP (`it.each`).
-- `keeps AbortError for cancellation and does not remap into HttpError` — rozróżnienie anulowania requestu.
-- `keeps network errors as-is when fetch rejects` — rozróżnienie błędu sieciowego.
-
-### `frontend/src/api.test.ts`
-- `normalizes list response with safe defaults` — bezpieczna normalizacja typów i fallbacków dla `portfolioApi.list`.
-- `maps getPriceHistory with null->[] and nullable last_updated` — normalizacja `null → []` i pól opcjonalnych.
-- `serializes optional benchmark query only when provided` — mapowanie opcjonalnego query parametru.
-- `normalizeXtbImportError keeps error envelope shape for status 400/401/403/404/409/422/500` — tabelaryczne pokrycie propagacji `code/message/details` z `HttpError`.
-- `sends importXtbCsv form data with optional fields only when provided` — struktura `FormData` i pomijanie nieustawionych pól opcjonalnych.
-
-### `frontend/src/api_budget.test.ts`
-- `maps budget summary and normalizes null arrays to []` — normalizacja typów, null-safe i fallback biznesowy.
-- `omits optional query params when null/undefined for getTransactions` — mapowanie query i pomijanie pól opcjonalnych.
-- `keeps HttpError shape for status 400/401/403/404/409/422/500` — tabelaryczne testy statusów błędów i spójny kształt obiektu błędu.
-
-### `frontend/src/api_dashboard.test.ts`
-- `maps numeric/string fields and falls back to zero/null defaults` — normalizacja dashboardu i fallback dla brakujących pól.
-
-### `frontend/src/api_loans.test.ts`
-- `maps getLoans response and falls back to empty array` — normalizacja listy kredytów.
-- `serializes schedule query params and normalizes nested schedule shape` — mapowanie query i zagnieżdżonych struktur odpowiedzi.
-- `sends createLoan body unchanged` — mapowanie payloadu requestu mutacyjnego.
-
-### `frontend/src/api_radar.test.ts`
-- `maps getAll with null-safe conversions and filters empty tickers` — normalizacja odpowiedzi i filtrowanie rekordów niepoprawnych.
-- `maps action response with fallback message and ticker normalization` — fallback komunikatu i bezpieczne mapowanie tablicy tickerów.
-- `maps analysis object safely when nested blocks are missing` — odporność na brak sekcji analitycznych.
-
-### `frontend/src/api_symbol_map.test.ts`
-- `normalizes list/create/update payloads` — mapowanie request/response dla CRUD mapowania symboli.
-
-
-### `frontend/src/api_import_staging.test.ts`
-- `createStagingSession returns payload on success` — weryfikuje poprawne mapowanie odpowiedzi sukcesu dla utworzenia sesji stagingowej.
-- `createStagingSession throws on server error` — propagacja błędu serwera bez ukrywania statusu/komunikatu.
-- `getSession returns payload on success` — pobranie sesji stagingowej zwraca poprawny payload.
-- `getSession throws on server error` — obsługa błędu backendu przy pobieraniu sesji.
-- `assignRow returns payload on success` — przypisanie pojedynczego wiersza zwraca zaktualizowany stan sesji.
-- `assignRow throws on server error` — poprawna propagacja błędu assign.
-- `assignAll returns payload on success` — zbiorcze przypisanie (`assign-all`) zwraca payload sesji.
-- `assignAll throws on server error` — propagacja błędu assign-all.
-- `rejectRow returns payload on success` — odrzucenie wiersza działa i zwraca aktualny stan.
-- `rejectRow throws on server error` — poprawna obsługa błędu reject.
-- `bookSession returns payload on success` — księgowanie sesji zwraca dane sukcesu.
-- `bookSession throws on server error` — propagacja błędu backendu dla book.
-- `deleteSession returns payload on success` — usuwanie sesji zwraca poprawny payload.
-- `deleteSession throws on server error` — propagacja błędu usuwania sesji.
-
-### `frontend/src/components/DuplicateConfirmationModal.test.tsx`
-- `toggles selected conflicts and confirms selected hashes` — interakcja użytkownika (checkbox + potwierdzenie) i walidacja przekazywanych danych.
-- `calls onCancel and allows skipping all duplicates` — scenariusz anulowania i potwierdzenia bez zaznaczeń.
-
-### `frontend/src/components/Empty.test.tsx`
-- `renders fallback empty state label` — smoke test renderowania komponentu UI.
-
-### `frontend/src/pages/MainDashboard.test.tsx`
-- `renders loading state before data is loaded` — weryfikuje stan ładowania dashboardu globalnego.
-- `renders KPI cards, chart section and formatted values after successful load` — sprawdza render KPI, sekcji wykresu i formatowania kwot/dat po załadowaniu danych.
-- `renders empty-style quick stat message when there is no upcoming installment` — scenariusz pustego stanu dla raty kredytu.
-- `renders error state when API request fails` — scenariusz błędu API.
-
-### `frontend/src/pages/PortfolioDashboard.test.tsx`
-- `renders loading state before data fetch resolves` — stan ładowania przed resolve zapytań list/limits/config.
-- `renders KPI cards, tax limits and table rows after loading` — render dashboardu portfeli, limitów podatkowych i tabeli.
-- `renders empty state when no portfolios exist` — komunikat pustego stanu dla listy portfeli.
-- `renders error state when dashboard fetch fails` — komunikat błędu pobierania danych.
-- `submits create portfolio form and sends payload` — interakcja formularza tworzenia portfela i poprawny payload.
-
-### `frontend/src/pages/PortfolioFlows.integration.test.tsx`
-- `creates portfolio and refreshes list with new row` — integracyjny flow tworzenia portfela (request `POST /portfolio/create` + odświeżenie listy `GET /portfolio/list` i render nowego kafla).
-- `shows create error feedback and keeps UI responsive` — obsługa błędu API przy tworzeniu portfela bez utraty interaktywności formularza.
-- `sends BUY payload and updates holdings + summary cards` — flow BUY przez `PortfolioDetails` + modal transakcji, walidacja payloadu requestu i aktualizacji UI (holdings + gotówka).
-- `displays API buy errors without crashing screen` — błąd BUY pokazany użytkownikowi i zachowanie stabilności widoku.
-- `sends SELL payload and updates positions/profit in UI` — flow SELL z tabeli holdings, poprawny request i aktualizacja pozycji/summary.
-- `shows SELL errors and keeps details page mounted` — obsługa błędu SELL bez wywrócenia widoku portfela.
-- `posts transfer payload and updates both balances from API refresh` — transfer `Sub→Sub` z walidacją payloadu i poprawnym odświeżeniem danych.
-- `shows transfer API errors and does not crash modal` — feedback błędu transferu oraz zachowanie modala.
-- `handles successful CSV import flow` — import XTB CSV (scenariusz sukcesu) i feedback użytkownika.
-- `renders partial import failure modal and allows user feedback` — częściowy sukces importu (konflikty/duplikaty) i render modalu konfliktów.
-- `calls API with date/type/ticker filters and updates table rows` — filtrowanie historii transakcji po dacie/typie/tickerze z walidacją query params i wyników UI.
-- `shows API errors during filtering but page remains usable` — obsługa błędu endpointu filtrowania bez utraty dostępności widoku.
-
-### `frontend/src/components/modals/TransactionModal.test.tsx`
-- `renders buy form fields for STANDARD portfolio and submits BUY transaction` — weryfikuje flow BUY, auto-prowizję FX i payload.
-- `switches to dividend mode and submits dividend transaction` — przełączenie trybu oraz poprawny payload dla dywidendy.
-- `handles API error with user feedback and reenables submit button` — obsługa błędu serwera i powrót przycisku do stanu aktywnego.
-
-### `frontend/src/components/modals/SellModal.test.tsx`
-- `renders prefilled sell form and submits SELL request` — prefill pól sprzedaży i poprawny payload SELL.
-- `shows disabled state during request and handles server error` — blokada submita w trakcie requestu + feedback błędu.
-- `returns null when modal is closed` — brak renderu przy `isOpen=false`.
-
-### `frontend/src/components/modals/TransferModal.test.tsx`
-- `submits DEPOSIT transaction` — poprawny payload wpłaty.
-- `submits WITHDRAW to selected budget account` — wypłata na konto budżetowe z poprawnym wywołaniem API.
-- `shows validation error for invalid internal transfer amount and does not call API` — walidacja kwoty dla przelewu wewnętrznego i brak requestu.
-- `shows processing status for successful internal transfer job` — status przeliczania historii po transferze `Sub→Sub`.
-
-
-### `frontend/src/components/modals/ImportStagingModal.test.tsx`
-- `pokazuje konflikty z backendu po assignAll i pozwala je potwierdzić historycznie` — UI konfliktów po zbiorczym przypisaniu i ścieżka „potwierdź mimo konfliktu”.
-- `dla pełnego assigned bez konfliktów nie pokazuje akcji potwierdzania konfliktu` — brak zbędnych akcji, gdy wszystkie rekordy są poprawnie przypisane.
-- `przy błędzie API pokazuje alert i nie zmienia rows` — odporność UI na błąd API bez mutacji lokalnego stanu.
-- `po pomyślnym booking kliknięcie Zamknij wywołuje onCloseAfterBooking i nie wywołuje onCancel` — poprawna sekwencja callbacków po zaksięgowaniu.
-- `po booking bez onCloseAfterBooking wykonuje fallback do onCancel` — fallback zamknięcia modala, gdy dedykowany callback nie został przekazany.
-
-### `frontend/src/pages/ImportFlow.integration.test.tsx`
-- `tryb Poczekalnia (domyślny) otwiera modal stagingu po uploadzie` — integracja nowego flow stagingowego po imporcie pliku.
-- `tryb Bezpośredni używa starego flow bez modala` — zachowanie kompatybilności ze ścieżką bez stagingu.
-- `modal staging → klik Anuluj import wywołuje deleteSession` — anulowanie stagingu poprawnie sprząta sesję po stronie backendu.
-- `modal staging → klik Zaksięguj wywołuje bookSession i zamyka modal` — pełny happy-path księgowania sesji z domknięciem UI.
-
-## Backend — testy API, serwisów i regresji
-
-Poniżej pełna lista aktualnych plików testowych backendu wraz z krótką adnotacją.
-
-### `backend/test_api_contract.py`
-- `test_all_registered_endpoints_follow_the_api_contract` — sprawdza kontrakt odpowiedzi dla zarejestrowanych endpointów (envelope `payload`/`error`, spójność pól błędu i typów odpowiedzi).
-
-### `backend/test_monitoring_dashboard.py`
-- `test_empty_log_file_returns_zeroed_metrics` — weryfikuje, że pusty log daje zerowe metryki.
-- `test_mixed_entries_compute_expected_metrics` — sprawdza poprawność agregacji metryk dla mieszanych wpisów (błędy, wolne operacje, error rate).
-- `test_old_entries_do_not_affect_last_hour_metrics` — potwierdza, że stare wpisy nie wpływają na metryki „ostatniej godziny”.
-- `test_identical_durations_do_not_crash_heap_sorting` — regresja: sortowanie wolnych operacji działa stabilnie przy identycznych czasach.
-
-### `backend/test_portfolio_import_service.py`
-- `test_try_parse_float_supports_common_import_formats` — test parsera liczb dla formatów importowych (np. przecinki/spacje).
-- `test_select_column_prefers_numeric_candidate_for_amount` — wybór kolumny preferuje dane numeryczne dla pól kwot.
-- `test_parse_xtb_quantity_standard_format` — parsowanie ilości z komentarza XTB (format standardowy).
-- `test_parse_xtb_quantity_fractional_close_uses_numerator_only` — parsowanie pozycji częściowo zamykanej (ułamek).
-- `test_parse_xtb_quantity_handles_spaces_and_commas` — odporność parsera na niestandardowe odstępy i separatory.
-- `test_parse_xtb_quantity_raises_for_invalid_comment` — walidacja błędu dla niepoprawnego komentarza XTB.
-
-### `backend/test_price_service_logging.py`
-- `test_verbose_provider_logs_flag_parsing` — parsowanie flagi środowiskowej `VERBOSE_PROVIDER_LOGS`.
-- `test_log_verbose_provider_event_respects_flag` — logi verbose są emitowane tylko przy aktywnej fladze.
-- `test_error_aggregation_reduces_log_flood_when_not_verbose` — agregacja błędów ogranicza „flood” logów.
-- `test_log_provider_event_includes_contract_fields_for_error` — sprawdza kompletność i strukturę pól logu błędu.
-- `test_log_provider_event_accepts_optional_none_fields` — logowanie toleruje opcjonalne pola `None`.
-- `test_log_provider_event_respects_explicit_log_levels` — poziom logowania respektuje przekazany level.
-- `test_warmup_cache_excludes_cash_and_null_tickers_from_query` — warmup cache pomija tickery `CASH`/`NULL`.
-- `test_classify_error_known_and_unknown_paths` — klasyfikacja znanych i nieznanych błędów providera.
-
-### `backend/test_price_service_scenarios.py`
-- `test_scenario_success_bulk_download` — scenariusz pełnego sukcesu pobierania cen.
-- `test_scenario_retry_then_success` — retry kończy się sukcesem.
-- `test_scenario_retry_then_final_failure` — retry kończy się finalnym błędem.
-- `test_scenario_fallback_activation` — uruchomienie fallbacku po awarii ścieżki głównej.
-- `test_scenario_partial_success_in_fallback` — fallback zwraca częściowy sukces.
-- `test_get_stock_analysis_sets_rsi14_to_none_when_loss_is_zero` — poprawna obsługa RSI przy zerowej stracie.
-- `test_sync_stock_history_logs_upserted_rows_message` — logowanie komunikatu o upsertowanych wierszach historii.
-
-
-### `backend/tests/test_import_staging_service.py`
-- `test_create_session_returns_all_rows` — tworzenie sesji stagingowej zwraca kompletną listę wierszy do decyzji użytkownika.
-- `test_create_session_sell_without_holding_is_conflict` / `test_create_session_sell_exceeding_holding_is_conflict` — klasyfikacja konfliktów SELL dla braku pozycji lub zbyt małej ilości.
-- `test_create_session_detects_database_duplicate` / `test_create_session_reports_file_and_database_duplicate_together` — detekcja duplikatów w DB oraz równoczesna sygnalizacja duplikatów plik+DB.
-- `test_assign_row_*` (rodzina testów) — pokrycie przepisywania pojedynczego wiersza, przeliczania konfliktów SELL i blokady mutacji dla pozycji zaksięgowanych.
-- `test_assign_all_*` — walidacja scenariuszy zbiorczego przypisania (brak sesji, pomijanie wierszy już zaksięgowanych).
-- `test_book_session_*` (rodzina testów) — księgowanie wierszy normalnych i konfliktowych, normalizacja `confirmed_row_ids`, obsługa błędów per-wiersz oraz aktualizacja cash/holdings/fx.
-- `test_reject_row_excludes_from_booking` — odrzucony wiersz nie trafia do księgowania.
-- `test_delete_session_removes_pending_only` — usuwanie sesji czyści tylko rekordy oczekujące.
-
-### `backend/tests/test_routes_imports.py`
-- `test_assign_all_route_propagates_invalid_subportfolio_as_422` — endpoint poprawnie mapuje walidację sub-portfela na `422`.
-- `test_assign_all_route_skips_booked_rows_and_assigns_remaining` — warstwa HTTP zachowuje semantykę „booked rows immutable”.
-- `test_book_route_returns_422_with_row_errors_on_booking_error` — zwrot błędów per-wiersz dla nieudanego księgowania.
-- `test_book_route_returns_404_for_missing_session` — brak sesji zwraca `404`.
-- `test_book_route_returns_200_for_successful_booking` — happy-path route book.
-- `test_staging_import_returns_400_for_missing_required_csv_columns` — walidacja brakujących kolumn CSV.
-- `test_direct_import_returns_400_for_invalid_sub_portfolio_id` / `test_direct_import_returns_400_for_archived_sub_portfolio` — walidacja targetu importu bez stagingu.
-- `test_target_sub_portfolio_id_*` — pełne testy kontraktu parsera `target_sub_portfolio_id` (string/float/non-positive/positive/null).
-
-### `backend/tests/test_portfolio_audit_service.py`
-- `test_rebuild_holdings_from_transactions_cash_uses_cash_delta_rules` — regresja spójności audytu: przebudowa holdings respektuje jednolite reguły `cash_delta`.
-
-### `backend/tests/test_portfolio_history_service.py`
-- `test_apply_tx_to_rolling_matches_cash_balance_on_date` — regresja zgodności mechanizmu rolling history z referencyjnym wyliczeniem salda gotówki na dzień.
-
-### `backend/tests/test_portfolio_valuation_service.py`
-- `test_cash_delta_transfer_is_neutral` — transfer wewnętrzny jest neutralny wartościowo (nie tworzy/nie niszczy wartości portfela).
-
-### `backend/tests/test_portfolio_import_service.py`
-- Pokrycie równoległe do `backend/test_portfolio_import_service.py`: parser kwot/ilości XTB, wybór kolumn i walidacja błędnych komentarzy.
-
-### `backend/test_smoke_endpoints.py`
-- `test_critical_backend_smoke_endpoints` — smoke test kluczowych endpointów backendu.
-- `test_invalid_buy_payload_returns_validation_error` — walidacja błędnego payloadu dla BUY.
-- `test_invalid_sell_payload_returns_validation_error` — walidacja błędnego payloadu dla SELL.
-- `test_avg_price_stability_after_sell` — regresja stabilności `average_buy_price` po częściowym SELL (BUY 5 @ 100, SELL 1, oczekiwane avg=100).
-- `test_tax_limits_does_not_count_ikze_portfolios_as_ike` — poprawna logika limitów podatkowych IKE/IKZE.
-- `test_invalid_budget_transfer_payload_returns_validation_error` — walidacja niepoprawnego transferu budżetowego.
-- `test_missing_budget_transfer_field_returns_validation_error` — brak wymaganych pól zwraca błąd walidacji.
-- `test_loan_schedule_rejects_invalid_simulation_inputs` — odrzucanie niepoprawnych danych symulacji kredytu.
-- `test_loan_mutations_validate_positive_amounts_and_missing_loans` — walidacja kwot i brakujących rekordów kredytu.
-- `test_xtb_import_missing_symbols_returns_consistent_error_details` — spójny format błędów importu XTB (brak symboli).
-- `test_xtb_import_invalid_csv_returns_consistent_error_details` — spójny format błędów dla wadliwego CSV.
-- `test_global_error_handlers_preserve_contract_and_status_codes` — globalne handlery błędów zachowują kontrakt i statusy.
-
-### `tests/test_assign_integration.py`
-- `test_assign_parent_to_child_changes_only_sub_portfolio` — przypisanie parent→child zmienia wyłącznie `sub_portfolio_id`.
-- `test_assign_child_to_parent_changes_only_sub_portfolio` — przypisanie child→parent aktualizuje tylko pole przypisania.
-- `test_assign_child_a_to_child_b_changes_only_sub_portfolio` — przepięcie child A→child B nie modyfikuje innych danych transakcji.
-- `test_assign_to_child_of_different_parent_returns_422` — blokada przypisania do dziecka innego parenta.
-- `test_assign_to_archived_child_returns_422` — blokada przypisania do archiwalnego sub-portfela.
-- `test_assign_interest_to_child_returns_422` — walidacja: `INTEREST` nie może być przypisany do child.
-- `test_bulk_assign_with_interest_in_set_returns_422_and_is_atomic` — bulk z niedozwoloną transakcją kończy się 422 i rollbackiem.
-- `test_bulk_assign_cross_parent_returns_422` — bulk przypisania cross-parent jest odrzucany.
-- `test_assign_single_rebuilds_parent_and_children_with_correct_argument_order` — po assign single odświeżanie struktur parent/children wywoływane poprawnie.
-- `test_assign_bulk_rebuilds_parent_and_children_with_correct_argument_order` — analogiczna weryfikacja dla assign bulk.
-
-### `tests/test_assign_validation.py`
-- `test_assign_transaction_rejects_invalid_sub_portfolio_id` — endpoint assign odrzuca nieprawidłowe ID sub-portfela.
-- `test_assign_transactions_bulk_rejects_invalid_sub_portfolio_id` — bulk assign odrzuca niepoprawny sub-portfolio.
-- `test_assign_transactions_bulk_rejects_invalid_transaction_ids` — bulk assign waliduje listę ID transakcji.
-
-### `tests/test_audit_cash_negative.py`
-- `test_portfolio_without_incidents_returns_ok_true_and_empty_incidents` — brak incydentów przy poprawnym cashflow.
-- `test_withdraw_above_balance_creates_incident_with_correct_date_and_amount` — wykrywanie dnia z ujemną gotówką po nadmiernej wypłacie.
-- `test_buy_can_trigger_negative_balance` — zakup może wygenerować incydent ujemnego salda.
-- `test_later_deposit_repairs_balance_but_incident_day_remains_visible` — późniejszy depozyt naprawia saldo, ale historia incydentu pozostaje.
-- `test_child_is_checked_separately_and_parent_stays_clean` — niezależne audytowanie child i parent.
-- `test_dividend_counts_as_credit_and_prevents_negative_balance` — dywidenda jako wpływ zapobiega zejściu poniżej zera.
-
-### `tests/test_audit_consistency.py`
-- `test_portfolio_ok_returns_status_ok` — audyt spójności zwraca status OK dla poprawnych danych.
-- `test_value_match_fail_when_parent_value_differs` — wykrywanie rozjazdu wartości parenta.
-- `test_orphan_transaction_detected` — detekcja osieroconych transakcji.
-- `test_interest_leaked_detected` — wykrywanie „wycieku” transakcji typu INTEREST.
-- `test_archived_child_transaction_detected` — detekcja transakcji przypisanych do archiwalnego child.
-
-### `tests/test_cash_transfer.py`
-- `test_01_child_to_child_same_parent` — transfer child→child w obrębie jednego parenta.
-- `test_02_child_to_parent` — transfer child→parent.
-- `test_03_parent_to_child` — transfer parent→child.
-- `test_04_child_to_child_different_parents_returns_422` — blokada transferu między różnymi parentami.
-- `test_05_parent_to_other_parent_returns_422` — blokada transferu parent→inny parent.
-- `test_06_archived_child_as_source_returns_422` — archiwalny child nie może być źródłem transferu.
-- `test_07_archived_child_as_target_returns_422` — archiwalny child nie może być celem transferu.
-- `test_08_insufficient_cash_returns_422` — walidacja niewystarczającej gotówki.
-- `test_09_future_date_returns_422` — walidacja daty z przyszłości.
-- `test_10_delete_transfer_restores_cash_and_deletes_transactions` — usunięcie transferu cofa wpływ na cash i usuwa transakcje.
-- `test_11_delete_non_existing_transfer_returns_422` — usunięcie nieistniejącego transferu zwraca 422.
-- `test_12_backdated_transfer_uses_historical_cash_balance` — transfer wsteczny używa historycznego salda.
-- `test_13_backdated_transfer_repairs_cash_state_instead_of_only_applying_delta` — backdated transfer naprawia stan gotówki globalnie, nie tylko delta.
-
-### `tests/test_clear_subportfolio.py`
-- `test_clear_child_portfolio_returns_422` — blokada „clear” dla child portfolio.
-- `test_clear_parent_with_active_children_returns_422` — blokada „clear” parenta z aktywnymi dziećmi.
-- `test_clear_parent_without_active_children_keeps_existing_behavior` — parent bez aktywnych dzieci zachowuje obecne działanie endpointu clear.
-
-### `tests/test_config_endpoint.py`
-- `test_config_returns_allowed_subportfolio_types_from_constants` — endpoint config zwraca typy sub-portfeli zgodne ze stałymi backendu.
-
-### `tests/test_dividends_subportfolio.py`
-- `test_get_dividends_for_child_uses_parent_and_child_filter` — dywidendy child filtrowane przez parent + child.
-- `test_get_dividends_for_parent_returns_own_and_children_with_subportfolio_name` — parent widzi własne i child dywidendy z nazwami sub-portfeli.
-- `test_get_monthly_dividends_for_parent_and_child` — miesięczne agregacje dywidend dla parenta i child.
-
-### `tests/test_portfolio_history_service.py`
-- `test_build_price_context_logs_sync_errors_and_continues` — budowa kontekstu cen loguje błędy synchronizacji i kontynuuje.
-- `test_daily_history_matches_legacy_algorithm` — zgodność dziennej historii z algorytmem legacy.
-- `test_monthly_history_rolling_matches_legacy_invariants` — zgodność rolling monthly z niezmiennikami legacy.
-- `test_benchmark_shows_operation_reduction` — benchmark: redukcja liczby operacji w nowym podejściu.
-- `test_long_sparse_daily_history` — poprawność dla długiej i rzadkiej historii dziennej.
-- `test_multi_ticker_daily_runs_and_returns_points` — wielotickerowa historia dzienna zwraca poprawne punkty.
-- `test_fx_consistency_uses_latest_rate_without_future_leakage` — kurs FX bez „wycieku” danych z przyszłości.
-- `test_buy_before_window_sell_inside_window` — poprawna wycena przy BUY przed oknem i SELL w oknie.
-- `test_daily_accepts_row_like_transactions_without_get` — kompatybilność wejścia row-like bez metody `get`.
-
-### `tests/test_portfolio_valuation_cash_balance.py`
-- `test_buy_sell_dividend_are_reflected_in_cash_balance_on_date` — weryfikuje, że `BUY/SELL/DIVIDEND` są poprawnie uwzględniane przez `get_cash_balance_on_date`.
-- `test_regression_sell_transactions_counted_even_if_current_cash_is_stale` — regresja przypadku produkcyjnego („Dywidendowe”): dwa `SELL SNT.WA` obecne w `transactions` muszą podnieść saldo historyczne nawet gdy `portfolios.current_cash` pozostało niezsynchronizowane.
-
-### `tests/test_portfolio_trade_bulk_atomicity.py`
-- `test_assign_transactions_bulk_rolls_back_entire_batch_on_error` — atomowość bulk assign: błąd cofa cały batch.
-
-### `tests/test_regression_subportfolio_id.py`
-- `test_buy_sell_without_sub_portfolio_id_uses_null` — regresja: brak `sub_portfolio_id` zapisuje `NULL`.
-- `test_buy_with_explicit_null_sub_portfolio_id_uses_null` — regresja: jawne `null` także pozostaje `NULL`.
-
-### `tests/test_transactions_subportfolio.py`
-- `test_transactions_endpoint_parent_and_child_scope` — zakres endpointu transakcji dla parent/child.
-- `test_holdings_endpoint_parent_and_child_scope` — zakres endpointu holdings dla parent/child.
-- `test_history_monthly_endpoint_parent_and_child_scope` — zakres endpointu historii miesięcznej dla parent/child.
-- `test_closed_positions_endpoint_parent_and_child_scope` — zakres endpointu closed positions dla parent/child.
-
-### `tests/test_withdraw_validation.py`
-- `test_withdraw_without_subportfolio_happy_path` — poprawna wypłata bez wskazania child.
-- `test_withdraw_with_valid_subportfolio_happy_path` — poprawna wypłata z prawidłowym child.
-- `test_withdraw_with_subportfolio_from_different_parent_returns_422` — blokada wypłaty dla child z innego parenta.
-- `test_withdraw_with_archived_subportfolio_returns_422` — blokada wypłaty z archiwalnego child.
-- `test_withdraw_with_non_existing_subportfolio_returns_422` — walidacja dla nieistniejącego child.
-
-### `tests/test_xirr.py`
-- `XirrRegressionTests.test_mixed_date_and_datetime` — regresja: `xirr` działa dla mieszanki `date` i `datetime`.
-- `test_amount_nan` — `xirr` odrzuca `NaN` w kwotach.
-- `test_amount_inf` — `xirr` odrzuca `inf` w kwotach.
-- `test_guess_nan` — `xirr` odrzuca `NaN` w parametrze guess.
-- `test_guess_bool` — `xirr` odrzuca bool jako guess.
-
-### `tests/test_buy_idempotency.py`
-- `test_buy_idempotency_replay_returns_original_result_without_duplicate_side_effects` — dwa identyczne `POST /api/portfolio/buy` z tym samym `Idempotency-Key`: pierwszy request tworzy transakcję, drugi zwraca zapisany wynik bez duplikacji skutków (cash/holding/transactions).
-- `test_buy_idempotency_rejects_same_key_with_different_payload` — ten sam `Idempotency-Key` z innym body kończy się `409` (`IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD`), co chroni przed kolizją semantyczną klucza.
-
-### `tests/test_buy_race_condition.py`
-- `test_buy_race_condition_allows_only_one_success_and_preserves_cash` — test współbieżności dla `POST /api/portfolio/buy`: 5 równoległych prób zakupu po 800 PLN przy saldzie startowym 1000 PLN; oczekiwany wynik to dokładnie 1 sukces, 4 odrzucenia z błędem „Insufficient…”, saldo końcowe 200 PLN i pojedyncza transakcja BUY.
-
-
----
-
-## Brakujące testy, które warto dodać
-
-Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domknąć najważniejsze ryzyka.
-
-
-### Backend — luki funkcjonalne
-4. **Kontrakt błędów dla wszystkich routerów**
-   - Co dodać: parametrized tests wymuszające stały format `error.code/message/details` dla pełnej mapy endpointów.
-5. **Testy graniczne walidacji wejścia**
-   - Co dodać: skrajne wartości `quantity/price/amount`, bardzo długie stringi, nietypowe locale/formaty dat.
-
-### Backend — historia, wycena, import
-
-1. **Testy wydajnościowe na większych wolumenach danych**
-   - Co dodać: benchmarki historii/wyceny dla dużej liczby transakcji i tickerów.
-2. **Testy jakości danych cenowych**
-   - Co dodać: luki w notowaniach, duplikaty, split/reverse split, niespójne waluty.
-
-4. **Testy odporności na chwilową niedostępność providerów**
-   - Co dodać: dłuższe serie retry/fallback + powrót do ścieżki głównej po odzyskaniu API.
-
-### API contract / dokumentacja
-
-1. **Snapshoty odpowiedzi OpenAPI vs runtime**
-   - Co dodać: automatyczne porównanie faktycznych odpowiedzi endpointów z `docs/openapi.yaml`.
-2. **Testy kompatybilności wstecznej**
-   - Co dodać: ochrona przed „breaking changes” w polach payloadów używanych przez frontend.
-
-
-## Benchmarki manualne (standalone)
-
-### `backend/benchmarks/bench_history_valuation.py`
-- Benchmark standalone (bez Flask i bez pliku `portfolio.db`) dla metod:
-  - `PortfolioHistoryService.get_portfolio_profit_history_daily(portfolio_id, days=365)`
-  - `PortfolioHistoryService._calculate_historical_metrics(portfolio_id)`
-  - `PortfolioValuationService.get_holdings(portfolio_id)`
-- Dane testowe są deterministyczne (`seed=42`), generowane w SQLite `:memory:`.
-- Wspiera scenariusze `small|medium|large|stress`, zapis JSON (`--save`) i porównanie wyników (`--compare`).
-- Raport zawiera `min/avg/max`, throughput (`tx/s`) i średni RAM przed/po pomiarze.
-
-## Czytelność i obsługa budżetu — październik 2026
-
-- `backend/tests/test_budget_usability.py`: zachowanie sumy planu, sald i historii przy przesunięciu, idempotencja, konflikt nieaktualnego podglądu, ochrona kwot wydanych i zobowiązań, wspólne limity podkategorii, rollback zmian dzieci i wspólnych limitów oraz odczyt 12 miesięcy bez zapisów.
-- `frontend/src/components/budget/BudgetUsability.test.tsx`: podgląd przed potwierdzeniem, zachowanie identyfikatora przy ponowieniu, unieważnienie starego podglądu, odczyt rocznego planu, zapisane filtry, kolejka dokumentów i szczegóły transakcji.
-- `frontend/src/components/budget/forecastPlanPresentation.test.ts`: granica części ostatniego miesiąca, przesunięta data rachunku i wykluczenie już zapisanych operacji.
-- `frontend/src/components/budget/forecastPresentation.test.ts`: osobne okresy niedoboru, dodatnie saldo końcowe i skrócenie zakresu.
-- `frontend/src/pages/BudgetImports.test.tsx`: obowiązkowa odpowiedź o saldzie przy nowym CSV i paragonie oraz zachowanie powiązania istniejącego zakupu.
-
-### Karty kredytowe (17 października 2026)
-
-`backend/tests/test_budget_credit_cards.py`: miesiąc zakupu i późniejsza spłata bez drugiego kosztu, idempotencja, częściowa spłata, brak wolnej gotówki, początkowy dług i korekty, zwrot, brak rezerw na karcie, prognoza bez fałszywego niedoboru, aktywa/zobowiązania netto oraz powiązanie importowanej spłaty. `frontend/src/pages/BudgetAccounts.test.tsx`: tworzenie z długiem, podgląd spłaty, brak środków i saldo karty ze znakiem.
-
-### Początek odkładania (19 października 2026)
-
-`backend/tests/test_budget_reserve_start.py`: start przyszłej puli, starszy wydatek z tej samej kategorii, aktywacja w listopadzie, korekty miesięczne, prognoza, rezerwa bez terminu, zachowanie historii po zmianie trybu, walidacja i ochrona początku po odłożeniach. `frontend/src/pages/BudgetReserves.test.tsx`: wybór początku, karta z zerowym planem przed startem, link do pierwszego miesiąca i chroniony formularz puli z historią.
-
-## Rozliczenia i zbiorcze odkładanie rezerw — 19 października 2026
-
-- `backend/tests/test_budget_reserve_operations.py`: podgląd z pełnym rollbackiem, wynik wody 382/374,20/7,80, odczyt starszej historii, powiązanie importu bez drugiego obciążenia, przekazanie podstawy budżetowej, cofnięcie i ochrona docelowej rezerwy, następny cykl jednorazowego celu, nadwyżka roczna, konflikt salda, atomowość i idempotencja zestawu, priorytety i dostępność na każdym koncie, wspólna historia transferu i odłożenia oraz rozliczenie między miesiącami i kontami.
-- `frontend/src/components/budget/ReserveOperations.test.tsx`: podgląd przed zapisem i jego unieważnienie po korekcie, bezpośrednie otwarcie rozliczonej rezerwy, kwota zwolniona i link do wydatku, zestawienie miesiąca, filtrowanie wspólnej historii, wersja rezerwy nadwyżki, edycja i ponowienie zbiorczego zapisu.
-- `BudgetReserves.test.tsx`: istniejące formularze wymagają sprawdzenia podglądu przed zatwierdzeniem odłożenia, zwolnienia i płatności.
-- `BudgetTransactions.test.tsx`: przejście do jednego powiązanego wydatku i powrót do całej historii.
-
-## Analizy inwestycji i AI
-
-`backend/tests/test_investment_analysis.py` sprawdza wspólną wycenę i FX, zakres podportfeli, konta specjalne, niezmienność danych rozmowy, ponowienia i limit kosztów, zapis do dziennika, dopłatę bez sprzedaży, niepełny skład ETF oraz potwierdzanie materiałów i odczyt publicznego artykułu. Dostawca AI jest zastępowany atrapą. `frontend/src/components/ai/InvestmentAnalysis.test.tsx` sprawdza świadomy wybór analizy, zachowanie żądania po błędzie, wymaganie zapisanego planu i potwierdzenia fragmentu. Kontrakt API obejmuje nowe trasy.
+# Kontrola jakości i mapa testów
+
+Stan: 22 października 2026. [Spis dokumentacji](README.md). To mapa obszarów i wybranych scenariuszy, nie pełna lista testów ani deklaracja kompletnego pokrycia. Aktualne nazwy przypadków i wyniki wynikają z kodu oraz konkretnego przebiegu.
+
+## Uruchamianie
+
+Przygotuj zależności według [instrukcji uruchamiania](URUCHAMIANIE_I_KOPIE_PL.md). W środowisku Pythona backendu, z katalogu głównego repozytorium:
+
+```bash
+python -m pip install -r backend/requirements-dev.txt
+python -m pytest backend/tests --collect-only -q
+python -m pytest backend/tests -q
+```
+
+`--collect-only` zbiera przypadki bez wykonywania ich treści; importy modułów nadal są wykonywane. Testy domenowe używają odrębnych baz, ale część starszych testów tworzy aplikację przed przełączeniem konfiguracji. Przed pełnym przebiegiem zachowaj kopię lokalnej bazy. Nie uruchamiaj testów na jedynej kopii danych użytkownika. Nie wyłączaj globalnie funkcji, którą bada test, np. automatycznych kopii podczas testowania kopii.
+
+W katalogu `frontend/`:
+
+```bash
+npm ci
+npm run check
+npm run lint
+npm test
+npm run build
+```
+
+Na środowisku z Bash dostępny jest `scripts/run_quality_gate.sh`, opcjonalnie z `PYTHON_BIN`. Sukces lokalny i wynik GitHub Actions to osobne wyniki; brak uruchomienia z powodu konfiguracji lub rozliczeń platformy nie jest wykonanym testem.
+
+## Budżet
+
+| Obszar | Ważne scenariusze | Wybrane testy backendu |
+|---|---|---|
+| Konta i historia | Saldo początkowe poza dochodem, korekta, przelew, zakup już uwzględniony w saldzie | [konta](../backend/tests/test_budget_accounts.py), [wpływ na saldo](../backend/tests/test_budget_entry_balance.py) |
+| Plan kategorii | Podkategorie bez podwójnego planu, wyjątek 0 zł, wersje domyślne, przesunięcie limitu | [podkategorie](../backend/tests/test_budget_subcategories.py), [plan domyślny](../backend/tests/test_budget_default_plans.py), [obsługa planu](../backend/tests/test_budget_usability.py) |
+| Rachunki i raty | Powiązanie importu, jedno obciążenie, konto kredytu, cofnięcie | [regresje](../backend/tests/test_budget_audit_regressions.py), [kredyty](../backend/tests/test_loans_workspace.py) |
+| Dochody i podsumowania | Dochód planowany i otrzymany, wolna kwota miesiąca, wydatki | [dochody](../backend/tests/test_budget_planned_income.py), [przychody miesiąca](../backend/tests/test_budget_month_income.py), [wydatki](../backend/tests/test_budget_spending_summary.py) |
+| Rezerwy i media | Początek odkładania, brak drugiego kosztu, podgląd i rollback, nadwyżka, cofnięcie, zbiorczy zapis | [media](../backend/tests/test_budget_media.py), [start rezerwy](../backend/tests/test_budget_reserve_start.py), [operacje rezerw](../backend/tests/test_budget_reserve_operations.py) |
+| Karty kredytowe | Miesiąc zakupu, spłata bez drugiego wydatku, zwrot, dług i majątek | [karty](../backend/tests/test_budget_credit_cards.py) |
+| Import i zamknięcie | Reguły, duplikaty, jawny wpływ na saldo, trwałość decyzji | [importy](../backend/tests/test_budget_imports.py), [planowanie](../backend/tests/test_budget_planning.py) |
+| Tempo i prognoza | Wyłączenia kategorii, płatności stałe poza tempem, zakresy i źródła planu | [tempo](../backend/tests/test_budget_chart_pace.py), [bezpieczeństwo](../backend/tests/test_budget_safety.py) |
+
+Interakcje sprawdzają m.in. [BudgetUsability](../frontend/src/components/budget/BudgetUsability.test.tsx), [ReserveOperations](../frontend/src/components/budget/ReserveOperations.test.tsx), [BudgetImports](../frontend/src/pages/BudgetImports.test.tsx), [BudgetAccounts](../frontend/src/pages/BudgetAccounts.test.tsx) i [CashForecast](../frontend/src/pages/CashForecast.test.tsx). Zmiana wspólnych obliczeń wymaga sprawdzenia powiązanych obszarów, nie tylko jednego ekranu.
+
+## Inwestycje i integracje
+
+| Obszar | Wybrane testy |
+|---|---|
+| Wyniki, ceny i FX, zakresy portfeli | [wyniki](../backend/tests/test_actual_results.py), [korekty inwestycji](../backend/tests/test_investment_corrections.py), [wycena](../backend/tests/test_portfolio_valuation_service.py) |
+| Import, atomowość, identyfikatory XTB, sesje | [XLSX](../backend/tests/test_xtb_xlsx_import.py), [sesje importu](../backend/tests/test_import_staging_service.py), [trasy importu](../backend/tests/test_routes_imports.py) |
+| PPK i obligacje | [PPK](../backend/tests/test_ppk_service.py), [obligacje](../backend/tests/test_bonds_workspace.py) |
+| AI, stan rozmowy, dziennik, limit i ponowienia, dopłata, częściowy skład ETF, potwierdzenie materiału | [backend](../backend/tests/test_investment_analysis.py), [interfejs](../frontend/src/components/ai/InvestmentAnalysis.test.tsx) |
+| Publikacje i źródła | [pomysły](../backend/tests/test_investment_ideas.py), [materiały](../frontend/src/pages/InvestmentIdeas.test.tsx) |
+| Kopie, retencja i odzyskiwanie po błędzie migracji | [kopie](../backend/tests/test_backups.py) |
+| Koperta odpowiedzi zarejestrowanych tras | [kontrakt API](../backend/tests/test_api_contract.py) |
+
+Testy AI zastępują dostawcę atrapą. Nie potwierdzają dostępności modelu, taryfy ani jakości rzeczywistej odpowiedzi. Test koperty API nie dowodzi zgodności wszystkich pól z częściowym `openapi.yaml`.
+
+## Dalsza weryfikacja
+
+Po zmianach integracji sprawdź dostępność źródła i komunikaty błędów; nie uruchamiaj automatycznie płatnych analiz w zwykłym zestawie testów. Dla dużych historii osobno oceniaj wydajność i pamięć. [Benchmark historii i wyceny](../backend/benchmarks/bench_history_valuation.py) jest pomiarem pomocniczym, nie gwarancją czasu odpowiedzi na dowolnych danych.
+
+Rozszerzając [częściowy opis OpenAPI](openapi.yaml), sprawdzaj metodę, ścieżkę, parametry, kopertę, pola opcjonalne i błędy z trasą oraz klientem frontendu. Uzupełniaj scenariusze regresyjne dla wykrytego problemu. Dawne listy „brakujących testów” nie zastępują przeglądu aktualnego pokrycia.

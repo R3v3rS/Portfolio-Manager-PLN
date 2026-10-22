@@ -1,13 +1,62 @@
 openapi: 3.0.3
 info:
-  title: Portfolio Manager API Contract
-  version: 0.1.0
+  title: Portfolio Manager API — częściowy kontrakt
+  version: 0.2.0
   description: |
-    Jawny kontrakt API dla endpointów objętych etapem porządkowania integracji frontend ↔ backend.
+    Częściowy kontrakt, nie katalog wszystkich dostępnych tras. Obejmuje bezpośredni import XTB,
+    mapowanie symboli, wybrane operacje kredytów, podsumowanie analiz oraz odczyt ustawień
+    i kontekstu AI. Budżet, sesje importu, płatności i generowanie AI nie mają tutaj pełnych
+    schematów. Zakres i referencje: docs/API_ZAKRES_PL.md. Obiekty analityczne dopuszczają
+    dodatkowe pola; ich szczegóły opisują dokumenty domenowe i klienci frontendu.
 servers:
   - url: /api
 components:
   schemas:
+    AiSettings:
+      type: object
+      required: [model, daily_budget_usd, input_usd_per_million, output_usd_per_million, max_output_tokens, version, used_usd, configured, budget_day, price_note]
+      properties:
+        model: {type: string}
+        daily_budget_usd: {type: number}
+        input_usd_per_million: {type: number}
+        output_usd_per_million: {type: number}
+        max_output_tokens: {type: integer}
+        version: {type: integer}
+        used_usd: {type: number}
+        configured: {type: boolean, description: Czy backend ma ustawiony klucz; nie potwierdza jego ważności u dostawcy.}
+        budget_day: {type: string, format: date, description: Dzień UTC.}
+        price_note: {type: string}
+    AnalysisContext:
+      type: object
+      description: Stan wejściowy; szczegółowe pola modeli wyceny i wyników opisuje referencja analiz.
+      required: [portfolio_id, name, account_type, include_subportfolios, created_at, start, end, value, positions, results, warnings, sources]
+      properties:
+        portfolio_id: {type: integer}
+        name: {type: string}
+        account_type: {type: string}
+        include_subportfolios: {type: boolean}
+        created_at: {type: string, format: date-time}
+        start: {type: string, format: date}
+        end: {type: string, format: date}
+        value: {type: object, additionalProperties: true}
+        positions:
+          type: array
+          items: {type: object, additionalProperties: true}
+        results: {type: object, additionalProperties: true}
+        warnings:
+          type: array
+          items: {type: string}
+        sources:
+          type: array
+          items:
+            type: object
+            required: [id, label, href, data]
+            properties:
+              id: {type: string}
+              label: {type: string}
+              href: {type: string}
+              data: {}
+      additionalProperties: true
     ApiSuccessEnvelope:
       type: object
       required: [payload]
@@ -108,7 +157,7 @@ components:
 paths:
   /portfolio/{portfolio_id}/import/xtb:
     post:
-      summary: Import XTB CSV into portfolio
+      summary: Bezpośredni import XTB CSV lub XLSX Cash Operations
       parameters:
         - in: path
           name: portfolio_id
@@ -311,3 +360,100 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorEnvelope'
+
+  /analytics/summary:
+    get:
+      summary: Zbiorcza analiza bieżącego koszyka akcyjnego
+      description: Zakres, jednostki i ograniczenia opisuje docs/ANALYTICS_SUMMARY_API_PL.md.
+      parameters:
+        - in: query
+          name: portfolio_id
+          required: true
+          schema: {type: integer, minimum: 1}
+        - in: query
+          name: sub_portfolio_id
+          schema: {type: integer, minimum: 1}
+        - in: query
+          name: period
+          schema: {type: string, enum: [3mo, 6mo, 3m, 6m, 1y, 2y], default: 1y}
+      responses:
+        '200':
+          description: Koperta payload; szczegóły metryk i aliasy są w referencji domenowej.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessEnvelope'
+                  - type: object
+                    properties:
+                      payload:
+                        type: object
+                        required: [portfolio_id, sub_portfolio_id, period, cached, performance, risk, correlation, diversification]
+                        properties:
+                          portfolio_id: {type: integer}
+                          sub_portfolio_id: {type: integer, nullable: true}
+                          period: {type: string, enum: [3mo, 6mo, 1y, 2y]}
+                          cached: {type: boolean}
+                          performance: {type: object, additionalProperties: true}
+                          risk: {type: object, additionalProperties: true}
+                          correlation: {type: object, additionalProperties: true}
+                          diversification: {type: object, additionalProperties: true}
+                        additionalProperties: true
+        '400':
+          description: Niepoprawne parametry lub zakres.
+        '404':
+          description: Nieistniejący portfel.
+        '500':
+          description: Nie udało się przygotować analizy.
+  /ai/settings:
+    get:
+      summary: Ustawienia i szacowane wykorzystanie dziennego limitu AI
+      description: Odczyt lokalny; nie wywołuje generowania ani nie zwraca klucza.
+      responses:
+        '200':
+          description: Ustawienia w kopercie payload.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessEnvelope'
+                  - type: object
+                    properties:
+                      payload:
+                        $ref: '#/components/schemas/AiSettings'
+  /ai/context/{pid}:
+    get:
+      summary: Stan danych portfela do analizy
+      description: Bez generowania AI i odświeżania notowań. Pozycje są bieżące; from/to wyznaczają okres wyników.
+      parameters:
+        - in: path
+          name: pid
+          required: true
+          schema: {type: integer}
+        - in: query
+          name: include_subportfolios
+          schema: {type: string, enum: ['0', '1'], default: '1'}
+        - in: query
+          name: from
+          description: Domyślnie pierwszy dzień bieżącego miesiąca.
+          schema: {type: string, format: date}
+        - in: query
+          name: to
+          description: Domyślnie dzisiaj; data nie może być przyszła ani wcześniejsza niż from.
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          description: Kontekst z ostrzeżeniami i źródłami w kopercie payload.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessEnvelope'
+                  - type: object
+                    properties:
+                      payload:
+                        $ref: '#/components/schemas/AnalysisContext'
+        '400':
+          description: Niepoprawny zakres, daty lub portfel archiwalny.
+        '404':
+          description: Nieistniejący portfel.

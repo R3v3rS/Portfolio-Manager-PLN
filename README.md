@@ -8,6 +8,8 @@ Zacznij od [spisu dokumentacji](docs/README.md).
 
 | Dokument | Zawartość |
 |---|---|
+| [Budżet na co dzień](docs/BUDZET_NA_CO_DZIEN_PL.md) | Zakup, rachunek, rezerwa, import i koniec miesiąca |
+| [Asystent i analizy inwestycji](docs/AI_PORTFOLIO_ANALYSIS_MODULE_PL.md) | Historia przeglądów, plan udziałów, ETF, materiały autorów i koszty AI |
 | [Instrukcja całej aplikacji](docs/INSTRUKCJA_OBSLUGI_PL.md) | Centrum finansów, portfele, strategie, PPK, obligacje, kredyty, analizy, cele, radar i narzędzia |
 | [Szczegółowa instrukcja budżetu](docs/BUDZET_INSTRUKCJA_PL.md) | Pierwsze ustawienie, salda, limity, rachunki, rezerwy, media, importy, paragony, zwroty, prognoza i zamknięcie miesiąca |
 | [Uruchamianie i kopie](docs/URUCHAMIANIE_I_KOPIE_PL.md) | Windows i uruchomienie ręczne, aktualizacja, przeniesienie danych, kopie i diagnostyka |
@@ -29,6 +31,7 @@ Instrukcje są po polsku. Przykłady korzystają z fikcyjnych kwot i kont; baza,
 - Akcje, ETF-y, IKE/IKZE, obligacje, oszczędności i PPK z właściwymi podsumowaniami.
 - Import XTB CSV/XLSX Cash Operations, mapowanie symboli, strategie, transfery aktywów i archiwizacja.
 - Rzeczywiste wyniki, analiza struktury i ryzyka, ceny ręczne oraz oznaczenia jakości wyceny.
+- Zapisane przeglądy, asystent inwestora, symulacja dopłaty, częściowy skład ETF i analiza treści artykułów.
 - Cele, dziennik inwestora, radar, publiczne pomysły inwestycyjne i raport miesięczny.
 - Kopie bazy oraz narzędzia spójności danych i historii cen.
 
@@ -56,6 +59,8 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 Otwórz `http://127.0.0.1:5173`. API działa na `http://127.0.0.1:5000`. Inicjalizacja backendu tworzy brakujący schemat w `backend/portfolio.db`; własną bazę zachowaj przed aktualizacją.
 
 Na przygotowanym lokalnym środowisku Windows można użyć `scripts/start-local.ps1` i `scripts/stop-local.ps1`. Skrypt startu zakłada lokalny runtime Codex oraz istniejące zależności i bazę — na nowym komputerze użyj uruchomienia ręcznego lub dostosuj jego ścieżki. Szczegóły, także dla Linux/macOS, są w [instrukcji uruchamiania](docs/URUCHAMIANIE_I_KOPIE_PL.md).
+
+AI jest opcjonalne: ustaw `GEMINI_API_KEY` w `backend/.env`, uruchom ponownie backend i sprawdź model oraz limit kosztów w Asystencie. [Konfiguracja krok po kroku](docs/URUCHAMIANIE_I_KOPIE_PL.md#9-opcjonalne-uruchomienie-ai). Lokalne podsumowanie działa bez klucza. Generowanie AI przesyła wskazany kontekst do Google Gemini.
 
 ## Kontrola jakości
 

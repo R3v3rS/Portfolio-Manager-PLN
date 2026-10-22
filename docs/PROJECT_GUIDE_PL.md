@@ -1,7 +1,7 @@
-# PROJECT GUIDE (Źródło Prawdy)
+# Model portfeli i księgowania — referencja techniczna
 
 ## 1. Cel
-Ten dokument jest autorytatywną referencją techniczną zachowania modułu portfeli w aktualnej implementacji backendu.
+Stan: 22 października 2026. Dokument uzupełnia [architekturę](ARCHITEKTURA_I_MODEL_DANYCH_PL.md). Kroki obsługi są w [instrukcji aplikacji](INSTRUKCJA_OBSLUGI_PL.md); [analizy i asystent](AI_PORTFOLIO_ANALYSIS_MODULE_PL.md) mają osobną instrukcję. Przy zmianie implementacji należy aktualizować odpowiednią referencję razem z kodem.
 
 Zakres:
 - model własności portfel / sub-portfel,
@@ -139,8 +139,10 @@ Dla parenta z aktywnymi dziećmi:
 - `current_value = gross_current_value - estimated_sell_fee`
 - `profit_loss = current_value - total_cost`
 
-## 6.3 Fallback przy braku ceny live
-Jeśli brak ceny live, backend stosuje cenę implikowaną wyliczoną ze `stored average buy price` i kontekstu FX.
+## 6.3 Brak, stara cena i wycena orientacyjna
+Cena rynkowa ma datę i status jakości; brak odświeżenia nie zmienia daty starego notowania. Aktywna cena ręczna zgodna z walutą ma `price_basis=manual` i ostrzeżenie o orientacyjnej wycenie.
+
+Przy braku notowania pozycja otrzymuje `price_basis=purchase`, a koszt zakupu może być pokazany osobno jako `estimated_current_value`, jeśli dostępny jest właściwy kurs FX. Nie jest to bieżące notowanie: `current_value`, `current_price`, wynik otwartej pozycji i jej procentowy udział pozostają `null`. Brak FX również powoduje niepełną wycenę; nie jest zastępowany kursem 1. Podsumowania i analizy muszą zachować informację o niepełnych danych.
 
 ## 6.4 Flagi FX
 - Instrumenty nie-PLN są oznaczane pod ścieżkę opłat FX (`auto_fx_fees`).
@@ -160,7 +162,9 @@ Import wykrywa duplikaty dwustopniowo:
 - duplikat wewnątrz pliku (`file_internal_duplicate`),
 - duplikat względem bazy (`database_duplicate`).
 
-Akceptacja konfliktów wymaga jawnego potwierdzenia `row-hash` (`confirmed_hashes`).
+W plikach XLSX Cash Operations identyfikatory konta i operacji brokera (`source_account`, `source_operation_id`, zapisywane jako `xtb_account`, `xtb_operation_id`) pozwalają rozpoznać ponowny import. Dwie identyczne płatności o różnych identyfikatorach mogą być poprawnymi odrębnymi operacjami. Zmienione dane pod istniejącym identyfikatorem są konfliktem, a nie nowym wpisem. Starsze wpisy bez identyfikatora wymagają dopasowania według danych operacji.
+
+Potwierdzanie konfliktów zależy od ścieżki importu: bezpośredni import korzysta z `confirmed_hashes`, a sesja podglądu z potwierdzeń wierszy. Potwierdzenie nie omija kontroli identyfikatora brokera. Obsługę oryginalnego XLSX i mapowania opisuje [instrukcja importu](INSTRUKCJA_OBSLUGI_PL.md#4-akcje-i-etf-y).
 
 ## 7.3 Normalizacja kwot
 Wszystkie total-e transakcji z importu są normalizowane do wartości nieujemnej:
