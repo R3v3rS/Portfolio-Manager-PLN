@@ -171,7 +171,10 @@ def parse_bank_row(cells, mapping, width):
     except ValidationError as error:
         errors.append(error.message)
     result['description'] = result['description'] or result['merchant'] or 'Operacja z wyciągu'
-    result['transfer_hint'] = any(s in normalized(result['description']+' '+result['merchant'])
+    description = normalized(result['description']+' '+result['merchant'])
+    result['card_payment_hint'] = bool(re.search(r'\bsplata\b.*\b(karty|kart|kredytowki)\b', description)) or any(
+        s in description for s in ('credit card payment', 'card repayment'))
+    result['transfer_hint'] = result['card_payment_hint'] or any(s in description
                                   for s in ('przelew wlasny', 'na wlasny rachunek', 'internal transfer', 'own account'))
     result.update(errors=errors, category_id=None, target_account_id=None, warnings=[])
     return result

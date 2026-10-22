@@ -51,13 +51,13 @@ class InvestmentIdeasTests(unittest.TestCase):
         self.assertEqual(len(service.workspace()['publications']),1)
         self.assertEqual(service.workspace()['ideas'],[])
 
-    def test_comparic_keeps_editor_attribution_and_only_relevant_articles(self):
+    def test_comparic_keeps_editor_attribution_and_additional_authors(self):
         raw=f'''<rss xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>
           <item><title>Spółki omawiane przez Podlackiego</title><link>https://comparic.pl/pomysly/</link>
           <pubDate>{date.today().strftime('%a, %d %b %Y')} 10:00:00 +0000</pubDate><dc:creator>Redaktor</dc:creator><description>PZU</description></item>
           <item><title>Inny temat</title><link>https://comparic.pl/inne/</link><pubDate>{date.today().strftime('%a, %d %b %Y')} 10:00:00 +0000</pubDate></item>
           </channel></rss>'''.encode()
-        rows=service.parse_feed(raw,'comparic');self.assertEqual(len(rows),1)
+        rows=service.parse_feed(raw,'comparic');self.assertEqual(len(rows),2)
         self.assertEqual(rows[0]['publisher'],'Redaktor')
 
     def test_general_market_mentions_and_description_promotions_do_not_suggest_stocks(self):
@@ -87,12 +87,12 @@ class InvestmentIdeasTests(unittest.TestCase):
 
     def test_partial_refresh_and_cooldown_preserve_existing_content(self):
         self.publication()
-        with patch.object(service,'fetch_feed',side_effect=[atom(),ValueError('unavailable'),b'<rss><channel/></rss>']) as fetch:
+        with patch.object(service,'fetch_feed',side_effect=[b'<rss><channel/></rss>',atom(),ValueError('unavailable'),b'<rss><channel/></rss>']) as fetch:
             response=self.client.post('/api/investment-ideas/refresh',json={})
             self.assertEqual(response.status_code,200)
             statuses=[row['status'] for row in response.json['payload']['sources']]
-            self.assertEqual(statuses,['ok','unavailable','ok'])
-            self.client.post('/api/investment-ideas/refresh',json={});self.assertEqual(fetch.call_count,3)
+            self.assertEqual(statuses,['ok','ok','unavailable','ok'])
+            self.client.post('/api/investment-ideas/refresh',json={});self.assertEqual(fetch.call_count,4)
         self.assertEqual(len(service.workspace()['publications']),1)
 
     def test_urls_xml_dates_and_invalid_input_fail_safely(self):

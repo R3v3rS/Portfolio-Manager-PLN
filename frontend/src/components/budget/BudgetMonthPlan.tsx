@@ -24,7 +24,7 @@ export default function BudgetMonthPlan({data,reload}:{data:BudgetWorkspace;relo
   const display=data.planning?.month_plan?.map(r=>({...r,left:r.remaining,href:links[r.kind]}))??rows;
   return <section className="budget-panel surface-card bp-panel" aria-label="Wspólny plan miesiąca">
     <div className="budget-section-heading"><div><p className="page-eyebrow">Cały miesiąc w jednym miejscu</p><h2>Wpływy, płatności i odłożenia</h2><p>Raty są pobierane z kredytów. Odłożenia wydzielają pieniądze na przyszłość; finansowane nimi rachunki nie obciążają wolnej kwoty drugi raz.</p></div><strong>{money(data.totals.to_plan)}<small className="bp-help"> do zaplanowania</small></strong></div>
-    <div className="bp-table-wrap"><table><thead><tr><th>Część planu</th><th>Plan</th><th>Wykonano plan</th><th>Zostało</th><th>Szczegóły</th></tr></thead><tbody>{display.map((row,index)=>{
+    <div className="bp-table-wrap"><table><thead><tr><th>Część planu</th><th>Plan</th><th>Wykonano</th><th>Zostało</th><th>Szczegóły</th></tr></thead><tbody>{display.map((row,index)=>{
       const kind='kind' in row?String(row.kind):['INCOME','DAILY','BILLS','LOANS','RESERVES'][index];
       const executed='plan_done' in row?Number(row.plan_done):Math.min(row.done,row.planned);
       const extra='extra' in row?Number(row.extra):Math.max(0,row.done-row.planned);

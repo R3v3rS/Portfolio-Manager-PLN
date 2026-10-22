@@ -52,7 +52,7 @@ it('invalidates the preview when the range or replace option changes',async()=>{
   expect(budgetWorkspaceApi.copyRange).not.toHaveBeenCalled();
 });
 it('labels inherited estimates and preserves a visible monthly zero in forecast details',()=>{
-  const forecast={as_of:'2026-10-13',end_date:'2027-10-13',month_plans:[{month:'2026-11',ordinary_limit:1000,ordinary_remaining:1000,income:3000,bills:100,loans:0,reserves:200,reserve_payments:0,investments:100,scenario:false,categories:[
+  const forecast={as_of:'2026-10-13',end_date:'2027-10-13',events:[...(['DAILY','INCOME','BILL','RESERVE_ADD','GOAL'] as const).map((kind,index)=>({kind,amount:[1000,3000,100,200,100][index],date:'2026-11-15',scheduled_date:'2026-11-15',recorded:false}))],month_plans:[{month:'2026-11',ordinary_limit:1000,ordinary_remaining:1000,income:3000,bills:100,loans:0,reserves:200,reserve_payments:0,investments:100,scenario:false,categories:[
     {category_id:1,name:'Jedzenie',amount:1000,source:'ESTIMATE',source_month:'2026-10'},
     {category_id:2,name:'Paliwo',amount:0,source:'MONTH',source_month:'2026-11'},
   ]}]} as unknown as CashForecast;

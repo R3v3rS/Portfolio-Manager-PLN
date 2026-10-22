@@ -29,7 +29,7 @@ describe('Cash forecast',()=>{
   it('loads a purchase variant from its link and can restore the saved plan without writing',async()=>{
     render(<MemoryRouter initialEntries={['/budget/forecast?purchase=5&purchase_amount=900&purchase_date=2027-01-15']}><CashForecast/></MemoryRouter>);
     await waitFor(()=>expect(forecastApi.get).toHaveBeenCalledWith({purchase_id:5,purchase_amount:900,purchase_date:'2027-01-15'}));
-    await screen.findByRole('heading',{name:'Planowane dochody'});
+    await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});
     fireEvent.click(screen.getByRole('button',{name:'Wróć do zapisanego planu'}));
     await waitFor(()=>expect(forecastApi.get).toHaveBeenLastCalledWith({}));
     expect(forecastApi.updateIncome).not.toHaveBeenCalled();
@@ -40,18 +40,18 @@ describe('Cash forecast',()=>{
       points:[{date:'2026-10-03',balance:500,reserved:200,available:300},{date:'2027-01-01',balance:800,reserved:200,available:600}],
       summaries:data.summaries.map(s=>({days:s.days,date:s.date,balance:800,reserved:200,available:600,minimum:300,first_shortfall:null}))}];
     vi.mocked(forecastApi.get).mockResolvedValue(data);
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});
     fireEvent.change(screen.getByLabelText('Konto na wykresie'),{target:{value:'1'}});
     expect(screen.getByRole('img',{name:'Wykres prognozy'})).toHaveTextContent('2027-01-01');
-    expect(screen.getByRole('heading',{name:'Konta za 90 dni'})).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Salda poszczególnych kont i potrzebne przeniesienia'));expect(screen.getByRole('heading',{name:'Konta za 90 dni'})).toBeInTheDocument();
     expect(forecastApi.get).toHaveBeenCalledTimes(1);
   });
   it('distinguishes cash from earmarks and switches the chart horizon without writing data',async()=>{
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});
     const cards=screen.getByRole('region',{name:'Saldo na 30, 90 i 365 dni'});
     expect(cards).toHaveTextContent(/11\s?500,00/);expect(cards).toHaveTextContent(/9\s?000,00/);
     expect(screen.getByRole('img',{name:'Wykres prognozy'})).toHaveTextContent('2027-01-01');
-    fireEvent.click(within(cards).getByRole('button',{name:/Za 365 dni/}));
+    fireEvent.click(within(cards).getByRole('button',{name:/Saldo za 365 dni/}));
     expect(screen.getByRole('img',{name:'Wykres prognozy'})).toHaveTextContent('2027-10-03');
     expect(forecastApi.get).toHaveBeenCalledTimes(1);expect(forecastApi.createIncome).not.toHaveBeenCalled();expect(forecastApi.receiveIncome).not.toHaveBeenCalled();
   });
@@ -66,29 +66,29 @@ describe('Cash forecast',()=>{
         minimum:s.days===365?-700:300,first_shortfall:s.days===365?'2027-10-03':null}))}];
     data.events.push({key:'insurance',date:'2027-03-01',scheduled_date:'2027-03-01',kind:'BILL',title:'OC w marcu',amount:800,cash_delta:-800,reserved_delta:0,href:'/budget',detail:'Rachunek',recorded:false});
     vi.mocked(forecastApi.get).mockResolvedValue(data);
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});
     fireEvent.change(screen.getByLabelText('Konto na wykresie'),{target:{value:'1'}});
-    const calendar=within(screen.getByRole('heading',{name:'Kalendarz przepływów'}).closest('section')!);
-    expect(calendar.getByRole('table')).not.toHaveTextContent('OC w marcu');
+    fireEvent.click(screen.getByRole('button',{name:'Kalendarz'}));const calendar=()=>within(screen.getByRole('heading',{name:'Kalendarz przepływów'}).closest('section')!);
+    expect(calendar().getByRole('table')).not.toHaveTextContent('OC w marcu');
     const range=screen.getByLabelText('Zakres prognozy');
     expect(range).toHaveValue('90');
     fireEvent.change(range,{target:{value:'365'}});
-    expect(screen.getByText('Najbliższe 12 miesięcy')).toBeInTheDocument();
-    expect(screen.getByRole('button',{name:/Za 365 dni/})).toHaveAttribute('aria-pressed','true');
+    fireEvent.click(screen.getByRole('button',{name:'Wykres i saldo'}));expect(screen.getByText('Najbliższe 12 miesięcy')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:/Saldo za 365 dni/})).toHaveAttribute('aria-pressed','true');
     expect(screen.getByRole('img',{name:'Wykres prognozy'})).toHaveTextContent('2027-10-03');
     expect(document.querySelector('.cf-low')).toHaveTextContent('-700,00');
-    expect(screen.getByRole('heading',{name:'Konta za 365 dni'})).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Salda poszczególnych kont i potrzebne przeniesienia'));expect(screen.getByRole('heading',{name:'Konta za 365 dni'})).toBeInTheDocument();
     expect(screen.getByRole('heading',{name:'Przepływy w 365 dni'})).toBeInTheDocument();
-    expect(calendar.getByRole('table')).toHaveTextContent('OC w marcu');
-    fireEvent.click(screen.getByRole('button',{name:/Za 30 dni/}));
+    fireEvent.click(screen.getByRole('button',{name:'Kalendarz'}));expect(calendar().getByRole('table')).toHaveTextContent('OC w marcu');
+    fireEvent.click(screen.getByRole('button',{name:/Saldo za 30 dni/}));
     expect(range).toHaveValue('30');
-    expect(calendar.getByRole('table')).not.toHaveTextContent('OC w marcu');
+    expect(calendar().getByRole('table')).not.toHaveTextContent('OC w marcu');
     expect(forecastApi.get).toHaveBeenCalledTimes(1);
     expect(forecastApi.createIncome).not.toHaveBeenCalled();
   });
 
   it('applies an explicit scenario and excludes a source only from that forecast',async()=>{
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});fireEvent.click(screen.getByRole('button',{name:'Założenia'}));
     fireEvent.change(screen.getByLabelText('Planowane dochody (%)'),{target:{value:'75'}});
     fireEvent.change(screen.getByLabelText('Codzienne wydatki / miesiąc (PLN)'),{target:{value:'1800'}});
     fireEvent.change(screen.getByLabelText('Minimalny bufor (PLN)'),{target:{value:'500'}});
@@ -102,7 +102,7 @@ describe('Cash forecast',()=>{
   });
 
   it('sets the cautious scenario without changing fixed payments',async()=>{
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});fireEvent.click(screen.getByRole('button',{name:'Założenia'}));
     fireEvent.click(screen.getByRole('button',{name:'Ostrożny: dochody −20%, wydatki +20%'}));
     await waitFor(()=>expect(forecastApi.get).toHaveBeenLastCalledWith({income_percent:80,variable_monthly:1800}));
     expect(forecastApi.setIncomeActive).not.toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe('Cash forecast',()=>{
 
   it('keeps the calendar focused on scheduled payments and lets users include daily spending',async()=>{
     const result=forecast();result.events.push({key:'daily:2026-10-04',date:'2026-10-04',scheduled_date:'2026-10-04',kind:'DAILY',title:'Codzienny limit',amount:50,cash_delta:-50,reserved_delta:0,href:'/budget',detail:'Limit rozłożony na dni',recorded:false});
-    vi.mocked(forecastApi.get).mockResolvedValue(result);show();await screen.findByRole('heading',{name:'Planowane dochody'});
+    vi.mocked(forecastApi.get).mockResolvedValue(result);show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});fireEvent.click(screen.getByRole('button',{name:'Kalendarz'}));
     expect(screen.getByRole('table')).toHaveTextContent('Wynagrodzenie');expect(screen.getByRole('table')).not.toHaveTextContent('Codzienny limit');
     fireEvent.change(screen.getByLabelText('Rodzaj przepływu'),{target:{value:''}});
     expect(screen.getByRole('table')).toHaveTextContent('Codzienny limit');
@@ -128,7 +128,7 @@ describe('Cash forecast',()=>{
 
   it('keeps the income draft and request identity when retrying an uncertain save',async()=>{
     vi.mocked(forecastApi.createIncome).mockRejectedValueOnce(new Error('Brak potwierdzenia'));
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});fireEvent.click(screen.getByRole('button',{name:'Dodaj dochód'}));
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});fireEvent.click(screen.getByRole('button',{name:'Dochody'}));fireEvent.click(screen.getByRole('button',{name:'Dodaj dochód'}));
     fireEvent.change(screen.getByLabelText('Nazwa dochodu'),{target:{value:'Premia'}});
     fireEvent.change(screen.getByLabelText('Oczekiwana kwota netto (PLN)'),{target:{value:'1200'}});
     fireEvent.change(screen.getByLabelText('Pierwszy termin wpływu'),{target:{value:'2030-01-10'}});
@@ -144,7 +144,7 @@ describe('Cash forecast',()=>{
 
   it('links a recorded income without creating another cash entry and closes before refresh failure',async()=>{
     vi.mocked(forecastApi.get).mockResolvedValueOnce(forecast()).mockRejectedValue(new Error('Błąd odczytu'));
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});fireEvent.click(screen.getByRole('button',{name:'Otrzymano'}));
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});fireEvent.click(screen.getByRole('button',{name:'Dochody'}));fireEvent.click(screen.getByRole('button',{name:'Otrzymano'}));
     const choice=screen.getByLabelText('Sposób rozliczenia');expect(choice).not.toHaveTextContent('Inne konto');
     fireEvent.change(choice,{target:{value:'19'}});fireEvent.click(screen.getByRole('button',{name:'Połącz wpływ'}));
     await screen.findByRole('alert');
@@ -155,7 +155,7 @@ describe('Cash forecast',()=>{
   });
 
   it('records an actual amount using the plan version and preserves the occurrence date',async()=>{
-    show();await screen.findByRole('heading',{name:'Planowane dochody'});fireEvent.click(screen.getByRole('button',{name:'Otrzymano'}));
+    show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});fireEvent.click(screen.getByRole('button',{name:'Dochody'}));fireEvent.click(screen.getByRole('button',{name:'Otrzymano'}));
     fireEvent.change(screen.getByLabelText('Otrzymana kwota (PLN)'),{target:{value:'5800'}});
     fireEvent.change(screen.getByLabelText('Data otrzymania'),{target:{value:'2026-10-02'}});
     fireEvent.click(screen.getByRole('button',{name:'Zapisz otrzymanie'}));
@@ -164,11 +164,11 @@ describe('Cash forecast',()=>{
 
   it('shows data gaps, pauses income with a version guard, and filters the calendar',async()=>{
     const result=forecast();result.warnings=['Brak pełnego harmonogramu kredytu.'];result.incomes[0].overdue=true;
-    vi.mocked(forecastApi.get).mockResolvedValue(result);show();await screen.findByRole('heading',{name:'Planowane dochody'});
-    expect(screen.getByText('Brak pełnego harmonogramu kredytu.')).toBeInTheDocument();expect(screen.getByText(/Miniony wpływ nie zwiększa prognozowanego salda/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Rodzaj przepływu'),{target:{value:'RESERVE_ADD'}});
+    vi.mocked(forecastApi.get).mockResolvedValue(result);show();await screen.findByRole('heading',{name:'Jak zmieni się saldo?'});fireEvent.click(screen.getByRole('button',{name:'Dochody'}));
+    fireEvent.click(screen.getByRole('button',{name:'Założenia'}));expect(screen.getByText('Brak pełnego harmonogramu kredytu.')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'Dochody'}));expect(screen.getByText(/Miniony wpływ nie zwiększa prognozowanego salda/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Kalendarz'}));fireEvent.change(screen.getByLabelText('Rodzaj przepływu'),{target:{value:'RESERVE_ADD'}});
     const table=screen.getByRole('table');expect(table).toHaveTextContent('Ubezpieczenie auta');expect(table).not.toHaveTextContent('Wynagrodzenie');
-    fireEvent.click(screen.getByRole('button',{name:'Wstrzymaj dochód: Wynagrodzenie'}));
+    fireEvent.click(screen.getByRole('button',{name:'Dochody'}));fireEvent.click(screen.getByRole('button',{name:'Wstrzymaj dochód: Wynagrodzenie'}));
     await waitFor(()=>expect(forecastApi.setIncomeActive).toHaveBeenCalledWith(7,false,2));
   });
 

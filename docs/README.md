@@ -1,6 +1,6 @@
 # Dokumentacja Portfolio Manager (PLN)
 
-Stan opisanej funkcjonalności: 14 października 2026. Opisy dotyczą aktualnego interfejsu i kodu w tej wersji. Kwoty i nazwy kont w przykładach są fikcyjne.
+Stan opisanej funkcjonalności: 22 października 2026. Opisy dotyczą aktualnego interfejsu i kodu w tej wersji. Kwoty i nazwy kont w przykładach są fikcyjne.
 
 ## Od czego zacząć
 
@@ -11,6 +11,7 @@ Stan opisanej funkcjonalności: 14 października 2026. Opisy dotyczą aktualnego
 | Chcę uruchomić, zaktualizować lub odzyskać aplikację | [Uruchamianie i kopie danych](URUCHAMIANIE_I_KOPIE_PL.md) |
 | Chcę zrozumieć obliczenia, model danych i API | [Architektura i zasady obliczeń](ARCHITEKTURA_I_MODEL_DANYCH_PL.md) |
 | Chcę zobaczyć zmiany tej wersji | [Najnowsza wersja](LATEST_VERSION.md) |
+| Chcę analizować inwestycje, planować udziały i sprawdzać materiały | [Asystent, plan udziałów, ETF i materiały](AI_PORTFOLIO_ANALYSIS_MODULE_PL.md) |
 
 Najkrótsza kolejność wdrożenia: uruchom aplikację, wprowadź salda kont, dodaj dochody i zobowiązania, ustaw limity oraz rezerwy, następnie sprawdź prognozę. Nie zaczynaj od kopiowania wszystkich dawnych płatności, jeśli podałeś już aktualne salda — najpierw wybierz właściwy sposób wpływu importu na saldo.
 

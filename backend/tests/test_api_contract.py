@@ -24,7 +24,8 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
         self.addCleanup(warmup_patcher.stop)
         warmup_patcher.start()
 
-        self.app = create_app()
+        with patch('app.init_db'), patch('backup_service.automatic'):
+            self.app = create_app()
         self.app.config.update(TESTING=True, DATABASE=self.db_path)
         with self.app.app_context():
             init_db(self.app)
@@ -427,6 +428,9 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/budget/workspace/plans/defaults', 'PUT'): lambda: self.client.put('/api/budget/workspace/plans/defaults',json={}),
             ('/api/budget/workspace/plans/copy-preview', 'POST'): lambda: self.client.post('/api/budget/workspace/plans/copy-preview',json={}),
             ('/api/budget/workspace/plans/copy-range', 'POST'): lambda: self.client.post('/api/budget/workspace/plans/copy-range',json={}),
+            ('/api/budget/workspace/plans/year', 'GET'): lambda: self.client.get('/api/budget/workspace/plans/year?start=2026-10'),
+            ('/api/budget/workspace/plans/transfer-preview', 'POST'): lambda: self.client.post('/api/budget/workspace/plans/transfer-preview', json={}),
+            ('/api/budget/workspace/plans/transfer', 'POST'): lambda: self.client.post('/api/budget/workspace/plans/transfer', json={}),
             ('/api/budget/workspace/plans/copy', 'POST'): lambda: self.client.post(
                 '/api/budget/workspace/plans/copy', json={'source': '2026-03', 'target': '2026-04'},
             ),
@@ -467,6 +471,10 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
             ('/api/dashboard/actions', 'GET'): lambda: self.client.get('/api/dashboard/actions'),
             ('/api/dashboard/monthly-report', 'GET'): lambda: self.client.get('/api/dashboard/monthly-report?month=2026-01'),
             ('/api/budget/reserves/', 'GET'): lambda: self.client.get('/api/budget/reserves/'),
+            ('/api/budget/reserves/funding-plan', 'GET'): lambda: self.client.get('/api/budget/reserves/funding-plan'),
+            ('/api/budget/reserves/funding-preview', 'POST'): lambda: self.client.post('/api/budget/reserves/funding-preview',json={}),
+            ('/api/budget/reserves/funding', 'POST'): lambda: self.client.post('/api/budget/reserves/funding',json={}),
+            ('/api/budget/reserves/<int:reserve_id>/preview', 'POST'): lambda: self.client.post('/api/budget/reserves/999999/preview',json={}),
             ('/api/budget/accounts/', 'GET'): lambda: self.client.get('/api/budget/accounts/'),
             ('/api/budget/forecast/', 'GET'): lambda: self.client.get('/api/budget/forecast/'),
             ('/api/budget/imports/', 'GET'): lambda: self.client.get('/api/budget/imports/'),
@@ -531,6 +539,24 @@ class ApiContractEndpointsTestCase(unittest.TestCase):
                 '/api/ai/portfolio-analysis',
                 json={'portfolio_id': 1, 'question': 'test'},
             ),
+            ('/api/ai/settings', 'GET'): lambda: self.client.get('/api/ai/settings'),
+            ('/api/ai/settings', 'PUT'): lambda: self.client.put('/api/ai/settings',json={}),
+            ('/api/ai/context/<int:pid>', 'GET'): lambda: self.client.get(f'/api/ai/context/{self.portfolio_id}'),
+            ('/api/ai/sessions/<int:pid>', 'GET'): lambda: self.client.get(f'/api/ai/sessions/{self.portfolio_id}'),
+            ('/api/ai/session/<sid>', 'GET'): lambda: self.client.get('/api/ai/session/missing'),
+            ('/api/ai/messages/<mid>/journal', 'POST'): lambda: self.client.post('/api/ai/messages/missing/journal',json={}),
+            ('/api/investment-analysis/plans/<int:pid>', 'GET'): lambda: self.client.get(f'/api/investment-analysis/plans/{self.portfolio_id}'),
+            ('/api/investment-analysis/plans/<int:pid>', 'PUT'): lambda: self.client.put(f'/api/investment-analysis/plans/{self.portfolio_id}',json={}),
+            ('/api/investment-analysis/plans/<int:pid>/simulate', 'POST'): lambda: self.client.post(f'/api/investment-analysis/plans/{self.portfolio_id}/simulate',json={}),
+            ('/api/investment-analysis/exposure/<int:pid>', 'GET'): lambda: self.client.get(f'/api/investment-analysis/exposure/{self.portfolio_id}'),
+            ('/api/investment-analysis/funds/<ticker>', 'PUT'): lambda: self.client.put('/api/investment-analysis/funds/ABC',json={}),
+            ('/api/investment-analysis/funds/<ticker>/refresh', 'POST'): lambda: self.client.post('/api/investment-analysis/funds/invalid!symbol/refresh',json={}),
+            ('/api/investment-analysis/materials/<int:pid>', 'GET'): lambda: self.client.get('/api/investment-analysis/materials/999999'),
+            ('/api/investment-analysis/materials/<int:pid>/analyze', 'POST'): lambda: self.client.post('/api/investment-analysis/materials/999999/analyze',json={}),
+            ('/api/investment-analysis/materials/<int:pid>/text', 'GET'): lambda: self.client.get('/api/investment-analysis/materials/999999/text'),
+            ('/api/investment-analysis/materials/<int:pid>/text', 'POST'): lambda: self.client.post('/api/investment-analysis/materials/999999/text',json={}),
+            ('/api/investment-analysis/material-reviews/<rid>/<int:index>/confirm', 'POST'): lambda: self.client.post('/api/investment-analysis/material-reviews/missing/0/confirm',json={}),
+            ('/api/investment-analysis/related/<int:pid>', 'GET'): lambda: self.client.get(f'/api/investment-analysis/related/{self.portfolio_id}'),
             ('/api/loans/', 'GET'): lambda: self.client.get('/api/loans/'),
             ('/api/loans/', 'POST'): lambda: self.client.post(
                 '/api/loans/',

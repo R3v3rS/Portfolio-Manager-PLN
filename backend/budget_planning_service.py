@@ -24,7 +24,7 @@ def settings(db):
         income=db.execute("SELECT * FROM budget_expected_incomes WHERE active=1 AND frequency='MONTHLY' ORDER BY amount_cents DESC,id LIMIT 1").fetchone()
     account=raw['spending_account_id'] or (income['account_id'] if income else None)
     if not account:
-        row=db.execute("SELECT id FROM budget_accounts WHERE UPPER(COALESCE(currency,'PLN'))='PLN' ORDER BY id LIMIT 1").fetchone()
+        row=db.execute("SELECT id FROM budget_accounts WHERE UPPER(COALESCE(currency,'PLN'))='PLN' AND account_type='BANK' ORDER BY id LIMIT 1").fetchone()
         account=row['id'] if row else None
     return dict(**raw,resolved_pay_day=raw['pay_day'] or (date.fromisoformat(income['start_date']).day if income else 10),
         resolved_spending_account_id=account,resolved_loan_account_id=raw['loan_account_id'] or account,
@@ -76,6 +76,7 @@ def reserve_plans(db,month):
             result.append(snapshot)
             continue
         if row['is_archived']: continue
+        if row['monthly_amount_cents'] is not None and month<(row['monthly_start_month'] or row['start_date'][:7]): continue
         monthly=row['monthly_amount_cents'] is not None and month>=(row['monthly_start_month'] or row['start_date'][:7])
         if row['monthly_amount_cents'] is not None and month < row['start_date'][:7]: continue
         stored=db.execute('SELECT * FROM budget_reserve_month_plans WHERE reserve_id=? AND month=?',(row['id'],month)).fetchone()
@@ -126,6 +127,8 @@ def save_reserve_plan(reserve_id,data):
         db.execute('BEGIN IMMEDIATE')
         row=db.execute('SELECT * FROM budget_reserves WHERE id=? AND is_archived=0 AND completed_at IS NULL',(reserve_id,)).fetchone()
         if not row: raise ValidationError('Wybierz aktywną rezerwę.')
+        if row['monthly_amount_cents'] is not None and month<(row['monthly_start_month'] or row['start_date'][:7]):
+            raise ValidationError('Ten miesiąc poprzedza początek odkładania. Zmień początek w edycji rezerwy albo wybierz późniejszy miesiąc.')
         if row['open_ended']: raise ValidationError('Ta rezerwa ma stały plan miesięczny. Zmień kwotę w jej ustawieniach.')
         current=db.execute('SELECT * FROM budget_reserve_month_plans WHERE reserve_id=? AND month=?',(reserve_id,month)).fetchone()
         check_version(current,data.get('version'),'Plan odłożenia')
@@ -260,7 +263,9 @@ def save_purchase(data,purchase_id=None):
     if not isinstance(notes,str) or len(notes)>2000: raise ValidationError('Opis może mieć najwyżej 2000 znaków.')
     db,now=get_db(),_now();token=_request_id(data) if purchase_id is None else None;fingerprint=_fingerprint(data)
     try:
-        db.execute('BEGIN IMMEDIATE');_account(db,account_id)
+        db.execute('BEGIN IMMEDIATE')
+        from budget_account_types import require_cash
+        require_cash(_account(db,account_id))
         if category_id and not db.execute('SELECT 1 FROM budget_categories_v2 WHERE id=?',(category_id,)).fetchone(): raise NotFoundError('Kategoria nie istnieje.')
         current=db.execute('SELECT * FROM budget_purchase_plans WHERE id=?',(purchase_id,)).fetchone() if purchase_id else None
         if purchase_id and not current: raise NotFoundError('Plan zakupu nie istnieje.')

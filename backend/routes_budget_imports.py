@@ -54,7 +54,7 @@ def workspace():
         if row:
             selected = bank.entry_view(db, row)
     return success_response(dict(
-        accounts=[dict(r) for r in db.execute('''SELECT a.id,a.name,a.balance,(SELECT MAX(date) FROM budget_account_reconciliations r WHERE r.account_id=a.id AND r.record_type='RECONCILIATION') verified_on
+        accounts=[dict(r) for r in db.execute('''SELECT a.id,a.name,a.balance,a.account_type,(SELECT MAX(date) FROM budget_account_reconciliations r WHERE r.account_id=a.id AND r.record_type='RECONCILIATION') verified_on
             FROM budget_accounts a WHERE UPPER(COALESCE(a.currency,'PLN'))='PLN' ORDER BY a.id''')],
         categories=category_options(db, include_unassigned=False),
         rules=categories.rules(db), transfer_rules=funding.rules(db),

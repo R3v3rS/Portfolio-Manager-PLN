@@ -363,3 +363,30 @@ Poniżej lista rekomendowanych braków testowych (priorytetyzowana), żeby domkn
 - Dane testowe są deterministyczne (`seed=42`), generowane w SQLite `:memory:`.
 - Wspiera scenariusze `small|medium|large|stress`, zapis JSON (`--save`) i porównanie wyników (`--compare`).
 - Raport zawiera `min/avg/max`, throughput (`tx/s`) i średni RAM przed/po pomiarze.
+
+## Czytelność i obsługa budżetu — październik 2026
+
+- `backend/tests/test_budget_usability.py`: zachowanie sumy planu, sald i historii przy przesunięciu, idempotencja, konflikt nieaktualnego podglądu, ochrona kwot wydanych i zobowiązań, wspólne limity podkategorii, rollback zmian dzieci i wspólnych limitów oraz odczyt 12 miesięcy bez zapisów.
+- `frontend/src/components/budget/BudgetUsability.test.tsx`: podgląd przed potwierdzeniem, zachowanie identyfikatora przy ponowieniu, unieważnienie starego podglądu, odczyt rocznego planu, zapisane filtry, kolejka dokumentów i szczegóły transakcji.
+- `frontend/src/components/budget/forecastPlanPresentation.test.ts`: granica części ostatniego miesiąca, przesunięta data rachunku i wykluczenie już zapisanych operacji.
+- `frontend/src/components/budget/forecastPresentation.test.ts`: osobne okresy niedoboru, dodatnie saldo końcowe i skrócenie zakresu.
+- `frontend/src/pages/BudgetImports.test.tsx`: obowiązkowa odpowiedź o saldzie przy nowym CSV i paragonie oraz zachowanie powiązania istniejącego zakupu.
+
+### Karty kredytowe (17 października 2026)
+
+`backend/tests/test_budget_credit_cards.py`: miesiąc zakupu i późniejsza spłata bez drugiego kosztu, idempotencja, częściowa spłata, brak wolnej gotówki, początkowy dług i korekty, zwrot, brak rezerw na karcie, prognoza bez fałszywego niedoboru, aktywa/zobowiązania netto oraz powiązanie importowanej spłaty. `frontend/src/pages/BudgetAccounts.test.tsx`: tworzenie z długiem, podgląd spłaty, brak środków i saldo karty ze znakiem.
+
+### Początek odkładania (19 października 2026)
+
+`backend/tests/test_budget_reserve_start.py`: start przyszłej puli, starszy wydatek z tej samej kategorii, aktywacja w listopadzie, korekty miesięczne, prognoza, rezerwa bez terminu, zachowanie historii po zmianie trybu, walidacja i ochrona początku po odłożeniach. `frontend/src/pages/BudgetReserves.test.tsx`: wybór początku, karta z zerowym planem przed startem, link do pierwszego miesiąca i chroniony formularz puli z historią.
+
+## Rozliczenia i zbiorcze odkładanie rezerw — 19 października 2026
+
+- `backend/tests/test_budget_reserve_operations.py`: podgląd z pełnym rollbackiem, wynik wody 382/374,20/7,80, odczyt starszej historii, powiązanie importu bez drugiego obciążenia, przekazanie podstawy budżetowej, cofnięcie i ochrona docelowej rezerwy, następny cykl jednorazowego celu, nadwyżka roczna, konflikt salda, atomowość i idempotencja zestawu, priorytety i dostępność na każdym koncie, wspólna historia transferu i odłożenia oraz rozliczenie między miesiącami i kontami.
+- `frontend/src/components/budget/ReserveOperations.test.tsx`: podgląd przed zapisem i jego unieważnienie po korekcie, bezpośrednie otwarcie rozliczonej rezerwy, kwota zwolniona i link do wydatku, zestawienie miesiąca, filtrowanie wspólnej historii, wersja rezerwy nadwyżki, edycja i ponowienie zbiorczego zapisu.
+- `BudgetReserves.test.tsx`: istniejące formularze wymagają sprawdzenia podglądu przed zatwierdzeniem odłożenia, zwolnienia i płatności.
+- `BudgetTransactions.test.tsx`: przejście do jednego powiązanego wydatku i powrót do całej historii.
+
+## Analizy inwestycji i AI
+
+`backend/tests/test_investment_analysis.py` sprawdza wspólną wycenę i FX, zakres podportfeli, konta specjalne, niezmienność danych rozmowy, ponowienia i limit kosztów, zapis do dziennika, dopłatę bez sprzedaży, niepełny skład ETF oraz potwierdzanie materiałów i odczyt publicznego artykułu. Dostawca AI jest zastępowany atrapą. `frontend/src/components/ai/InvestmentAnalysis.test.tsx` sprawdza świadomy wybór analizy, zachowanie żądania po błędzie, wymaganie zapisanego planu i potwierdzenia fragmentu. Kontrakt API obejmuje nowe trasy.

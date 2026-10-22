@@ -3,7 +3,7 @@ import type { PlanningWorkspace } from './api_planning';
 
 const client = createApiClient('/budget/workspace');
 
-export type BudgetAccount = { id: number; name: string; balance: number; currency: string };
+export type BudgetAccount = { id: number; name: string; balance: number; currency: string; account_type?:'BANK'|'CREDIT_CARD' };
 export type BudgetCategory = {
   plan_source?:'DEFAULT'|'MONTH'|'MEDIA'|'NONE'; plan_source_month?:string|null; default_plan?:number|null;
   plan_details?: {ordinary_planned:number;ordinary_spent:number;ordinary_remaining:number;payments_planned:number;payments_pending:number;media_remaining:number;ordinary_over:number};
@@ -47,6 +47,7 @@ export type BudgetWorkspace = {
   bills: BudgetBill[]; entries: BudgetEntry[];
   planning?: PlanningWorkspace;
   totals: {
+    cash_balance?:number;credit_card_debt?:number;credit_card_overpayment?:number;
     period_spending?: {
       first: string; through: string | null; spent: number; expense_count: number;
       reserve_contributions: number; reserve_released: number; reserve_settled: number;
@@ -80,6 +81,9 @@ export type BillInput = {
 };
 
 export const budgetWorkspaceApi = {
+  yearPlan:(start:string)=>client.get<BudgetYearPlan>('/plans/year',{params:{start}}),
+  previewTransfer:(input:PlanTransferInput)=>client.post<PlanTransferPreview>('/plans/transfer-preview',input),
+  transferPlan:(input:PlanTransferInput,token:string,request_id:string)=>client.post<PlanTransferPreview>('/plans/transfer',{...input,token,request_id}),
   defaultPlans:(month:string)=>client.get<DefaultPlans>('/plans/defaults',{params:{month}}),
   saveDefaults:(start_month:string,items:{category_id:number;amount:number;revision:string}[])=>client.put<{saved:number}>('/plans/defaults',{start_month,items}),
   resetPlan:(categoryId:number,month:string)=>client.delete('/plans/'+categoryId,{params:{month}}),
@@ -114,6 +118,9 @@ export const budgetWorkspaceApi = {
 };
 
 export interface SettlementPreview {entry_id:number;entry_version:number;reserve_version:number|null;balance_before:number;balance_after:number;account_name:string;delete_expense:boolean;restored_reserve:number;message:string}
+export interface PlanTransferInput {month:string;source_id:number;target_id:number;amount:number}
+export interface PlanTransferPreview extends PlanTransferInput {token:string;source_name:string;target_name:string;source_before:number;source_after:number;target_before:number;target_after:number;total_before:number;total_after:number;related_limits?:{name:string;before:number;after:number}[]}
+export interface BudgetYearPlan {start:string;months:{month:string;income:number;ordinary:number;payments:number;reserves:number;cost:number;remaining:number;spent:number;carryover:number;missing_plans:string[];sources:{id:number;name:string;source:string;amount:number}[]}[]}
 export interface DefaultPlans {month:string;items:{category_id:number;name:string;parent_id:number|null;managed:boolean;amount:number|null;start_month:string|null;revision:string;history:{start_month:string;amount:number}[]}[]}
 export interface PlanCopyInput {source:string;start:string;months:number;replace:boolean;category_ids:number[]}
 export interface PlanCopyPreview {source:string;start:string;months:number;replace:boolean;copied:number;skipped:number;token:string;rows:{month:string;category_id:number;name:string;action:'ADD'|'REPLACE'|'KEEP'|'MANAGED'|'NO_SOURCE';amount:number;previous:number}[]}

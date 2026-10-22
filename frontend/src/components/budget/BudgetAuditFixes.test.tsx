@@ -14,7 +14,8 @@ describe('Budget audit corrections',()=>{
   it('does not describe media payments as money saved',()=>{
     show(<BudgetReservePlans data={data} reload={async()=>{}}/>);
     const header=document.querySelector('.bp-saving-total')!;
-    expect(within(header as HTMLElement).getByText(/Odłożono/)).toHaveTextContent('Odłożono 0,00');
+    expect(within(header as HTMLElement).getByText(/Wykonano plan/)).toHaveTextContent('180,00');
+    expect(within(header as HTMLElement).getByText(/Dodatkowe wpłaty/)).toHaveTextContent('0,00');
     expect(within(header as HTMLElement).getByText(/Obciążenie puli mediów/)).toHaveTextContent('180,00');
   });
   it('switches between cash and budget burden using server series',()=>{

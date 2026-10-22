@@ -1,0 +1,28 @@
+import {useState} from 'react';
+import {Link} from 'react-router-dom';
+import {ArrowDownLeft,ArrowRight,ArrowUpRight,Camera,FileText,MoreHorizontal,Pencil,Trash2,Wallet} from 'lucide-react';
+import {budgetWorkspaceApi,type BudgetEntry} from '../../api_budget_workspace';
+import {ImportDialog} from './imports/ImportUi';
+import {planningMoney as money,planningDay as day} from './planningHelpers';
+
+type Props={entry:BudgetEntry;busy:boolean;edit:(entry:BudgetEntry)=>void;apply:(entry:BudgetEntry)=>void;refund:(entry:BudgetEntry)=>void;remove:(entry:BudgetEntry)=>void};
+export default function BudgetTransactionRow({entry,busy,edit,apply,refund,remove}:Props){
+  const [open,setOpen]=useState(false);
+  const positive=entry.kind==='INCOME'||entry.kind==='REFUND'||entry.kind==='TRANSFER'&&entry.direction==='IN';
+  const editable=entry.kind!=='TRANSFER'&&entry.kind!=='REFUND'&&!(entry.refunded??0)&&!entry.bill_id&&!entry.loan_id&&!entry.reserve_id;
+  const classification=entry.classification_status==='UNASSIGNED'?'Do przypisania':entry.lines.length>1?'Podział na pozycje':'Jedna kategoria';
+  const actions=<div className="br-actions budget-detail-actions">
+    {editable&&<button className="budget-button-secondary" disabled={busy} aria-label={`Edytuj: ${entry.description}`} onClick={()=>{setOpen(false);edit(entry);}}><Pencil size={16}/>Edytuj wpis</button>}
+    {entry.kind==='EXPENSE'&&(entry.refunded??0)<entry.amount&&<button className="budget-button-secondary" disabled={busy} aria-label={`Zapisz zwrot: ${entry.description}`} onClick={()=>{setOpen(false);refund(entry);}}><ArrowDownLeft size={16}/>Zapisz zwrot</button>}
+    {entry.kind==='EXPENSE'&&<Link className="budget-button-secondary" to={`/budget/imports?tab=receipt&entry_id=${entry.id}`}><Camera size={16}/>Dołącz lub rozlicz paragon</Link>}
+    {entry.has_receipt&&<a className="budget-button-secondary" href={budgetWorkspaceApi.receiptUrl(entry.id)}><FileText size={16}/>Otwórz paragon</a>}
+    {!!entry.bill_id&&<Link className="budget-button-secondary" to={`/budget?view=bills&month=${entry.date.slice(0,7)}&bill=${entry.bill_id}`}>Rozliczenie rachunku</Link>}
+    {!!entry.loan_id&&<Link className="budget-button-secondary" to={`/loans/${entry.loan_id}`}>Rozliczenie kredytu</Link>}
+    {!!entry.reserve_id&&<Link className="budget-button-secondary" to={`/budget/reserves?month=${entry.date.slice(0,7)}&reserve=${entry.reserve_id}`}>Historia i rozliczenie rezerwy</Link>}
+    {entry.kind==='TRANSFER'&&<Link className="budget-button-secondary" to={`/portfolio/${entry.portfolio_id}`}>Powiązany portfel</Link>}
+    {entry.kind!=='TRANSFER'&&!entry.loan_id&&<button className="budget-button-quiet" disabled={busy} aria-label={`Usuń: ${entry.description}`} onClick={()=>{setOpen(false);remove(entry);}}><Trash2 size={16}/>Usuń wpis</button>}
+  </div>;
+  return <><article className="budget-entry"><span className={`budget-entry-icon ${positive?'is-income':''}`}>{entry.kind==='TRANSFER'?<ArrowRight size={17}/>:positive?<ArrowDownLeft size={17}/>:<ArrowUpRight size={17}/>}</span><div className="budget-entry-description"><button className="budget-entry-open" aria-label={`Szczegóły transakcji: ${entry.description}`} onClick={()=>setOpen(true)}><strong>{entry.description}</strong></button><span>{day(entry.date)} · {entry.account_name}{entry.lines.length?' · '+[...new Set(entry.lines.map(line=>line.category_name))].join(', '):''}</span>{entry.kind==='EXPENSE'&&<small className="budget-classification">{entry.loan_id?'Rozlicza kredyt':entry.bill_id?'Rozlicza rachunek':entry.reserve_id?'Rozlicza rezerwę':classification}{entry.cash_effect===false?' · Saldo nie pomniejszone':''}</small>}{entry.kind==='REFUND'&&<small>Zwrot zakupu #{entry.refund_of} · zmniejsza wydatki, poza dochodem</small>}{!!entry.refunded&&<small>Zwrócono {money(entry.refunded)}</small>}{entry.kind==='TRANSFER'&&<small>Transfer {entry.direction==='IN'?'z':'do'}: {entry.portfolio_name} · poza przychodami i wydatkami</small>}{entry.kind==='EXPENSE'&&entry.cash_effect===false&&!entry.loan_id&&!entry.bill_id&&<button className="budget-text-button" disabled={busy} aria-label={`Uwzględnij w saldzie: ${entry.description}`} onClick={()=>apply(entry)}><Wallet size={14}/>Uwzględnij w saldzie</button>}</div><strong className={`budget-entry-amount ${positive?'is-income':''}`}>{positive?'+':'−'}{money(entry.amount)}</strong><div className="budget-entry-actions">{editable&&<button disabled={busy} aria-label={`Edytuj: ${entry.description}`} title="Edytuj wpis" onClick={()=>edit(entry)}><Pencil size={16}/></button>}<button aria-label={`Więcej działań: ${entry.description}`} title="Szczegóły i działania" onClick={()=>setOpen(true)}><MoreHorizontal size={18}/></button></div></article>
+    {open&&<ImportDialog title={`Transakcja: ${entry.description}`} busy={busy} onClose={()=>setOpen(false)}><div className="budget-entry-detail"><strong className="budget-detail-amount">{positive?'+':'−'}{money(entry.amount)}</strong><p>{day(entry.date)} · {entry.account_name}</p>{entry.merchant&&<p>Odbiorca: {entry.merchant}</p>}<p>{entry.cash_effect===false?'Saldo konta nie zostało zmienione przez ten wpis.':entry.kind==='EXPENSE'?'Zakup jest już uwzględniony w saldzie konta.':'Operacja jest uwzględniona w ewidencji konta.'}</p>{entry.lines.length>0&&<div className="budget-detail-lines"><h3>Podział zakupu</h3>{entry.lines.map((line,index)=><div key={index}><span>{line.label||line.category_name}{line.label&&line.label!==line.category_name&&<small>{line.category_name}</small>}</span><b>{money(line.amount)}</b></div>)}</div>}{actions}</div></ImportDialog>}
+  </>;
+}

@@ -3,6 +3,7 @@
 
 def initialize(db):
     additions = {
+        'budget_accounts': [('account_type', "TEXT NOT NULL DEFAULT 'BANK' CHECK(account_type IN ('BANK','CREDIT_CARD'))")],
         'budget_categories_v2': [('is_unassigned', 'INTEGER NOT NULL DEFAULT 0'),
             ('parent_id', 'INTEGER REFERENCES budget_categories_v2(id)'),
             ('description', "TEXT NOT NULL DEFAULT ''"),
@@ -39,6 +40,9 @@ def initialize(db):
             db.execute("UPDATE budget_account_reconciliations SET record_type='OPENING',opening_balance_cents=? WHERE id=?",
                        (row['observed_balance_cents'], row['id']))
     db.executescript('''
+        CREATE TABLE IF NOT EXISTS budget_plan_transfer_requests (
+            request_id TEXT PRIMARY KEY, payload TEXT NOT NULL, result TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS budget_reserve_transfer_rules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pattern TEXT NOT NULL,

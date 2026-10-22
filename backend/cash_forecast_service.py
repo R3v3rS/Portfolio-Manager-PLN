@@ -48,7 +48,10 @@ def workspace(options=None):
     end=today+timedelta(days=365)
     tomorrow=today+timedelta(days=1)
     warnings,events,sources=[],[],[]
-    accounts=[dict(r) for r in db.execute("SELECT id,name,balance FROM budget_accounts WHERE UPPER(COALESCE(currency,'PLN'))='PLN' ORDER BY id")]
+    accounts=[dict(r) for r in db.execute("SELECT id,name,balance,account_type FROM budget_accounts WHERE UPPER(COALESCE(currency,'PLN'))='PLN' ORDER BY id")]
+    card_ids={a['id'] for a in accounts if a['account_type']=='CREDIT_CARD'}
+    if card_ids:
+        warnings.append('Suma sald i wolne środki uwzględniają zadłużenie kart tylko raz. Saldo ujemne karty to dług, nie brak środków na rezerwy. Prognoza nie zakłada terminu spłaty karty; po wykonaniu zapisz przelew z konta bankowego. Przelew nie zmieni sumy sald ani wydatków.')
     configuration=planning_settings(db)
     account_cash={a['id']:round(float(a['balance'])*100) for a in accounts}
     account_reserved={a['id']:reserved_cents(db,a['id'],through=today.isoformat()) for a in accounts}
@@ -215,7 +218,7 @@ def workspace(options=None):
             for year,month in months(today.isoformat(),end.isoformat()):
                 period=f'{year:04d}-{month:02d}'
                 target=reserve['monthly_amount_cents'] if reserve['open_ended'] else month_targets.get((reserve['id'],period),reserve['monthly_amount_cents'])
-                contribution=max(0,target-max(0,actual_funding.get((reserve['id'],period),0) if reserve['open_ended'] else allocated_cents(db,reserve,period)))
+                contribution=0 if period<(reserve['monthly_start_month'] or reserve['start_date'][:7]) else max(0,target-max(0,actual_funding.get((reserve['id'],period),0) if reserve['open_ended'] else allocated_cents(db,reserve,period)))
                 scheduled=max(today.isoformat(),_monthly_day(year,month,configuration['resolved_pay_day']).isoformat())
                 if contribution:operations.append((scheduled,0,period,contribution))
                 if linked and due_in_month(linked,period) and (linked['id'],period) not in paid_bills:
@@ -335,11 +338,10 @@ def workspace(options=None):
         fixed=defaultdict(int)
         for bill in bills:
             if due_in_month(bill,month) and (bill['active'] or (bill['id'],month) in paid_bills):
-                if bill['reserve_id']:
-                    reserve=db.execute('SELECT monthly_amount_cents,open_ended FROM budget_reserves WHERE id=?',(bill['reserve_id'],)).fetchone()
-                    if reserve and not reserve['open_ended'] and reserve['monthly_amount_cents'] is not None:continue
                 from budget_bill_funding import occurrence
-                fixed[bill['category_id']]+=occurrence(db,bill,month)['amount_cents']
+                value=occurrence(db,bill,month)
+                if value['media']:continue
+                fixed[bill['category_id']]+=value['amount_cents']
         from budget_media_service import category_targets
         for category_id,amount in category_targets(db,month).items():
             fixed[category_id]+=amount
@@ -429,10 +431,10 @@ def workspace(options=None):
     account_forecasts=[]
     for account in accounts:
         trajectory=account_points[account['id']]
-        account_forecasts.append(dict(id=account['id'],name=account['name'],opening=trajectory[0],points=trajectory,
+        account_forecasts.append(dict(id=account['id'],name=account['name'],account_type=account['account_type'],opening=trajectory[0],points=trajectory,
             summaries=[dict(days=n,date=trajectory[n]['date'],balance=trajectory[n]['balance'],reserved=trajectory[n]['reserved'],available=trajectory[n]['available'],
-                minimum=min(p['available'] for p in trajectory[:n+1]),first_shortfall=next((p['date'] for p in trajectory[:n+1] if p['available']<0),None)) for n in (30,90,365)]))
-    donors={a['id']:max(0,round(min(p['available'] for p in account_points[a['id']][:31])*100)) for a in accounts}
+                minimum=min(p['available'] for p in trajectory[:n+1]),first_shortfall=None if account['id'] in card_ids else next((p['date'] for p in trajectory[:n+1] if p['available']<0),None)) for n in (30,90,365)]))
+    donors={a['id']:0 if a['id'] in card_ids else max(0,round(min(p['available'] for p in account_points[a['id']][:31])*100)) for a in accounts}
     transfer_suggestions=[]
     for target in account_forecasts:
         shortfall=target['summaries'][0]['first_shortfall']

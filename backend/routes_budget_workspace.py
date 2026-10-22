@@ -145,6 +145,10 @@ def validate_entry(data):
     kind = data.get('kind')
     if kind not in ('INCOME', 'EXPENSE'):
         raise ValidationError('Rodzaj wpisu musi być przychodem albo wydatkiem.')
+    if kind == 'INCOME':
+        from budget_account_types import is_credit
+        if is_credit(get_db().execute('SELECT * FROM budget_accounts WHERE id=?',(account_id,)).fetchone()):
+            raise ValidationError('Spłatę karty zapisz jako przelew z konta bankowego. Zwrot zakupu dodaj przy pierwotnym wydatku. Te operacje nie są dochodem.')
     amount_cents = cents(data.get('amount'))
     return {
         'account_id': account_id,
@@ -203,11 +207,14 @@ def entry_row(entry_id):
 @workspace_bp.get('/')
 @workspace_bp.get('')
 def workspace():
-    from budget_planning_service import workspace as planning_workspace
     month = month_value(request.args.get('month') or date.today().strftime('%Y-%m'))
-    db = get_db()
+    return success_response(workspace_data(get_db(), month))
+
+
+def workspace_data(db, month):
+    from budget_planning_service import workspace as planning_workspace
     accounts = [dict(row) for row in db.execute(
-        'SELECT id, name, ROUND(balance, 2) AS balance, currency FROM budget_accounts ORDER BY id'
+        'SELECT id, name, ROUND(balance, 2) AS balance, currency, account_type FROM budget_accounts ORDER BY id'
     ).fetchall()]
     categories = category_workspace(db, month)
     labels = {c['id']: c['selection_label'] for c in categories}
@@ -292,14 +299,32 @@ def workspace():
         FROM budget_account_transfers t JOIN budget_accounts s ON s.id=t.source_account_id
         JOIN budget_accounts a ON a.id=t.target_account_id LEFT JOIN budget_reserves r ON r.id=t.reserve_id
         WHERE substr(t.date,1,7)=? ORDER BY t.date DESC,t.id DESC''',(month,))]
-    return success_response({
+    return {
         'chart':pace(db,month,categories,bills,planning['loans'],planning['reserve_plans'],totals),
         'fixed_costs':fixed_summary(bills,planning['loans']),
         'month': month, 'accounts': accounts, 'categories': categories,
         'bills': bills, 'entries': entries, 'bank_transfers':bank_transfers,
         'totals': totals,
         'planning': planning,
-    })
+    }
+
+
+@workspace_bp.get('/plans/year')
+def year_plan():
+    from budget_usability_service import annual_plan
+    return success_response(annual_plan(get_db(), request.args.get('start') or date.today().strftime('%Y-%m')))
+
+
+@workspace_bp.post('/plans/transfer-preview')
+def plan_transfer_preview():
+    from budget_usability_service import transfer_preview
+    return success_response(transfer_preview(get_db(), body()))
+
+
+@workspace_bp.post('/plans/transfer')
+def plan_transfer():
+    from budget_usability_service import transfer_plan
+    return success_response(transfer_plan(get_db(), body()))
 
 
 @workspace_bp.post('/accounts')

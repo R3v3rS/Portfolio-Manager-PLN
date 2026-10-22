@@ -1,0 +1,41 @@
+import {useEffect,useRef,useState} from 'react';
+import {Link} from 'react-router-dom';
+import {BookOpen,MessageSquare,Plus,RefreshCw} from 'lucide-react';
+import {investmentAnalysisApi as api,type AnalysisSnapshot,type AnalysisSession,type SessionList} from '../../api_investment_analysis';
+import {extractErrorMessageFromUnknown as message} from '../../http/response';
+import {money} from '../portfolio/researchModel';
+import AISettings from './AISettings';
+import './investmentAssistant.css';
+const sections={changed:'Co się zmieniło',why:'Dlaczego',check:'Co sprawdzić',limitations:'Źródła i braki danych'} as const;
+const quick=['Co najbardziej wpłynęło na wynik w tym okresie?','Ile wynika z wpłat, a ile z inwestowania?','Jakie ryzyka wymagają mojej uwagi?','Porównaj stan z poprzednim przeglądem.','Czy portfel odpowiada moim zapisanym założeniom?'];
+export default function InvestmentAssistant({portfolioId}:{portfolioId:number}){
+ const today=new Date().toLocaleDateString('sv-SE');
+ const [from,setFrom]=useState(today.slice(0,7)+'-01'),[to,setTo]=useState(today),[include,setInclude]=useState(true),[question,setQuestion]=useState('');
+ const [snapshot,setSnapshot]=useState<AnalysisSnapshot>(),[conversation,setConversation]=useState<AnalysisSession>(),[saved,setSaved]=useState<SessionList[]>([]);
+ const [busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[revision,setRevision]=useState(0);
+ const request=useRef<{key:string;id:string}>();
+ useEffect(()=>{let live=true;api.sessions(portfolioId).then(d=>{if(live)setSaved(d);}).catch(e=>{if(live)setError(message(e));});return()=>{live=false;};},[portfolioId,revision]);
+ useEffect(()=>{let live=true;setSnapshot(undefined);setError('');setLoading(false);if(!from||!to||from>to||to>today)return;setLoading(true);api.context(portfolioId,include,from,to).then(d=>{if(live)setSnapshot(d);}).catch(e=>{if(live)setError(message(e));}).finally(()=>{if(live)setLoading(false);});return()=>{live=false;};},[portfolioId,include,from,to,today,revision]);
+ const displayed=conversation?.snapshot??snapshot;
+ const ask=async(mode:'ai'|'data',text=question)=>{
+  if(busy||(!snapshot&&!conversation))return;const q=text.trim()||(mode==='data'?'Podsumuj zapisane dane.':'');if(!q)return;
+  const key=JSON.stringify([portfolioId,conversation?.id,conversation?.messages.at(-1)?.id,include,from,to,mode,q]);
+  if(request.current?.key!==key)request.current={key,id:crypto.randomUUID()};
+  setBusy(true);setError('');setNotice('');
+  try{const d=await api.ask({portfolio_id:portfolioId,question:q,mode,request_id:request.current.id,include_subportfolios:include,from,to,session_id:conversation?.id,expected_last_id:conversation?.messages.at(-1)?.id});setConversation(d);setQuestion('');request.current=undefined;setRevision(n=>n+1);}
+  catch(e){setError(message(e));}finally{setBusy(false);}
+ };
+ const open=async(id:string)=>{setBusy(true);setError('');try{setConversation(await api.session(id));}catch(e){setError(message(e));}finally{setBusy(false);}};
+ const journal=async(id:string)=>{setBusy(true);setError('');try{const r=await api.journal(id);setConversation(c=>c?{...c,messages:c.messages.map(m=>m.id===id?{...m,journal_id:r.id}:m)}:c);setNotice('Zapisano analizę w dzienniku inwestora.');}catch(e){setError(message(e));}finally{setBusy(false);}};
+ return <div className="ia-workspace"><section className="ia-panel"><div className="ia-top"><div><p className="ia-eyebrow">Twój warsztat analityczny</p><h2>Asystent inwestora</h2><p className="ia-help">Wyniki z aplikacji, zapisane założenia i źródła w jednej rozmowie.</p></div><button disabled={busy} onClick={()=>{setConversation(undefined);setError('');request.current=undefined;setRevision(n=>n+1);}}><Plus size={16}/>Nowy przegląd</button></div>
+ <div className="ia-toolbar"><label>Zapisane przeglądy<select aria-label="Zapisane przeglądy" disabled={busy} value={conversation?.id??''} onChange={e=>{if(e.target.value)void open(e.target.value);else setConversation(undefined);}}><option value="">Nowa analiza</option>{saved.map(s=><option value={s.id} key={s.id}>{new Date(s.created_at).toLocaleString('pl-PL')} · {s.title}</option>)}</select></label></div>
+ {!conversation&&<div className="ia-toolbar"><label>Od<input type="date" value={from} max={to} disabled={busy} onChange={e=>setFrom(e.target.value)}/></label><label>Do<input type="date" value={to} min={from} max={today} disabled={busy} onChange={e=>setTo(e.target.value)}/></label><label className="ia-checkbox"><input type="checkbox" checked={include} disabled={busy} onChange={e=>setInclude(e.target.checked)}/>Uwzględnij podportfele</label></div>}
+ {loading&&!conversation&&<p role="status">Przygotowuję dane…</p>}
+ {displayed&&<><p className="ia-help">Stan zapisany: {new Date(displayed.created_at).toLocaleString('pl-PL')} · wyniki {displayed.start} – {displayed.end} · {displayed.include_subportfolios?'z podportfelami':'tylko wybrana część'}. {conversation&&'Dopytania korzystają z tego samego stanu. Nowy przegląd pobierze aktualne dane.'}</p><div className="ia-metrics"><div><small>Bieżąca wartość aktywów</small><strong>{money(displayed.value.asset_value??displayed.value.portfolio_value)}</strong></div><div><small>Wynik wybranego okresu</small><strong>{money(displayed.results.profit)}</strong></div><div><small>Wpłaty netto w okresie</small><strong>{money(displayed.results.net_deposits)}</strong></div></div>
+ {!!displayed.warnings.length&&<details className="ia-warning"><summary>Jakość danych · {displayed.warnings.length} uwag</summary>{displayed.warnings.map((w,i)=><p key={i}>{w}</p>)}</details>}
+ <details><summary>Dane i źródła przekazywane do analizy</summary>{displayed.sources.map(s=><details key={s.id}><summary>{s.label}</summary><Link to={s.href}>Otwórz dane w aplikacji</Link><pre>{JSON.stringify(s.data,null,2)}</pre></details>)}</details></>}
+ </section>{error&&<div className="ia-error" role="alert">{error}<button disabled={busy} onClick={()=>{request.current=undefined;setError('');}}>Przygotuj nowe żądanie</button></div>}{notice&&<p role="status" className="ia-note">{notice}</p>}
+ {conversation&&<section className="ia-panel" aria-label="Rozmowa z asystentem">{conversation.messages.map(m=><article key={m.id} className="ia-message"><p className="ia-question">{m.question}</p><h3>{m.answer.title}</h3><p className="ia-help">{m.answer.mode==='data'?'Podsumowanie obliczone w aplikacji':'Analiza AI'} · {new Date(m.created_at).toLocaleString('pl-PL')}</p><div className="ia-grid">{Object.entries(sections).map(([key,label])=><div className="ia-answer" key={key}><h3>{label}</h3>{m.answer[key as keyof typeof sections].map((item,i)=><div key={i}><p>{item.text}</p><div className="ia-sources">{item.source_ids.map(id=>{const source=conversation.snapshot.sources.find(s=>s.id===id);return source?<Link key={id} to={source.href}>{source.label}</Link>:null;})}</div></div>)}</div>)}</div><div className="ia-toolbar">{m.journal_id?<Link to={`/journal?portfolio=${portfolioId}`}>Zapisano w dzienniku</Link>:<button disabled={busy} onClick={()=>void journal(m.id)}><BookOpen size={15}/>Zapisz w dzienniku</button>}</div></article>)}</section>}
+ <section className="ia-panel"><h3>{conversation?'Dopytaj o tę analizę':'Wybierz temat przeglądu'}</h3><div className="ia-toolbar">{quick.map(q=><button disabled={busy} key={q} onClick={()=>setQuestion(q)}>{q}</button>)}</div><form onSubmit={e=>{e.preventDefault();void ask('ai');}} className="ia-workspace"><label>Twoje pytanie<textarea value={question} maxLength={4000} disabled={busy} onChange={e=>setQuestion(e.target.value)} placeholder="Np. które spółki najbardziej wpłynęły na wynik?"/></label><p className="ia-help">„Analizuj z AI” przesyła wskazane dane i pytanie do Google Gemini. Podsumowanie danych powstaje lokalnie.</p><div className="ia-toolbar"><button className="ia-primary" disabled={busy||!displayed||!question.trim()}><MessageSquare size={16}/>{busy?'Przygotowuję odpowiedź…':'Analizuj z AI'}</button><button type="button" disabled={busy||!displayed} onClick={()=>void ask('data','Podsumuj zapisane dane.')}><RefreshCw size={15}/>Zapisz podsumowanie danych</button></div></form></section><AISettings/>
+ </div>;
+}

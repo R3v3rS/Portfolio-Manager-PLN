@@ -194,10 +194,10 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ portfolioId, su
           detail={varDetail}
         />
         <MetricCard
-          label="Dywersyfikacja"
+          label="Rozproszenie instrumentów"
           value={diversificationScore === null || diversificationScore === undefined ? '—' : `${diversificationScore.toLocaleString('pl-PL', { maximumFractionDigits: 0 })}/100`}
           tone={getDiversificationTone(diversificationScore)}
-          detail={data?.diversification?.recommendation ?? 'Ocena koncentracji aktywów i sektorów.'}
+          detail={data?.diversification?.recommendation ?? 'Koncentracja instrumentów. Nie uwzględnia spółek wewnątrz ETF.'}
         />
       </div>
       <p className="text-xs leading-relaxed text-slate-400">Analiza części akcyjnej w PLN według obecnych udziałów, bez gotówki. Opisuje model obecnego koszyka; historyczne wpłaty i zmiany składu nie są tu odtworzone. Wykorzystywane są wyłącznie wspólne sesje z pełnymi danymi.</p>

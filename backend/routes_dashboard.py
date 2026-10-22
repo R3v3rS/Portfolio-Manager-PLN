@@ -62,7 +62,8 @@ def global_summary():
     
     # Actual money is an asset even when it has been assigned to a monthly plan.
     budget_totals = monthly_budget_totals(db, date.today().strftime('%Y-%m'))
-    total_cash = budget_totals['balance']
+    card_debt = budget_totals.get('credit_card_debt', 0)
+    total_cash = budget_totals['balance'] + card_debt
     total_free_pool = budget_totals['to_plan']
 
     # 2. Total Investments (Portfolio Module)
@@ -118,11 +119,11 @@ def global_summary():
 
     # 3. Total Liabilities (Loans Module)
     loans_rows = db.execute("SELECT id, name, category, exclude_from_net_worth FROM loans").fetchall()
-    total_liabilities = 0.0
-    short_term_liabilities = 0.0
+    total_liabilities = card_debt
+    short_term_liabilities = card_debt
     long_term_liabilities = 0.0
     excluded_liabilities = []
-    all_short_term_liabilities = 0.0
+    all_short_term_liabilities = card_debt
     next_installment_amount = 0.0
     next_installment_date = None
     

@@ -116,7 +116,7 @@ describe('Manual split from the import queue',()=>{
       {...data.categories[1],name:'Paliwo',parent_id:1,selection_label:'Transport › Paliwo',spent:230,planned:600},
     ]});
     render(<MemoryRouter initialEntries={['/budget?view=plan&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
-    expect(await screen.findByText('Podkategorie (1)')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button',{name:/Transport/}));
     expect(screen.getByText('Transport')).toBeInTheDocument();
     expect(screen.getByText('Paliwo')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Wydatek'}));

@@ -7,7 +7,7 @@ import { planningDay as day, planningMoney as money } from './planningHelpers';
 export default function BudgetNextActions({ data, forecast }: { data: BudgetWorkspace; forecast: CashForecast | null }) {
   const items: {key:string;title:string;detail:string;href:string;action:string}[] = [];
   for (const account of forecast?.account_forecasts ?? []) {
-    if (account.summaries[0]?.first_shortfall) items.push({key:`account:${account.id}`,title:`Sprawdź środki na ${account.name}`,detail:`Prognozowany brak od ${day(account.summaries[0].first_shortfall)}.`,href:`/budget/forecast?month=${data.month}`,action:'Sprawdź konto'});
+    if (account.summaries[0]?.first_shortfall?.slice(0,7)===data.month) items.push({key:`account:${account.id}`,title:`Sprawdź środki na ${account.name}`,detail:`Prognozowany brak od ${day(account.summaries[0].first_shortfall)}.`,href:`/budget/forecast?month=${data.month}`,action:'Sprawdź konto'});
   }
   for (const bill of data.bills.filter(item => item.status !== 'PAID').sort((a,b)=>a.due_date.localeCompare(b.due_date))) {
     items.push({key:`bill:${bill.id}`,title:bill.title,detail:`${money(bill.amount)} · termin ${day(bill.due_date)} · ${bill.account_name}`,href:`/budget?view=bills&month=${data.month}&bill=${bill.id}`,action:bill.payment_candidates?.length?'Powiąż płatność':'Rozlicz rachunek'});

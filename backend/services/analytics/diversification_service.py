@@ -41,24 +41,11 @@ def _score_and_rating_from_hhi(hhi: float) -> tuple[int, str]:
 
 
 def _recommendation(rating: str, top_weight: float) -> str:
-    if rating == "poor":
-        return (
-            "Dywersyfikacja jest niska. Ogranicz udział największej pozycji i dodaj ekspozycję"
-            " na inne sektory oraz klasy aktywów."
-        )
-    if rating == "fair":
-        return (
-            "Dywersyfikacja jest umiarkowana. Rozważ zmniejszenie koncentracji w 1-2 największych"
-            " pozycjach i zwiększenie udziału mniej reprezentowanych sektorów."
-        )
-    if rating == "good":
-        if top_weight > 0.25:
-            return (
-                "Portfel jest dobrze zdywersyfikowany, ale największa pozycja jest relatywnie wysoka."
-                " Rozważ jej częściową redukcję."
-            )
-        return "Portfel ma dobrą dywersyfikację. Utrzymuj obecny poziom i okresowo monitoruj koncentrację."
-    return "Bardzo dobra dywersyfikacja. Kontynuuj bieżącą strategię i monitoruj zmiany wag w czasie."
+    return (
+        f"Największy instrument stanowi {top_weight:.1%} części akcyjnej. "
+        "Wskaźnik opisuje rozproszenie między instrumentami, bez spółek wewnątrz ETF. "
+        "Pełniejszą ekspozycję sprawdzisz w zakładce Wewnątrz ETF."
+    )
 
 
 def diversification_score(

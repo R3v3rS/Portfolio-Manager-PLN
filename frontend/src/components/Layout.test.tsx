@@ -23,20 +23,20 @@ const show = (path: string) => render(
 describe('Layout navigation', () => {
   it('shows imports within the budget and uses its breadcrumb', () => {
     show('/budget/imports');
-    expect(within(screen.getByRole('navigation', { name: 'Nawigacja główna' })).getByRole('link', { name: 'Importy i paragony' })).toHaveAttribute('aria-current', 'page');
+    expect(within(screen.getByRole('navigation', { name: 'Nawigacja główna' })).getByRole('link', { name: 'Budżet' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('navigation', { name: 'Ścieżka nawigacji' })).toHaveTextContent('Importy i paragony');
   });
   it('opens the forecast as a budget section with the matching breadcrumb',()=>{
     show('/budget/forecast');
     const nav=screen.getByRole('navigation',{name:'Nawigacja główna'});
-    expect(within(nav).getByRole('link',{name:'Prognoza pieniędzy'})).toHaveAttribute('aria-current','page');
+    expect(within(nav).getByRole('link',{name:'Budżet'})).toHaveAttribute('aria-current','page');
     expect(screen.getByRole('navigation',{name:'Ścieżka nawigacji'})).toHaveTextContent('Prognoza pieniędzy');
   });
   it('shows accounts and reserves as budget sections with the current location',()=>{
     show('/budget/accounts');
     const nav=screen.getByRole('navigation',{name:'Nawigacja główna'});
-    expect(within(nav).getByRole('link',{name:'Konta i przelewy'})).toHaveAttribute('aria-current','page');
-    expect(within(nav).getByRole('link',{name:'Rezerwy na wydatki'})).toHaveAttribute('href','/budget/reserves');
+    expect(within(nav).getByRole('link',{name:'Budżet'})).toHaveAttribute('aria-current','page');
+    expect(within(nav).queryByRole('link',{name:'Rezerwy na wydatki'})).not.toBeInTheDocument();
     expect(screen.getByRole('navigation',{name:'Ścieżka nawigacji'})).toHaveTextContent('Konta i przelewy');
   });
   it('groups investments and shows the current tools location', () => {

@@ -1,6 +1,6 @@
 # Architektura i zasady obliczeń
 
-Stan funkcjonalności: 13 października 2026. Ten dokument opisuje implementację; praktyczne kroki znajdują się w [instrukcji budżetu](BUDZET_INSTRUKCJA_PL.md) i [instrukcji całej aplikacji](INSTRUKCJA_OBSLUGI_PL.md).
+Stan funkcjonalności: 19 października 2026. Ten dokument opisuje implementację; praktyczne kroki znajdują się w [instrukcji budżetu](BUDZET_INSTRUKCJA_PL.md) i [instrukcji całej aplikacji](INSTRUKCJA_OBSLUGI_PL.md).
 
 ## 1. Warstwy
 
@@ -14,18 +14,20 @@ Kwoty operacji budżetowych są przechowywane jako całkowite grosze. Salda `bud
 
 | Tabela | Odpowiedzialność |
 |---|---|
-| `budget_accounts` | Konta, waluta i aktualne saldo |
+| `budget_accounts` | Konta, waluta, aktualne saldo i `account_type`: `BANK` lub `CREDIT_CARD` |
 | `budget_account_reconciliations` | Dane otwarcia i potwierdzenia/korekty salda |
 | `budget_entries_v2` | Nagłówki wpływów i wydatków, data, konto i wpływ na saldo |
 | `budget_entry_lines_v2` | Podział wydatku na kategorie i pozycje |
 | `budget_categories_v2` | Kategorie, rodzic, wersja i ustawienie tempa |
 | `budget_plans_v2` | Własny limit kategorii w konkretnym miesiącu, także 0 |
 | `budget_default_plans` | Wersje domyślnych limitów od wskazanego miesiąca |
+| `budget_plan_transfer_requests` | Idempotentne żądania przesuwania limitów wraz z zatwierdzonym podglądem |
 | `budget_plan_copy_requests` | Wyniki zatwierdzonych żądań kopiowania zakresu |
 | `budget_bills_v2` | Definicje rachunków i harmonogramów |
 | `budget_bill_payments_v2` | Rozliczenia wystąpienia rachunku z istniejącym wydatkiem |
 | `budget_expected_incomes` / `budget_expected_income_receipts` | Plan wpływu i jego otrzymanie/powiązanie |
 | `budget_reserves` / `budget_reserve_movements` | Rezerwy i ruchy odłożenia, zwolnienia oraz płatności |
+| `budget_reserve_operation_receipts` | Trwałe podsumowania operacji rezerwy i wyników zbiorczego odkładania; to nie są nowe przepływy pieniężne |
 | `budget_reserve_month_plans` / `budget_reserve_plan_history` | Wyjątki i historyczne podstawy planu odłożeń |
 | `budget_account_transfers` | Przelewy własne, przeniesienie miejsca rezerwy lub jej zasilenie |
 | `budget_investment_transfers` | Powiązane przepływy między budżetem a inwestycjami |
@@ -129,3 +131,31 @@ Paragony są odczytywane lokalnym Windows OCR. Dane rynkowe i publiczne publikac
 Ta konfiguracja uruchomienia jest przeznaczona do pracy lokalnej. Nie stanowi gotowego systemu wieloużytkownikowego z izolacją kont, kontrolą dostępu i publicznym wdrożeniem. Backupy, klucze, baza, załączniki, logi i prywatne zrzuty nie należą do publikowanego kodu.
 
 Zmiana wspólnych obliczeń wymaga testów modeli: podkategorii, zwrotów, rachunków, rat, rezerw, zamknięć i prognozy. Testy interfejsu sprawdzają m.in. rozdzielenie podglądu i zapisu oraz skutki powiązań. Daty testowe powinny być stałe albo tak dobrane, aby punkty historii nie stawały się przypadkiem przyszłe.
+
+## 12. Przegląd planu i przesuwanie limitów
+
+`GET /api/budget/workspace/plans/year?start=YYYY-MM` odczytuje dwanaście workspace od wskazanego miesiąca. Nie zapisuje planów. Wynik miesiąca jest miarą `monthly_income_to_plan`; obciążenie to wykonane koszty finansowane z przychodów plus pozostały plan. Kategorie nadrzędne i podrzędne nie są dodawane po raz drugi. Przyszłe przeniesienia są jawnie oznaczone jako orientacyjne; nie jest to symulacja przyszłych sald ani cykli rezerw.
+
+`POST /api/budget/workspace/plans/transfer-preview` przyjmuje `month`, `source_id`, `target_id`, `amount`. Serwis sprawdza pozostałą zwykłą część planu, wspólne limity, obowiązkowe płatności i zakres edytowalnych miesięcy. Podgląd zawiera token aktualnych kategorii oraz obie kwoty przed i po zmianie. Kwoty powiązane z mediami nie uczestniczą w tej operacji.
+
+`POST /api/budget/workspace/plans/transfer` przyjmuje te same dane, `token` i unikalne `request_id`. `BEGIN IMMEDIATE` obejmuje ponowną walidację, limity miesiąca źródła i celu oraz wymaganych rodziców, kontrolę zgodności wyniku i zapamiętanie żądania. Błąd wycofuje wszystkie zmiany limitów. Przeniesienie między grupami koryguje wspólne limity rodziców; przeniesienie między dwojgiem dzieci tego samego rodzica zachowuje jego całkowitą kwotę. Ponowienie tego samego żądania zwraca zapamiętany wynik; zmiana treści przy tym samym identyfikatorze jest konfliktem. Domyślne limity, salda i transakcje nie są modyfikowane.
+
+Widoki prognozy nie resetują symulacji przy zmianie zakładki. Założenia miesiąca są prezentowane według rzeczywistych dat zdarzeń prognozy do wybranego końca zakresu, z pominięciem zapisanych już operacji. Filtry transakcji są osobnym ustawieniem `localStorage` przeglądarki i nie należą do kopii SQLite.
+
+## Karty kredytowe
+
+Migracja addytywna w `budget_import_schema.initialize` dodaje `budget_accounts.account_type` z domyślnym `BANK`. Istniejące salda i transakcje nie są przepisywane. `CREDIT_CARD` przechowuje zadłużenie jako saldo ujemne, nadpłatę jako dodatnie. Otwarcie i korekty kart obsługują obie wartości; nie tworzą dochodów ani wydatków.
+
+Zakup i zwrot korzystają z istniejących wpisów oraz podziałów kategorii. Spłata korzysta z `budget_account_transfers`, transakcji `BEGIN IMMEDIATE`, kontroli oczekiwanych sald i identyfikatora żądania. Nie powstaje drugi `budget_entries_v2`; historia kont rozpoznaje `CARD_PAYMENT` po rodzaju konta docelowego. Ręczna spłata nie przekracza długu ani wolnej gotówki źródła. Import obu stron przelewu łączy się przez istniejący identyfikator transferu. Nierozpoznany wpływ na kartę jest domyślnie `SKIP`, a nowy zwykły dochód na kartę jest odrzucany; zwroty korzystają z `budget_purchase_refunds`.
+
+`balance`, `available_now` oraz `to_plan` zachowują sumę sald ze znakami. Dług jest już w tej sumie i nie jest odejmowany drugi raz ani odłożony jako rezerwa. Pola `cash_balance`, `credit_card_debt`, `credit_card_overpayment` służą jawnemu przedstawieniu składowych. W globalnym majątku aktywa to saldo netto plus dług kart; ten dług jest następnie wykazywany w zobowiązaniach. Wynik netto jest identyczny z sumą sald minus pozostałe kredyty.
+
+Prognoza zachowuje sumę sald ze znakami, dodaje typ do przebiegów kont i nie traktuje ujemnego salda karty jako niedoboru fizycznej gotówki ani celu propozycji przelewu. Nie planuje automatycznie przyszłej spłaty bez ustalonego terminu. Rezerwy i finansowanie inwestycji wymagają `BANK`, również przy dodatniej nadpłacie karty.
+
+## Podglądy i historia rezerw
+
+`budget_reserve_operations_service` wykonuje podgląd przy użyciu tej samej ścieżki księgowania w transakcji zakończonej rollbackiem. Skrót stanu obejmuje salda kont, wersje rezerw, wpisów i planów rezerw; zatwierdzenie chroni przed zapisem na nieaktualnym podglądzie. Zbiorcze odłożenia korzystają ze wspólnej transakcji i deterministycznych identyfikatorów pozycji. `budget_reserve_operation_receipts` przechowuje wynik, aby ponowienie oddało ten sam rezultat.
+
+Dla przekazanej nadwyżki źródłowa operacja zwalnia kwotę, a docelowa rezerwa otrzymuje ruch ADD na tych samych kontach. Część `budget_cost_cents` przenosi niewykorzystaną podstawę wcześniejszych odłożeń, zamiast naliczać ją drugi raz. Dane do cofnięcia są zapisane w `budget_settlements.before_json._surplus_transfer`; późniejsze zmiany docelowej rezerwy blokują cofnięcie. Cofnięte podsumowanie pozostaje oznaczone `cancelled`.
+
+`budget_reserve_history_service` grupuje ruchy jednej płatności i łączy transfer FUND z odpowiadającym mu odłożeniem. Starsze rozliczenia otrzymują podsumowanie odczytane z istniejących danych, bez migracji kwot. Zestawienie miesiąca dotyczy przypisanych środków: początek + ADD − pokrycie płatności − zwolnienia = koniec. Kwota wydatku bankowego jest osobną miarą. Przeniesienia MOVE nie zmieniają łącznej kwoty rezerwy.

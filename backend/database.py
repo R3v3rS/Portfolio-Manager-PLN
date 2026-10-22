@@ -25,6 +25,8 @@ def init_db(app):
         db = get_db()
         from investment_ideas_service import init_schema as init_research_schema
         init_research_schema(db)
+        from investment_analysis_schema import init_schema as init_investment_analysis_schema
+        init_investment_analysis_schema(db)
         from asset_transfer_service import init_schema as init_asset_transfers
         from manual_stock_prices import init_manual_price_schema
         init_manual_price_schema(db)
@@ -1099,7 +1101,7 @@ def reset_budget_data():
 
     db.execute("DELETE FROM budget_bill_payments_v2")
     db.execute("DELETE FROM budget_purchase_refunds")
-    for table in ('budget_settlements','budget_settlement_reversals','budget_cancelled_requests','budget_entry_requests',
+    for table in ('budget_reserve_operation_receipts','budget_settlements','budget_settlement_reversals','budget_cancelled_requests','budget_entry_requests',
                   'budget_reserve_plan_history','budget_month_snapshots','budget_month_closing_items', 'budget_month_closings', 'budget_purchase_plans',
                   'budget_reserve_month_plans', 'budget_category_policies', 'budget_planning_settings',
                   'budget_default_plans', 'budget_plan_copy_requests'):

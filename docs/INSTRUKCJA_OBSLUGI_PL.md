@@ -135,6 +135,8 @@ Radar służy własnej obserwacji instrumentów, cen i warunków alertów. Spraw
 
 **Pomysły inwestycyjne** zbierają dostępne publiczne publikacje źródeł, w tym wskazanych twórców. Odśwież publikacje, wybierz materiał, sprawdź link i datę oraz zapisz własny pomysł lub obserwację. Powiąż instrument, jeśli został prawidłowo rozpoznany.
 
+Domyślnie widoczne są artykuły Inwestomatu i Comparic; filmy są pod osobnym filtrem. W „Analizuj treść” można pobrać publiczny artykuł do podglądu, wkleić tekst lub wybrać analizę filmu. Dopiero potwierdzenie szkicu zapisuje opinię autora. Portfel ma też asystenta z historią rozmów, plan udziałów i częściową analizę wnętrza ETF. Zasady, koszty i ograniczenia opisuje [instrukcja modułu analitycznego](AI_PORTFOLIO_ANALYSIS_MODULE_PL.md).
+
 Lista nie jest automatycznym rankingiem najlepszych spółek miesiąca. Publiczny tytuł lub wzmianka nie dowodzi, że autor aktualnie rekomenduje zakup. Treści płatne, niepubliczne materiały, brak transkrypcji i błędy źródła mogą ograniczać odczyt. Sprawdź oryginalną publikację przed przypisaniem autorowi konkretnej tezy.
 
 ## 12. Kredyty

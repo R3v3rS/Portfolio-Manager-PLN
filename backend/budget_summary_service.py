@@ -102,7 +102,9 @@ def monthly_budget_totals(db, month):
     month_cost,month_invested=month_income_cost(db,month,spent)
     income_total=round(income+expected_income,2)
     remaining_month_plan=round(remaining+reserve_extra,2)
+    from budget_account_types import totals as account_totals
     return {
+        **account_totals(db),
         'monthly_income_total':income_total,'monthly_income_cost':month_cost,
         'monthly_income_remaining_plan':remaining_month_plan,'monthly_invested':month_invested,
         'monthly_income_to_plan':round(income_total-month_cost-remaining_month_plan,2),

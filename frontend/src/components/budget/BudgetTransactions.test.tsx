@@ -15,6 +15,7 @@ it('filters a shared parent, groups days and keeps refunds and transfers out of 
   expect(screen.getAllByRole('region')).toHaveLength(2);
   expect(within(screen.getByRole('region',{name:'Transakcje: 2026-10-03'})).getByRole('heading')).toHaveTextContent('80,00');
   expect(screen.getByText('Na rezerwę')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Więcej filtrów i zapisane widoki'));
   fireEvent.change(screen.getByLabelText('Kategoria transakcji'),{target:{value:'3'}});
   expect(screen.getByText('Stacja paliw')).toBeInTheDocument();
   expect(screen.queryByText('Pensja')).not.toBeInTheDocument();
@@ -22,4 +23,11 @@ it('filters a shared parent, groups days and keeps refunds and transfers out of 
   fireEvent.change(screen.getByLabelText('Szukaj transakcji'),{target:{value:'zwrot'}});
   expect(screen.queryByText('Stacja paliw')).not.toBeInTheDocument();
   expect(screen.getByText('Zwrot paliwa')).toBeInTheDocument();
+});
+
+it('opens one linked expense and lets the user return to all transactions',()=>{
+  const data={month:'2026-10',accounts:[],categories:[],entries:[{id:76,description:'Płatność wody',date:'2026-10-19',amount:374.2,kind:'EXPENSE',account_id:2,account_name:'Alior',lines:[]},{id:77,description:'Telefon',date:'2026-10-19',amount:55,kind:'EXPENSE',account_id:2,account_name:'Alior',lines:[]}]} as unknown as BudgetWorkspace;
+  render(<MemoryRouter initialEntries={['/budget?view=entries&month=2026-10&entry_id=76']}><BudgetTransactions data={data}>{entry=><article key={entry.id}>{entry.description}</article>}</BudgetTransactions></MemoryRouter>);
+  expect(screen.getByText('Płatność wody')).toBeInTheDocument();expect(screen.queryByText('Telefon')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Pokaż wszystkie transakcje'}));expect(screen.getByText('Telefon')).toBeInTheDocument();
 });

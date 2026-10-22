@@ -11,7 +11,7 @@ const data:ResearchWorkspace={sources:[{id:'podlacki',name:'Marcin Podlacki',kin
   ideas:[],months:['2026-10'],instruments:[{ticker:'PZU.WA',company_name:'PZU'}],as_of:'2026-10-10'};
 beforeEach(()=>{vi.clearAllMocks();vi.mocked(ideasApi.workspace).mockResolvedValue(data);vi.mocked(ideasApi.refresh).mockResolvedValue({sources:[]});vi.mocked(ideasApi.save).mockResolvedValue({id:1});vi.mocked(ideasApi.publication).mockResolvedValue({id:1});Element.prototype.scrollIntoView=vi.fn();});
 afterEach(cleanup);
-const mount=()=>render(<MemoryRouter><InvestmentIdeas/></MemoryRouter>);
+const mount=()=>{const result=render(<MemoryRouter><InvestmentIdeas/></MemoryRouter>);fireEvent.change(screen.getByRole('combobox',{name:'Format materiału'}),{target:{value:'videos'}});return result;};
 describe('Investment research workflow',()=>{
   it('loads cached materials without network refresh and exposes unavailable source',async()=>{
     mount();expect(await screen.findByRole('link',{name:/Pomysły na miesiąc/})).toBeInTheDocument();

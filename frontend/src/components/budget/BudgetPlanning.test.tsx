@@ -65,10 +65,10 @@ describe('Household planning controls',()=>{
   it('shows monthly income funds independently of the account cash card',()=>{
     const data=fixture();data.totals={...data.totals,income:1000,expected_income:200,monthly_income_total:1200,monthly_income_cost:300,monthly_income_remaining_plan:800,monthly_income_to_plan:100};
     show(<BudgetPlanningOverview data={data} forecast={null} failed={false}/>);
-    const monthly=within(screen.getByRole('article',{name:'Wolne z przychodów miesiąca'}));
+    const monthly=within(screen.getByLabelText('Wolne z przychodów miesiąca'));
     expect(monthly.getByText('100,00 zł',{exact:false})).toBeInTheDocument();
-    expect(screen.getByText(/otrzymano.*1\s?000,00.*oczekiwane.*200,00/)).toBeInTheDocument();
-    expect(monthly.getByText(/Bez wcześniejszych sald/)).toBeInTheDocument();
+    expect(screen.getByText(/W tym oczekiwane wpływy:.*200,00/)).toBeInTheDocument();
+    expect(monthly.getByText(/Z samych przychodów miesiąca/)).toBeInTheDocument();
     expect(screen.getByText(/3\s?500,00/,{selector:'strong'})).toBeInTheDocument();
   });
   it('keeps an open reserve plan fixed and available for manual funding at zero',()=>{
@@ -180,7 +180,7 @@ describe('Household planning controls',()=>{
     await waitFor(()=>expect(budgetWorkspaceApi.payBill).toHaveBeenCalledWith(8,'2026-10',expect.any(String),expect.objectContaining({amount:480,version:4,reserve_version:2,request_id:expect.any(String)})));
   });
   it('saves the payday boundary and accounts used by the forecast',async()=>{
-    show(<BudgetPayCycle data={fixture()} forecast={null} reload={reload}/>);
+    show(<BudgetPayCycle data={fixture()} forecast={null} reload={reload} settingsOnly/>);
     fireEvent.change(screen.getByLabelText('Dzień początku okresu'),{target:{value:'31'}});
     fireEvent.change(screen.getByLabelText('Konto rat kredytów'),{target:{value:'2'}});
     fireEvent.click(screen.getByRole('button',{name:'Zapisz ustawienia'}));

@@ -41,6 +41,12 @@ def initialize(db):
             request_id TEXT PRIMARY KEY, request_payload TEXT NOT NULL, result_json TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS budget_cancelled_requests (request_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS budget_reserve_operation_receipts (
+            request_id TEXT PRIMARY KEY, reserve_id INTEGER REFERENCES budget_reserves(id),
+            entry_id INTEGER, kind TEXT NOT NULL, request_payload TEXT NOT NULL,
+            result_json TEXT NOT NULL, created_at TEXT NOT NULL,
+            cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1))
+        );
         CREATE TABLE IF NOT EXISTS budget_entry_requests (
             request_id TEXT PRIMARY KEY, request_payload TEXT NOT NULL,
             entry_id INTEGER REFERENCES budget_entries_v2(id) ON DELETE SET NULL

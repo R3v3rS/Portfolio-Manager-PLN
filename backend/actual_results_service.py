@@ -24,7 +24,7 @@ def analysis_dates(start=None, end=None):
 from investment_math import modified_dietz, money_weighted
 
 
-def analyze(portfolio_ids, start=None, end=None):
+def analyze(portfolio_ids, start=None, end=None, own_only=False):
     if len(portfolio_ids)==1:
         from strategy_archive_service import snapshot
         frozen=snapshot(portfolio_ids[0],'results')
@@ -36,12 +36,12 @@ def analyze(portfolio_ids, start=None, end=None):
     for portfolio_id in portfolio_ids:
         if portfolio_id not in portfolios:
             raise NotFoundError('Przypisany portfel nie istnieje.')
-        selected.update(_scope(portfolio_id, portfolios))
+        selected.update({portfolio_id} if own_only else _scope(portfolio_id, portfolios))
     if not selected:
         raise ValidationError('Brak aktywnych portfeli do analizy.')
     # Normalize legacy child rows and modern parent+sub rows to one owner.
     rows = [dict(row) for row in db.execute('SELECT * FROM transactions WHERE date(date)<=? ORDER BY date(date),id', (end.isoformat(),))
-            if (row['sub_portfolio_id'] or row['portfolio_id']) in selected or row['portfolio_id'] in selected]
+            if (row['sub_portfolio_id'] or row['portfolio_id']) in selected or (not own_only and row['portfolio_id'] in selected)]
     for row in rows:
         row['day'] = History._to_date(row['date'])
     from asset_transfer_service import strategy_basis

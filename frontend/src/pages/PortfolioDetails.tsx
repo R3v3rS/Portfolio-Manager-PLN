@@ -3,7 +3,7 @@ import InstrumentHistory from '../components/portfolio/InstrumentHistory';
 import StrategyComparison from '../components/portfolio/StrategyComparison';
 import {extractErrorMessageFromUnknown} from '../http/response';
 import React, { lazy, useCallback, useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus, RefreshCw, Trash2, ShieldAlert, Wrench, ChevronDown, Archive } from 'lucide-react';
 import {
   portfolioApi,
@@ -26,6 +26,10 @@ import ImportStagingModal from '../components/modals/ImportStagingModal';
 import { createStagingSession, deleteSession, getSession, listSessions, type ImportMode } from '../api_import_staging';
 import type { BookResult, ImportSessionListItem, StagingSession } from '../types/importStaging';
 import PortfolioAIChat from '../components/ai/PortfolioAIChat';
+import StrategyPlan from '../components/ai/StrategyPlan';
+import FundExposure from '../components/ai/FundExposure';
+import RelatedMaterials from '../components/ai/RelatedMaterials';
+import InvestmentAttention from '../components/ai/InvestmentAttention';
 import PortfolioResearch, { PortfolioSummary } from '../components/portfolio/PortfolioResearch';
 import AssetTransfer from '../components/portfolio/AssetTransfer';
 import GoalsSummary from '../components/goals/GoalsSummary';
@@ -429,6 +433,8 @@ type ActiveTab = 'holdings' | 'analytics' | 'analytics_dashboard' | 'value_histo
 
 const PortfolioDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams,setSearchParams]=useSearchParams();
+  const requestedTab=searchParams.get('tab');
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
 
@@ -442,7 +448,16 @@ const PortfolioDetails: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('holdings');
   const [historyInstrument,setHistoryInstrument]=useState<string|null>(null);
-  const [analysisView, setAnalysisView] = useState<'structure' | 'risk' | 'income'>('structure');
+  const [analysisView, setAnalysisView] = useState<'structure' | 'risk' | 'income' | 'plan' | 'exposure'>('structure');
+  useEffect(()=>{
+    if(!portfolio||portfolio.id!==Number(id))return;
+    const basic=portfolio.account_type==='BONDS'?'bonds':portfolio.account_type==='SAVINGS'?'savings':portfolio.account_type==='PPK'?'ppk':'holdings';
+    const allowed=['history','results',basic,...(portfolio.account_type==='PPK'?['ppk_history']:[]),...(['STANDARD','IKE','IKZE'].includes(portfolio.account_type)?['analytics','strategies','closed','closed_cycles']:[]),...(!portfolio.is_archived?['ai']:[])];
+    if(requestedTab)setActiveTab(allowed.includes(requestedTab)?requestedTab as ActiveTab:basic);
+    if(searchParams.get('analysis')==='plan')setAnalysisView('plan');
+    if(searchParams.get('analysis')==='exposure')setAnalysisView('exposure');
+  },[requestedTab,searchParams,portfolio,id]);
+  const selectTab=(tab:ActiveTab)=>{setActiveTab(tab);setSearchParams({tab},{replace:true});};
   
   // Modals state
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -883,12 +898,12 @@ const PortfolioDetails: React.FC = () => {
 
   const tabLabels: Record<string, string> = {
     strategies:'Strategie i archiwum',
-    holdings: 'Przegląd i pozycje',
-    analytics: 'Analiza portfela',
+    holdings: 'Przegląd',
+    analytics: 'Ryzyko i struktura',
     analytics_dashboard: 'Ryzyko',
     results: 'Wyniki',
     value_history: 'Historia wartości',
-    history: 'Transakcje',
+    history: 'Historia i strategie',
     bonds: 'Obligacje',
     savings: 'Oszczędności',
     closed: 'Sprzedaże i cykle',
@@ -924,13 +939,15 @@ const PortfolioDetails: React.FC = () => {
   const isChild = !!portfolio.parent_portfolio_id;
 
   const visibleTabs: ActiveTab[] =
-    portfolio.is_archived && isEquity ? ['holdings', 'results', 'history', 'closed'] : portfolio.account_type === 'SAVINGS'
+    portfolio.is_archived && isEquity ? ['holdings', 'results', 'history'] : portfolio.account_type === 'SAVINGS'
       ? ['savings', 'history', 'ai']
       : portfolio.account_type === 'BONDS'
         ? ['bonds', 'history', 'ai']
         : portfolio.account_type === 'PPK'
           ? ['ppk', 'ppk_history', 'ai']
-          : ['holdings', 'results', 'analytics', 'strategies', 'history', 'closed', 'ai'];
+          : ['holdings', 'results', 'analytics', 'history', 'ai'];
+  const historyTab=isEquity&&['history','strategies','closed','closed_cycles'].includes(activeTab);
+  const primaryTab=historyTab?'history':activeTab;
 
   const toggleTxSelection = (id: number) => {
     setSelectedTxIds(prev => 
@@ -1240,8 +1257,8 @@ const PortfolioDetails: React.FC = () => {
       <div className="pr-navigation overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-gray-200 px-4 py-4 dark:border-slate-800 md:px-6">
           <select
-            value={activeTab==='closed_cycles'?'closed':activeTab}
-            onChange={(event) => setActiveTab(event.target.value as ActiveTab)}
+            value={primaryTab}
+            onChange={(event) => selectTab(event.target.value as ActiveTab)}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 md:hidden"
             aria-label="Wybierz sekcję portfela"
           >
@@ -1251,10 +1268,10 @@ const PortfolioDetails: React.FC = () => {
             {visibleTabs.map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
-                aria-current={(activeTab === tab || (tab==='closed'&&activeTab==='closed_cycles')) ? "page" : undefined}
+                onClick={() => selectTab(tab)}
+                aria-current={primaryTab===tab ? "page" : undefined}
                 className={cn(
-                  (activeTab === tab || (tab==='closed'&&activeTab==='closed_cycles'))
+                  primaryTab===tab
                     ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
                     : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                   'px-3 py-2 font-medium text-sm rounded-md transition-colors whitespace-nowrap'
@@ -1267,8 +1284,11 @@ const PortfolioDetails: React.FC = () => {
         </div>
 
         <div className="p-4 md:p-6">
+          {historyTab&&<nav className="chart-toolbar mb-5" aria-label="Historia i strategie">{([['history','Transakcje'],['strategies','Strategie i archiwum'],['closed','Sprzedaże'],['closed_cycles','Cykle pozycji']] as const).filter(([key])=>!portfolio.is_archived||key!=='strategies').map(([key,label])=><button key={key} aria-pressed={activeTab===key} onClick={()=>selectTab(key)}>{label}</button>)}</nav>}
           {activeTab === 'analytics' && <div className="space-y-5">
-            <nav className="chart-toolbar" aria-label="Obszar analizy">{([['structure', 'Struktura'], ['risk', 'Ryzyko'], ['income', 'Dywidendy']] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={analysisView === key} onClick={() => setAnalysisView(key)}>{label}</button>)}</nav>
+            <nav className="chart-toolbar" aria-label="Obszar analizy">{([['structure', 'Struktura'], ['risk', 'Ryzyko'], ['income', 'Dywidendy'],['plan','Plan udziałów'],['exposure','Wewnątrz ETF']] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={analysisView === key} onClick={() => setAnalysisView(key)}>{label}</button>)}</nav>
+            {analysisView==='plan'&&<StrategyPlan key={portfolio.id} portfolioId={portfolio.id}/>}
+            {analysisView==='exposure'&&<FundExposure key={portfolio.id} portfolioId={portfolio.id}/>}
             {analysisView === 'risk' && <AnalyticsDashboard portfolioId={portfolio.parent_portfolio_id ?? portfolio.id} subPortfolioId={portfolio.parent_portfolio_id ? portfolio.id : undefined} />}
             {analysisView === 'structure' && <PortfolioAnalytics holdings={holdings} cashBalance={valueData.cash_value} historyData={portfolioHistory} equityAllocation={equityAllocation} />}
             {analysisView === 'income' && <DividendBarChart data={monthlyDividends} />}
@@ -1276,13 +1296,15 @@ const PortfolioDetails: React.FC = () => {
 
           {(activeTab === 'results' || activeTab === 'value_history') && (portfolio.is_archived ? <PortfolioHistoryChart data={portfolioHistory} title="Historia wartości — zatrzymana przy archiwizacji" /> : <PortfolioResults key={portfolio.id} portfolioId={portfolio.id} history={portfolioHistory} benchmark={selectedBenchmark} onBenchmark={setSelectedBenchmark} dailyProfit={portfolioProfit30dHistory} />)}
 
-          {activeTab === 'ai' && <PortfolioAIChat portfolioId={portfolio.id} />}
+          {activeTab === 'ai' && <>{!isEquity&&<StrategyPlan key={`plan-${portfolio.id}`} portfolioId={portfolio.id}/>}<PortfolioAIChat key={portfolio.id} portfolioId={portfolio.id} /></>}
           {activeTab === 'strategies' && <StrategyComparison portfolioId={portfolio.id}/>}
           {(activeTab==='closed'||activeTab==='closed_cycles')&&<div className="chart-toolbar" aria-label="Sposób analizy sprzedaży"><button aria-pressed={activeTab==='closed'} onClick={()=>setActiveTab('closed')}>Według spółki</button><button aria-pressed={activeTab==='closed_cycles'} onClick={()=>setActiveTab('closed_cycles')}>Według cyklu posiadania</button><p className="chart-note">Sprzedaże obejmują także częściowo sprzedane pozycje. Cykl trwa od pierwszego zakupu lub przeniesienia do wyjścia z danej pozycji.</p></div>}
 
           {activeTab === 'holdings' && !portfolio.is_archived && <GoalsSummary portfolioId={portfolio.id} />}
           {activeTab === 'holdings' && (
             <div className="space-y-6">
+              {!portfolio.is_archived&&<RelatedMaterials key={portfolio.id} portfolioId={portfolio.id}/>}
+              {!portfolio.is_archived&&<InvestmentAttention key={`attention-${portfolio.id}`} portfolioId={portfolio.id} value={valueData}/>}
               {!portfolio.is_archived && <PortfolioResearch key={portfolio.id}
                 holdings={holdings} value={valueData} onRefresh={fetchData}
                 onInstrument={setHistoryInstrument}

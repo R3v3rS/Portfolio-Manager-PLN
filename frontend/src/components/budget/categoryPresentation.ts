@@ -1,7 +1,7 @@
 import type { BudgetCategory } from '../../api_budget_workspace';
 import { planningMoney as money } from './planningHelpers';
 
-export function showCategory(category: BudgetCategory, includeUnused: boolean, search: string) {
+export function showCategory(category: Pick<BudgetCategory,'has_activity'>, includeUnused: boolean, search: string) {
   return includeUnused || search.trim() !== '' || category.has_activity !== false;
 }
 

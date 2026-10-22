@@ -13,13 +13,15 @@ from api.exceptions import NotFoundError, ValidationError
 from database import get_db
 
 SOURCES = {
+    'inwestomat': dict(name='Inwestomat · strategie i ETF', kind='rss',
+                      url='https://inwestomat.eu/', feed='https://inwestomat.eu/feed/'),
     'podlacki': dict(name='Marcin Podlacki', kind='youtube',
                     url='https://www.youtube.com/@MarcinPodlacki',
                     feed='https://www.youtube.com/feeds/videos.xml?channel_id=UChLwJNFJURZxzAAPEsrnxfQ'),
     'zawod': dict(name='Zawód Inwestor', kind='youtube',
                  url='https://www.youtube.com/@zawodinwestor',
                  feed='https://www.youtube.com/feeds/videos.xml?channel_id=UCG4T6bLDq2TdAdRAp2GDOCw'),
-    'comparic': dict(name='Podlacki · omówienia Comparic', kind='rss',
+    'comparic': dict(name='Comparic · analizy i omówienia', kind='rss',
                     url='https://comparic.pl/', feed='https://comparic.pl/feed/'),
 }
 OPINIONS = {'MENTION', 'WATCH', 'HOLD', 'BUY', 'SELL'}
@@ -85,9 +87,10 @@ def canonical_url(value, source_id):
         parts = urlsplit(value.strip())
         if parts.scheme != 'https' or parts.username or parts.password or parts.port not in (None,443): raise ValueError()
         host = (parts.hostname or '').lower()
-        if source_id == 'comparic':
-            if host not in ('comparic.pl','www.comparic.pl') or not parts.path.strip('/'): raise ValueError()
-            return urlunsplit(('https','comparic.pl',parts.path,'',''))
+        if source_id in ('comparic','inwestomat'):
+            domain='comparic.pl' if source_id=='comparic' else 'inwestomat.eu'
+            if host not in (domain,'www.'+domain) or not parts.path.strip('/'): raise ValueError()
+            return urlunsplit(('https',domain,parts.path,'',''))
         if host == 'youtu.be': video = parts.path.strip('/')
         elif host in ('youtube.com','www.youtube.com','m.youtube.com'):
             video = parse_qs(parts.query).get('v',[''])[0] if parts.path == '/watch' else parts.path.split('/')[-1] if parts.path.startswith(('/shorts/','/live/')) else ''
@@ -95,7 +98,7 @@ def canonical_url(value, source_id):
         if not re.fullmatch(r'[A-Za-z0-9_-]{11}',video): raise ValueError()
         return 'https://www.youtube.com/watch?' + urlencode({'v':video})
     except ValueError:
-        raise ValidationError('Użyj linku do filmu YouTube albo artykułu Comparic zgodnego z wybranym źródłem.') from None
+        raise ValidationError('Użyj linku do filmu YouTube albo artykułu z domeny wybranego źródła.') from None
 
 
 def published_day(value):
@@ -157,8 +160,7 @@ def parse_feed(raw, source_id):
             title = item.findtext('title',''); day = published_day(item.findtext('pubDate',''))
             link = item.findtext('link','')
             content = item.findtext('{http://purl.org/rss/1.0/modules/content/}encoded','') or item.findtext('description','')
-            publisher = item.findtext('{http://purl.org/dc/elements/1.1/}creator','Comparic')
-            if 'podlacki' not in fold(title+' '+plain(content)+' '+publisher): continue
+            publisher = item.findtext('{http://purl.org/dc/elements/1.1/}creator',source['name'])
         if not title or not day: continue
         try: url = canonical_url(link,source_id)
         except ValidationError: continue
@@ -215,7 +217,7 @@ def add_publication(data):
     db = get_db(); identifier = store_publication(item); db.commit(); return {'id':identifier}
 
 
-def save_idea(data, idea_id=None):
+def save_idea(data, idea_id=None, within_transaction=False):
     db = get_db()
     if idea_id:
         existing = db.execute('SELECT * FROM research_ideas WHERE id=?',(idea_id,)).fetchone()
@@ -238,14 +240,15 @@ def save_idea(data, idea_id=None):
     else:
         idea_id = db.execute('''INSERT INTO research_ideas(publication_id,ticker,opinion,stage,thesis,risks,evidence,horizon,created_at,updated_at)
             VALUES(:publication_id,:ticker,:opinion,:stage,:thesis,:risks,:evidence,:horizon,:updated_at,:updated_at)''',values).lastrowid
-    db.commit(); return {'id':idea_id}
+    if not within_transaction: db.commit()
+    return {'id':idea_id}
 
 
 def workspace(month=None):
     if month and not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])',month): raise ValidationError('Wybierz poprawny miesiąc.')
     db = get_db()
     rows = db.execute('SELECT * FROM research_publications WHERE (? IS NULL OR substr(published_on,1,7)=?) ORDER BY published_on DESC,id DESC',(month,month)).fetchall()
-    publications = [{**dict(row),'suggestions':suggestions(row['title'] if row['source_id']!='comparic' else row['title']+' '+row['excerpt'])
+    publications = [{**dict(row),'suggestions':suggestions(row['title'] if SOURCES[row['source_id']]['kind']=='youtube' else row['title']+' '+row['excerpt'])
                      if row['provenance']=='FEED' else []} for row in rows]
     ideas = [dict(row) for row in db.execute('''SELECT i.*,p.source_id,p.title,p.url,p.published_on FROM research_ideas i
         JOIN research_publications p ON p.id=i.publication_id
