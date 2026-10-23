@@ -1,3 +1,4 @@
+import {setBudgetManagement} from './budgetMode';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +14,7 @@ const data:BudgetWorkspace={month:'2026-10',accounts:[{id:2,name:'Konto osobiste
   bills:[],entries:[{id:9,version:3,account_id:2,account_name:'Konto osobiste',kind:'EXPENSE',amount:146.8,date:'2026-10-02',description:'Zakupy LIDL',merchant:'LIDL',
     has_receipt:false,bill_id:null,loan_id:null,cash_effect:false,classification_status:'UNASSIGNED',lines:[{category_id:99,category_name:'Nieprzypisane',label:'',amount:146.8}]}],
   totals:{balance:10000,income:0,planned:0,spent:146.8,remaining_in_plan:-146.8,to_plan:10000}};
-beforeEach(()=>{vi.resetAllMocks();vi.mocked(budgetWorkspaceApi.defaultPlans).mockResolvedValue({month:'2026-10',items:[]});vi.mocked(budgetWorkspaceApi.get).mockResolvedValue(data);vi.mocked(budgetWorkspaceApi.updateEntry).mockResolvedValue({id:9});});
+beforeEach(()=>{setBudgetManagement(true);vi.resetAllMocks();vi.mocked(budgetWorkspaceApi.defaultPlans).mockResolvedValue({month:'2026-10',items:[]});vi.mocked(budgetWorkspaceApi.get).mockResolvedValue(data);vi.mocked(budgetWorkspaceApi.updateEntry).mockResolvedValue({id:9});});
 afterEach(()=>vi.restoreAllMocks());
 
 describe('Manual split from the import queue',()=>{
@@ -21,10 +22,11 @@ describe('Manual split from the import queue',()=>{
     vi.mocked(budgetWorkspaceApi.get).mockResolvedValue({...data,categories:data.categories.map(c=>({...c,has_activity:c.id!==3}))});
     render(<MemoryRouter initialEntries={['/budget?view=settings&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
     const toggle=await screen.findByLabelText('Pokaż nieużywane kategorie');
-    expect(screen.queryByRole('button',{name:'Edytuj kategorię: Chemia'})).not.toBeInTheDocument();
-    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
     expect(screen.getByRole('button',{name:'Edytuj kategorię: Chemia'})).toBeInTheDocument();
-    fireEvent.click(toggle);fireEvent.change(screen.getAllByLabelText('Szukaj kategorii').at(-1)!,{target:{value:'Chemia'}});
+    fireEvent.click(toggle);
+    expect(screen.queryByRole('button',{name:'Edytuj kategorię: Chemia'})).not.toBeInTheDocument();
+    fireEvent.change(screen.getAllByLabelText('Szukaj kategorii').at(-1)!,{target:{value:'Chemia'}});
     expect(screen.getByRole('button',{name:'Edytuj kategorię: Chemia'})).toBeInTheDocument();
   });
   it('edits descriptions without changing expense or limit records',async()=>{
@@ -38,15 +40,47 @@ describe('Manual split from the import queue',()=>{
     expect(budgetWorkspaceApi.setPlan).not.toHaveBeenCalled();expect(budgetWorkspaceApi.updateEntry).not.toHaveBeenCalled();
   });
   it('keeps the plan read-only until editing is explicitly enabled',async()=>{
+    setBudgetManagement(false);
     render(<MemoryRouter initialEntries={['/budget?view=plan&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
-    const edit=await screen.findByRole('button',{name:'Edytuj limity'});
+    const edit=await screen.findByRole('button',{name:'Włącz zarządzanie'});
     expect(screen.queryByLabelText('Limit: Jedzenie')).not.toBeInTheDocument();
     fireEvent.click(edit);
+    fireEvent.click(screen.getByRole('button',{name:'Zmień limit: Jedzenie'}));
     expect(screen.getByLabelText('Limit: Jedzenie')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'Zamknij edycję limitów'}));
+    fireEvent.click(screen.getByRole('button',{name:'Zakończ zarządzanie'}));
     expect(screen.queryByLabelText('Limit: Jedzenie')).not.toBeInTheDocument();
     expect(budgetWorkspaceApi.createEntry).not.toHaveBeenCalled();
     expect(budgetWorkspaceApi.updateEntry).not.toHaveBeenCalled();
+  });
+  it('reveals unused parents and children when editing a future month without writing a limit',async()=>{
+    setBudgetManagement(false);
+    const root={...data.categories[0],id:50,name:'Wyjazdy',has_activity:false};
+    const child={...root,id:51,name:'Zimowy wyjazd',parent_id:50,path:'Wyjazdy › Zimowy wyjazd',has_activity:false};
+    vi.mocked(budgetWorkspaceApi.get).mockResolvedValue({...data,month:'2030-12',categories:[...data.categories,root,child]});
+    render(<MemoryRouter initialEntries={['/budget?view=plan&month=2030-12']}><BudgetWorkspaceDashboard/></MemoryRouter>);
+    const edit=await screen.findByRole('button',{name:'Włącz zarządzanie'});
+    expect(screen.queryByRole('button',{name:'Szczegóły kategorii: Wyjazdy'})).not.toBeInTheDocument();
+    fireEvent.click(edit);
+    fireEvent.click(screen.getByRole('button',{name:'Szczegóły kategorii: Wyjazdy'}));
+    fireEvent.click(screen.getByRole('button',{name:'Zmień limit: Wyjazdy › Zimowy wyjazd'}));
+    expect(screen.getByLabelText('Limit: Wyjazdy › Zimowy wyjazd')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pokaż nieużywane kategorie')).toBeChecked();
+    expect(screen.getByLabelText('Pokaż nieużywane kategorie')).toBeDisabled();
+    expect(budgetWorkspaceApi.setPlan).not.toHaveBeenCalled();
+  });
+  it('reveals a newly added unused child in the plan immediately after saving the category',async()=>{
+    const child={...data.categories[0],id:51,name:'Zimowy wyjazd',parent_id:1,path:'Jedzenie › Zimowy wyjazd',has_activity:false};
+    vi.mocked(budgetWorkspaceApi.get).mockResolvedValueOnce(data).mockResolvedValue({...data,categories:[...data.categories,child]});
+    vi.mocked(budgetWorkspaceApi.createCategory).mockResolvedValue({id:51});
+    render(<MemoryRouter initialEntries={['/budget?view=plan&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button',{name:'Szczegóły kategorii: Jedzenie'}));
+    fireEvent.click(screen.getByRole('button',{name:'Dodaj podkategorię do: Jedzenie'}));
+    const dialog=within(screen.getByRole('dialog',{name:'Dodaj podkategorię'}));
+    fireEvent.change(dialog.getByLabelText('Nazwa kategorii'),{target:{value:'Zimowy wyjazd'}});
+    fireEvent.click(dialog.getByRole('button',{name:'Dodaj'}));
+    expect(await screen.findByLabelText('Limit: Jedzenie › Zimowy wyjazd')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Zakończ zarządzanie'})).toBeInTheDocument();
+    expect(budgetWorkspaceApi.setPlan).not.toHaveBeenCalled();
   });
   it('applies an existing expense once and keeps the completed state when refreshing fails',async()=>{
     const confirmation=vi.spyOn(window,'confirm').mockReturnValue(true);
@@ -87,7 +121,7 @@ describe('Manual split from the import queue',()=>{
   it('creates a child from its parent without modifying existing expenses',async()=>{
     vi.mocked(budgetWorkspaceApi.createCategory).mockResolvedValue({id:5});
     render(<MemoryRouter initialEntries={['/budget?view=plan&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button',{name:'Edytuj limity'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Szczegóły kategorii: Jedzenie'}));
     fireEvent.click(screen.getByRole('button',{name:'Dodaj podkategorię do: Jedzenie'}));
     const dialog=within(screen.getByRole('dialog',{name:'Dodaj podkategorię'}));
     expect(dialog.getByLabelText('Kategoria główna')).toHaveValue('1');
@@ -100,7 +134,7 @@ describe('Manual split from the import queue',()=>{
   it('edits the category with its version and parent',async()=>{
     vi.mocked(budgetWorkspaceApi.updateCategory).mockResolvedValue({id:3});
     render(<MemoryRouter initialEntries={['/budget?view=plan&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button',{name:'Edytuj limity'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Szczegóły kategorii: Chemia'}));
     fireEvent.click(screen.getByRole('button',{name:'Edytuj kategorię: Chemia'}));
     const dialog=within(screen.getByRole('dialog',{name:'Edytuj kategorię'}));
     fireEvent.change(dialog.getByLabelText('Kategoria główna'),{target:{value:'1'}});
@@ -116,7 +150,7 @@ describe('Manual split from the import queue',()=>{
       {...data.categories[1],name:'Paliwo',parent_id:1,selection_label:'Transport › Paliwo',spent:230,planned:600},
     ]});
     render(<MemoryRouter initialEntries={['/budget?view=plan&month=2026-10']}><BudgetWorkspaceDashboard/></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button',{name:/Transport/}));
+    fireEvent.click(await screen.findByRole('button',{name:'Szczegóły kategorii: Transport'}));
     expect(screen.getByText('Transport')).toBeInTheDocument();
     expect(screen.getByText('Paliwo')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Wydatek'}));

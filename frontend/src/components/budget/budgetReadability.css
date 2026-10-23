@@ -1,0 +1,138 @@
+/* Shared budget layout: compact tools, one sticky row, readable supporting text. */
+.budget-page{font-size:.9375rem}
+.budget-page .budget-navigation{display:contents;position:static;padding:0;border:0}
+.budget-page .budget-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:.6rem 1rem;padding:.25rem 0}
+.budget-page .budget-toolbar.is-managing{border-left:3px solid var(--accent);padding-left:.75rem}
+.budget-mode-control{display:flex;align-items:center;gap:.5rem}
+.budget-mode-name{color:var(--muted);font-size:.8125rem}
+.budget-mode-short{display:none}
+.budget-page .budget-navigation-actions{margin-left:auto;justify-content:flex-end;width:auto}
+.budget-page .budget-mode-control button{font-size:.8125rem;padding:.55rem .7rem;white-space:nowrap}
+.budget-page .budget-primary-nav{position:sticky;top:0;z-index:25;background:var(--canvas,#0d191f);padding:.35rem 0;border-bottom:1px solid var(--line);margin:0}
+.budget-page .budget-primary-nav a{font-size:.8125rem;padding:.6rem .65rem}
+.budget-page .budget-time-context{font-size:.8125rem;margin:0;color:var(--muted)}
+.budget-page .budget-heading,.budget-page .br-heading{padding:0}
+.budget-page .budget-heading h1,.budget-page .br-heading h1{font-size:1.65rem;line-height:1.25;margin:0}
+.budget-page .page-eyebrow{font-size:.75rem;line-height:1.4;margin-bottom:.3rem}
+.budget-page .br-heading p:not(.page-eyebrow){font-size:.875rem;margin-top:.3rem}
+.budget-page small,.budget-page .bp-help,.budget-page .br-form-help,.budget-page .br-plan-note,.budget-page .budget-calculation-help,.budget-page .budget-category-description{font-size:.8125rem;line-height:1.55}
+.budget-page .budget-section-heading p:not(.page-eyebrow){font-size:.875rem}
+.budget-page .budget-category-payment small,.budget-page .budget-payment-status,.budget-page .budget-bill-status,.budget-page .budget-category-toggle small,.budget-page .budget-plan-progress small{font-size:.8125rem}
+.budget-page .budget-category-payment strong,.budget-page .budget-compact-table{font-size:.875rem}
+.budget-page .budget-category-payment b{font-size:.9375rem}
+.budget-page .budget-task-list small{display:block;font-size:.8125rem;color:var(--muted);margin-top:.25rem}
+.budget-page .budget-task-list li{padding:.7rem 0;gap:1rem}
+.budget-page .budget-task-list li>div{min-width:0}
+.budget-page .budget-task-list a{flex-shrink:0;font-size:.8125rem}
+.budget-task-context{font-size:.8125rem;color:var(--muted);margin-top:.75rem}
+.budget-task-context summary{cursor:pointer}
+.budget-task-context p{margin-top:.5rem}
+.budget-filter-toggle{display:none}
+.budget-unified-tasks .budget-section-heading{align-items:center;margin-bottom:.5rem}
+.budget-unified-tasks .budget-section-heading label{font-size:.8125rem}
+.budget-unified-tasks .budget-section-heading select{margin-left:.5rem}
+
+/* Summary details stay available without crowding the three main amounts. */
+.budget-page .budget-summary{gap:.75rem}
+.budget-page .budget-summary-heading h2{font-size:1.15rem}
+.budget-page .budget-summary-heading .page-eyebrow{display:none}
+.budget-page .budget-summary-cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}
+.budget-page .budget-summary-card{padding:1rem;min-height:0;gap:.4rem}
+.budget-page .budget-summary-label{font-size:.875rem}
+.budget-page .budget-summary-amount{font-size:clamp(1.65rem,2.4vw,2.15rem);margin:.3rem 0}
+.budget-page .budget-summary-card p,.budget-page .budget-summary-card small{font-size:.8125rem;margin:0 0 .5rem}
+.budget-page .budget-summary-card>a{padding-top:.4rem;margin-top:auto;font-size:.8125rem}
+.budget-card-calculation{font-size:.8125rem;color:var(--muted);line-height:1.6;margin:.1rem 0 .4rem}
+.budget-card-calculation summary{cursor:pointer;color:var(--ink)}
+.budget-card-calculation[open]>summary{margin-bottom:.6rem}
+.budget-page .budget-summary-breakdown,.budget-page .budget-summary-bridge{font-size:.8125rem}
+.budget-page .budget-summary-now{padding:.8rem 1rem;gap:.6rem 1rem}
+.budget-page .budget-summary-now>div small,.budget-page .budget-summary-now dt,.budget-page .budget-summary-now>p{font-size:.8125rem}
+
+/* One payment summary covers bills and loans, including the next actual obligation. */
+.budget-payments-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;padding:1rem 0;margin-bottom:1rem;border-block:1px solid var(--line)}
+.budget-payments-summary>div{min-width:0}
+.budget-payments-summary span,.budget-payments-summary small{display:block;color:var(--muted);font-size:.8125rem;line-height:1.5}
+.budget-payments-summary strong,.budget-payments-summary a{display:block;font-size:1.2rem;color:var(--ink);margin:.25rem 0;font-variant-numeric:tabular-nums}
+.budget-payments-summary .budget-payments-complete{font-size:.9375rem}
+.budget-pending-loans{margin-top:.8rem}
+
+/* Reserve cards expose money and monthly action; history and instructions are folded. */
+.budget-page .br-card-compact{padding:1rem}
+.budget-page .br-card-compact .br-card-title h2{font-size:1.1rem;margin-top:.2rem}
+.budget-page .br-card-compact .br-card-title p,.budget-page .br-card-compact .br-tag{font-size:.8125rem}
+.budget-page .br-card-compact .br-saved{margin:.75rem 0;padding:.65rem .8rem;gap:.15rem}
+.budget-page .br-card-compact .br-saved>strong{font-size:1.9rem}
+.br-compact-target{margin:.6rem 0}
+.br-compact-target>div:first-child,.br-compact-left{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem;font-size:.8125rem}
+.br-compact-target .br-progress{margin-top:.35rem}
+.br-compact-left{margin:.2rem 0 .6rem;color:var(--muted)}
+.br-compact-left b{color:var(--ink);white-space:nowrap}
+.br-compact-left .br-funding-needed{color:#e7b869}
+.budget-page .br-card-compact .budget-funding-progress{padding:.3rem 0;margin:.4rem 0}
+.budget-page .br-card-compact .br-card-actions{margin-top:.65rem;gap:.5rem}
+.br-reserve-details{margin-top:.8rem;border-top:1px solid var(--line);padding-top:.6rem;font-size:.8125rem;line-height:1.6;color:var(--muted)}
+.br-reserve-details summary,.br-reserve-method summary,.br-reserve-accounts summary,.br-method>summary{cursor:pointer;color:var(--ink);font-size:.8125rem;font-weight:600}
+.br-reserve-details[open]>summary{margin-bottom:.7rem}
+.br-reserve-details p{margin:.5rem 0}
+.br-reserve-details .br-actions{flex-wrap:wrap}
+.br-reserve-accounts>section{margin-top:.7rem}
+.br-reserve-method,.br-reserve-accounts{font-size:.8125rem;color:var(--muted)}
+.budget-page .br-group-summary{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:0}
+
+@media(max-width:700px){
+  .budget-page .budget-summary-cards{grid-template-columns:1fr}
+  .budget-page .budget-summary-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.35rem .75rem;padding:.85rem}
+  .budget-page .budget-summary-label{grid-column:1;grid-row:1;align-self:center;max-width:19ch}
+  .budget-page .budget-summary-amount{grid-column:2;grid-row:1;font-size:1.45rem;text-align:right;white-space:nowrap;margin:0}
+  .budget-page .budget-summary-card>small,.budget-page .budget-card-calculation{grid-column:1/-1;margin:0}
+  .budget-page .budget-summary-card>a{grid-column:1/-1;margin:0;padding-top:.2rem}
+  .budget-page .budget-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.5rem}
+  .budget-page .budget-mode-name{display:none}
+  .budget-mode-full{display:none}
+  .budget-mode-short{display:inline}
+  .budget-page .budget-toolbar .budget-month-picker{display:grid;grid-template-columns:30px minmax(0,1fr) 30px;gap:0;min-width:0;width:100%;padding:.15rem}
+  .budget-page .budget-toolbar .budget-month-picker input[type='month']{width:100%;min-width:0;padding:.4rem .1rem;font-size:.875rem}
+  .budget-page .budget-toolbar .budget-month-picker button{width:30px;padding:.3rem;min-width:0;justify-content:center}
+  .budget-page .budget-navigation-actions{grid-column:1/-1;justify-content:flex-end;margin:0;gap:.5rem;width:100%}
+  .budget-page .budget-navigation-actions>.budget-button-primary{margin-right:auto}
+  .budget-page .budget-navigation-actions>a,.budget-page .budget-navigation-actions>button,.budget-page .budget-add-menu>summary{font-size:.8125rem;min-height:38px;padding:.5rem .65rem}
+  .budget-page .budget-primary-nav a{font-size:.8125rem;padding:.55rem .6rem;min-height:40px}
+  .budget-page .budget-heading h1,.budget-page .br-heading h1{font-size:1.4rem}
+  .budget-page .budget-task-list li{align-items:flex-start;flex-direction:column;gap:.3rem}
+  .budget-unified-tasks .budget-section-heading{align-items:flex-start;gap:.5rem}
+  .budget-unified-tasks .budget-section-heading select{margin-left:0}
+  .budget-payments-summary{grid-template-columns:1fr 1fr;gap:.75rem}
+  .budget-payments-summary>div:last-child{grid-column:1/-1}
+}
+
+/* One DOM tree: editing a limit works identically in the table and phone cards. */
+@media(max-width:650px){
+  .budget-page .budget-filter-toggle{display:inline-flex;margin-bottom:.6rem}
+  .budget-page .budget-plan-filters:not(.is-mobile-open){display:none}
+  .budget-page .budget-plan-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;padding:.8rem}
+  .budget-page .budget-plan-summary>span{font-size:.8125rem}
+  .budget-page .budget-plan-summary b{display:block;font-size:1rem;margin-top:.3rem}
+  .budget-page .budget-category-table-panel .budget-table-scroll{overflow:visible}
+  .budget-page .budget-category-table{display:block;min-width:0;width:100%}
+  .budget-page .budget-category-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .budget-page .budget-category-table tbody{display:block}
+  .budget-page .budget-category-table tbody>tr:not(.budget-category-detail-row){display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line);border-radius:.8rem;margin:.7rem 0;overflow:hidden}
+  .budget-page .budget-category-table tr>th:first-child{grid-column:1/-1;width:100%;padding:.8rem;border:0}
+  .budget-page .budget-category-table tbody th{min-width:0}
+  .budget-page .budget-category-table .budget-category-toggle{white-space:normal}
+  .budget-page .budget-category-toggle span{min-width:0;flex:1}
+  .budget-page .budget-category-toggle small{max-width:none;white-space:normal;overflow-wrap:anywhere}
+  .budget-page .budget-category-table tr>td{display:block;min-width:0;border:0;padding:.6rem .4rem;font-size:.8125rem;white-space:normal}
+  .budget-page .budget-category-table tr>td[data-label]{text-align:center;border-top:1px solid var(--line)}
+  .budget-page .budget-category-table td[data-label]:before{content:attr(data-label);display:block;font-size:.8125rem;color:var(--muted);margin-bottom:.3rem}
+  .budget-page .budget-category-table td[data-label]>b{font-size:clamp(.8125rem,3.7vw,.875rem);white-space:nowrap;letter-spacing:-.025em}
+  .budget-page .budget-category-table tr>td:has(.budget-limit-editor){grid-column:1/-1;text-align:left}
+  .budget-page .budget-category-table .budget-limit-editor{min-width:0;max-width:none;width:100%}
+  .budget-page .budget-category-detail-row{display:block}
+  .budget-page .budget-category-detail-row>td{padding:0}
+  .budget-page .budget-category-detail{position:static;max-width:100%;width:100%;padding:.7rem}
+  .budget-page .budget-child-limits>div>div:first-child{min-width:0;flex-basis:100%}
+  .budget-page .budget-plan-progress{min-width:0;max-width:none}
+  .budget-page .budget-category-table .budget-section-heading{flex-direction:column}
+}

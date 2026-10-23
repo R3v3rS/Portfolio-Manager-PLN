@@ -21,7 +21,7 @@ Instrukcje są po polsku. Przykłady korzystają z fikcyjnych kwot i kont; baza,
 ## Główne możliwości
 
 - Centrum finansów: majątek netto, płynność i konkretne sprawy do załatwienia.
-- Budżet: kategorie i podkategorie, wspólne limity, domyślny plan, miesięczne wyjątki i kopiowanie na 3/6/12 miesięcy.
+- Budżet: przeglądanie i zarządzanie, czytelne podsumowanie, kategorie i podkategorie, wspólne limity, domyślny plan, miesięczne wyjątki i kopiowanie na 3/6/12 miesięcy.
 - Rachunki jednorazowe i cykliczne, raty przypisane do kont oraz powiązanie z istniejącymi płatnościami.
 - Rezerwy na koszt z terminem, miesięczne pule prądu/wody i stałe odkładanie bez terminu.
 - Konta, saldo początkowe poza dochodem, korekty oraz przelewy własne i do inwestycji.
@@ -98,4 +98,4 @@ Baza SQLite, backupy, załączniki, klucze, logi i prywatne zrzuty pozostają lo
 
 Aplikacja nie wykonuje przelewów w banku ani zleceń u brokera. Prognoza jest symulacją, a analizy zależą od kompletności historii i aktualności wyceny. Lokalna konfiguracja nie jest gotowym publicznym systemem wieloużytkownikowym.
 
-Starsze dokumenty audytowe znajdują się w [archiwum dokumentacji](docs/archive/README.md) i mogą opisywać wcześniejsze zachowanie. Obecne instrukcje znajdują się w [spisie dokumentacji](docs/README.md); szczegóły historycznej własności portfeli uzupełnia [PROJECT_GUIDE_PL.md](docs/PROJECT_GUIDE_PL.md).
+Dawne audyty i plany są zachowane w historii Git; [indeks archiwum](docs/archive/README.md) prowadzi do ich konkretnych wersji. Mogą opisywać wcześniejsze zachowanie. Obecne instrukcje znajdują się w [spisie dokumentacji](docs/README.md); szczegóły historycznej własności portfeli uzupełnia [PROJECT_GUIDE_PL.md](docs/PROJECT_GUIDE_PL.md).

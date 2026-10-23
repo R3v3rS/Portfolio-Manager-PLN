@@ -1,3 +1,4 @@
+import {setBudgetManagement} from '../components/budget/budgetMode';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,7 +11,7 @@ const workspace=():AccountsWorkspace=>({as_of:'2026-10-02',totals:{balance:10000
     {id:2,name:'Konto oszczędnościowe',balance:2000,reserved:300,available:1700,verified_on:null,allocations:[{reserve_id:7,name:'Ubezpieczenie auta',amount:300,due_date:'2027-09-30',version:2}]}],
   reserves:[{id:7,name:'Ubezpieczenie auta',version:2,locations:[{account_id:1,account_name:'Konto osobiste',amount:500},{account_id:2,account_name:'Konto oszczędnościowe',amount:300}]}],history:[]});
 const show=(path='/budget/accounts')=>render(<MemoryRouter initialEntries={[path]}><BudgetAccounts/></MemoryRouter>);
-beforeEach(()=>{vi.resetAllMocks();vi.mocked(accountsApi.get).mockResolvedValue(workspace());vi.mocked(accountsApi.create).mockResolvedValue({id:3});vi.mocked(accountsApi.transfer).mockResolvedValue({id:1});vi.mocked(accountsApi.reconcile).mockResolvedValue({id:1});});
+beforeEach(()=>{setBudgetManagement(true);vi.resetAllMocks();vi.mocked(accountsApi.get).mockResolvedValue(workspace());vi.mocked(accountsApi.create).mockResolvedValue({id:3});vi.mocked(accountsApi.transfer).mockResolvedValue({id:1});vi.mocked(accountsApi.reconcile).mockResolvedValue({id:1});});
 
 describe('Budget accounts',()=>{
   it('creates a credit card using the outstanding debt, without using the credit limit as cash',async()=>{

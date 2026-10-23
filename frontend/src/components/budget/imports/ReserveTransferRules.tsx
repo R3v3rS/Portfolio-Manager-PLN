@@ -1,3 +1,4 @@
+import {useBudgetFormGuard} from '../budgetMode';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRightLeft, CirclePlus, Pencil } from 'lucide-react';
@@ -18,13 +19,15 @@ export default function ReserveTransferRules({workspace,onSaved}:{workspace:Budg
   </section>;
 }
 
-function TransferRuleEditor({workspace,rule,onClose,onSaved}:{workspace:BudgetImportsWorkspace;rule:ReserveTransferRule|null;onClose:()=>void;onSaved:()=>void}){
+function TransferRuleEditor({workspace,rule,onClose:close,onSaved}:{workspace:BudgetImportsWorkspace;rule:ReserveTransferRule|null;onClose:()=>void;onSaved:()=>void}){
   const [pattern,setPattern]=useState(rule?.pattern??'');
   const [source,setSource]=useState(String(rule?.source_account_id??workspace.accounts[0]?.id??''));
   const [target,setTarget]=useState(String(rule?.target_account_id??workspace.accounts.find(a=>a.id!==Number(source))?.id??''));
   const [reserve,setReserve]=useState(String(rule?.reserve_id??workspace.reserves?.[0]?.id??''));
   const [active,setActive]=useState(rule?.active??true),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const [token]=useState(()=>crypto.randomUUID());
+  const canClose=useBudgetFormGuard([pattern,source,target,reserve,active]);
+  const onClose=()=>{if(canClose())close();};
   const save=async(e:React.FormEvent)=>{
     e.preventDefault();setBusy(true);setError('');
     try{

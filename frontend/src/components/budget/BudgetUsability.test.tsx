@@ -111,14 +111,12 @@ it('opens the exact pending documents from the review queue and tolerates a fail
   vi.mocked(budgetImportsApi.get).mockResolvedValueOnce({ pending_count: 1, sessions: [{ id: 7, filename: 'bank.csv', status: 'PENDING' }],
     receipts: [{ id: 8, filename: 'paragon.jpg', status: 'PENDING' }] } as unknown as BudgetImportsWorkspace);
   const view = show(<BudgetReviewQueue data={data()} forecast={null}/>);
-  fireEvent.click(screen.getByText('Do sprawdzenia'));
   expect((await screen.findByText('Import: bank.csv')).closest('li')?.querySelector('a')).toHaveAttribute('href', '/budget/imports?tab=csv&session_id=7&month=2030-01');
   expect(screen.getByText('Paragon: paragon.jpg').closest('li')?.querySelector('a')).toHaveAttribute('href', '/budget/imports?tab=receipt&receipt_id=8&month=2030-01');
   fireEvent.change(screen.getByLabelText('Rodzaj spraw'), { target: { value: 'ACCOUNT' } });
   expect(screen.queryByText('Import: bank.csv')).not.toBeInTheDocument(); view.unmount();
   vi.mocked(budgetImportsApi.get).mockRejectedValueOnce(new Error('Nie działa'));
   show(<BudgetReviewQueue data={data()} forecast={null}/>);
-  fireEvent.click(screen.getByText('Do sprawdzenia'));
   expect(await screen.findByRole('status')).toHaveTextContent('Nie udało się odczytać stanu importów');
 });
 

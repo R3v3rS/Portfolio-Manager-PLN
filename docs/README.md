@@ -1,6 +1,6 @@
 # Dokumentacja Portfolio Manager (PLN)
 
-Stan opisanej funkcjonalności: 22 października 2026. Opisy dotyczą aktualnego interfejsu i kodu w tej wersji. Kwoty i nazwy kont w przykładach są fikcyjne.
+Stan opisanej funkcjonalności: 23 października 2026. Opisy dotyczą aktualnego interfejsu i kodu w tej wersji. Kwoty i nazwy kont w przykładach są fikcyjne.
 
 ## Od czego zacząć
 
@@ -23,8 +23,19 @@ Najkrótsza kolejność wdrożenia: uruchom aplikację, wprowadź salda kont, do
 - Prognoza używa zapisanych dochodów, zobowiązań i założeń wydatków. Nie pobiera automatycznie rzeczywistego salda bankowego.
 - Baza i zdjęcia paragonów są przechowywane lokalnie. Wybranie analizy AI wysyła wskazane dane do Google Gemini; podgląd i zasady opisuje [instrukcja analiz](AI_PORTFOLIO_ANALYSIS_MODULE_PL.md). Repozytorium zawiera kod i instrukcje z fikcyjnymi przykładami.
 
-## Dokumentacja uzupełniająca
+## Referencje techniczne i utrzymanie
 
-[PROJECT_GUIDE_PL.md](PROJECT_GUIDE_PL.md) opisuje szczegóły własności i księgowania portfeli. [ANALYTICS_SUMMARY_API_PL.md](ANALYTICS_SUMMARY_API_PL.md) opisuje podsumowania analiz. [TEST_CATALOG_PL.md](TEST_CATALOG_PL.md) jest katalogiem wybranych testów, a nie instrukcją użytkownika.
+| Potrzeba | Dokument |
+|---|---|
+| Własność portfeli, koszt pozycji i księgowanie | [Model portfeli](PROJECT_GUIDE_PL.md) |
+| Pola i jednostki zbiorczego podsumowania analiz | [Podsumowanie analiz API](ANALYTICS_SUMMARY_API_PL.md) |
+| Zakres opisanych tras i źródła pozostałych kontraktów | [Zakres API](API_ZAKRES_PL.md) · [OpenAPI](openapi.yaml) |
+| Uruchamianie testów i najważniejsze scenariusze | [Mapa testów](TEST_CATALOG_PL.md) |
 
-Starsze audyty i notatki wdrożeniowe są w [archiwum dokumentacji](archive/README.md). Mogą opisywać wcześniejsze ekrany, wykryte już poprawione błędy lub historyczne założenia. Punktem wejścia do obecnej obsługi są dokumenty z tabeli powyżej. [Zakres dokumentacji API](API_ZAKRES_PL.md) wyjaśnia częściowy opis OpenAPI, referencje domenowe i rolę testu kontraktu koperty.
+## Porządek dokumentacji
+
+Bieżący katalog zawiera instrukcje użytkownika i referencje techniczne o różnych zakresach. Krótka instrukcja budżetu służy codziennej pracy, a pełna — wyjaśnia obliczenia i sytuacje szczególne. Plik `STRATEGIE_ARCHIWUM.md` zachowuje wcześniejsze odnośniki i prowadzi do jednej właściwej instrukcji; nie powiela jej treści.
+
+Dawne audyty i notatki są dostępne przez [indeks archiwum](archive/README.md). Ich 16 pełnych wersji zachowuje historia Git. Nie są bieżącą listą błędów ani planem prac.
+
+Zmianę funkcji opisuj w jej istniejącej instrukcji, a krótką informację o wydaniu w [najnowszej wersji](LATEST_VERSION.md). Szczegóły obliczeń trafiają do referencji technicznej. Nie twórz osobnego dokumentu dla każdego zakończonego zadania; lokalne raporty, zrzuty i logi pozostają w ignorowanym `.local-artifacts/`.

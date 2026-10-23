@@ -1,6 +1,6 @@
 # Budżet domowy — szczegółowa instrukcja
 
-Stan funkcjonalności: 19 października 2026. Wszystkie kwoty poniżej są przykładami. [Spis dokumentacji](README.md) · [Pozostałe moduły](INSTRUKCJA_OBSLUGI_PL.md)
+Stan funkcjonalności: 23 października 2026. Wszystkie kwoty poniżej są przykładami. [Spis dokumentacji](README.md) · [Pozostałe moduły](INSTRUKCJA_OBSLUGI_PL.md)
 
 Do codziennej pracy zacznij od [krótkiej instrukcji budżetu](BUDZET_NA_CO_DZIEN_PL.md). Poniżej znajdziesz szczegółowe zasady i przypadki szczególne.
 
@@ -25,6 +25,14 @@ Do codziennej pracy zacznij od [krótkiej instrukcji budżetu](BUDZET_NA_CO_DZIE
 17. [Najczęstsze pytania i pomyłki](#17-najczęstsze-pytania-i-pomyłki)
 
 ## 1. Podstawowe pojęcia i zakładki
+
+### Przeglądanie i zarządzanie
+
+Budżet otwiera się w **Przeglądaniu**. Widzisz kwoty, wykonanie limitów, rachunki i historię. Nadal możesz dodawać wydatki, wpływy i paragony, przypisywać importy, zapisywać opłacenie rachunku, przelew lub odłożenie na rezerwę. To codzienna ewidencja.
+
+**Zarządzaj** (na telefonie **Edytuj**) w pasku nad zakładkami odsłania zmianę limitów, struktury kategorii, harmonogramów rachunków i dochodów, ustawień oraz archiwizację i usuwanie zapisanych pozycji. Wybrany tryb pozostaje podczas przechodzenia pomiędzy zakładkami budżetu. Odświeżenie lub ponowne otwarcie aplikacji rozpoczyna przeglądanie; tryb nie jest zapisywany w bazie.
+
+W zarządzaniu pola limitów i odłożeń otwierasz przy **konkretnej pozycji**. Samo włączenie trybu nie otwiera wszystkich edytorów. Zmodyfikowany limit lub formularz ustawień wywołuje ostrzeżenie przy wyjściu z edycji, przejściu linkiem, zmianie miesiąca lub zamykaniu strony. Zapisz zmiany albo potwierdź ich odrzucenie. **Zakończ** (na telefonie **Gotowe**) chowa ustawienia. Przełącznik upraszcza widok; nie jest blokadą dostępu ani systemem uprawnień.
 
 Budżet odpowiada na trzy osobne pytania: ile pieniędzy jest na kontach, na co je przeznaczono oraz jakie operacje faktycznie wykonano. Plan nie jest przelewem, a odłożenie pieniędzy nie musi oznaczać opuszczenia konta.
 
@@ -51,6 +59,10 @@ Budżet odpowiada na trzy osobne pytania: ile pieniędzy jest na kontach, na co 
 | Prognoza | Saldo na 30, 90 i 365 dni, kalendarz oraz założenia miesięczne |
 | Ustawienia | Kategorie, domyślne limity, osobne sekcje kategorii, planu domyślnego, reguł, kont i okresu oraz końca miesiąca |
 | Dodaj / Importuj | Skróty do wpływu, wydatku, CSV, paragonu i wpisów do sprawdzenia |
+
+Przy przewijaniu pozostaje widoczny tylko pasek zakładek. Miesiąc i narzędzia przewijają się razem z treścią. Opisy obliczeń na trzech głównych kafelkach są rozwijane; informacja o oczekiwanych wpływach pozostaje widoczna.
+
+Na telefonie tabela planu zmienia się w karty **Plan / Wydano / Pozostało**. Rozwinięcie kategorii pokazuje te same podkategorie i płatności co na komputerze. Wyszukiwarka oraz zakres kategorii są pod przyciskiem **Filtry kategorii**. Edycja używa tego samego limitu na obu ekranach.
 
 Wybrany miesiąc jest zachowywany przy przechodzeniu między zakładkami. **Konta i rezerwy pokazują aktualny stan, a prognoza zaczyna się od dzisiaj.** Wybranie dawnego miesiąca nie cofa sald tych ekranów. Plan, transakcje i rozliczenie miesiąca dotyczą wybranego okresu.
 
@@ -104,11 +116,11 @@ Początkowy dług pomniejsza wolne środki bez sztucznego wydatku lub dochodu w 
 
 ## 4. Kategorie, podkategorie i limity
 
-Nazwę, podział oraz uwzględnianie kategorii w tempie zmienisz w **Ustawieniach → Kategorie i podkategorie**. Kwoty miesięczne edytujesz w **Planie miesiąca → Edytuj limity**. W ustawieniach opisy i podkategorie są zwijane; wyszukiwanie odsłania pasujące wpisy. Dla podkategorii rozwiń ich listę.
+Nazwę, podział oraz uwzględnianie kategorii w tempie zmienisz w **Ustawieniach → Kategorie i podkategorie**. Kwoty miesięczne edytujesz w **Planie miesiąca → Zarządzaj → Zmień limit** (na telefonie przycisk **Edytuj**). W ustawieniach opisy i podkategorie są zwijane; wyszukiwanie odsłania pasujące wpisy. Dla podkategorii rozwiń ich listę.
 
 W edycji kategorii możesz zapisać **Opis i przykłady**. Opis jest widoczny w ustawieniach, planie i przy wyborze kategorii nowego wydatku. Warto opisać cel zakupu: posiłek kupiony z konieczności może należeć do Jedzenia, a celowe wyjście do Przyjemności. Sama nazwa restauracji nie rozstrzyga tej decyzji.
 
-Plan i ustawienia domyślnie ukrywają kategorie bez historii, planów, rachunków, rezerw oraz reguł. Przełącznik **Pokaż nieużywane kategorie** odsłania je bez usuwania danych; wyszukiwanie również je pokazuje. Kategorie z zaplanowanym wydatkiem lub jawnym limitem 0 zł pozostają widoczne. Przy podkategorii bez własnej kwoty aplikacja wyjaśnia, czy korzysta ona ze wspólnego limitu rodzica, ma plan z rachunku, czy nie ma planu.
+Podgląd planu domyślnie ukrywa kategorie bez historii, planów, rachunków, rezerw oraz reguł. Włączenie **zarządzania** pokazuje także nieużywane kategorie, aby można było nadać im pierwszy limit. Ustawienia kategorii domyślnie pokazują wszystkie; opcjonalnie możesz wyłączyć nieużywane. Przełącznik **Pokaż nieużywane kategorie** odsłania je bez usuwania danych; wyszukiwanie również je pokazuje. Kategorie z zaplanowanym wydatkiem lub jawnym limitem 0 zł pozostają widoczne. Nowo dodana kategoria otwiera edycję planu; jej utworzenie nie ustala kwoty. Kategorie są wspólne dla miesięcy, a limit zapisujesz osobno dla wybranego miesiąca. Przy podkategorii bez własnej kwoty aplikacja wyjaśnia, czy korzysta ona ze wspólnego limitu rodzica, ma plan z rachunku, czy nie ma planu.
 
 Aplikacja obsługuje dwa poziomy, np. **Transport → Paliwo / Bilety / Utrzymanie auta**. Zmiana nazwy zachowuje powiązania. Przeniesienie kategorii zmienia grupowanie jej dotychczasowych wpisów, dlatego może też zmienić prezentację wcześniejszych miesięcy.
 
@@ -118,9 +130,23 @@ Przykład: Transport ma 800 zł, Paliwo 600 zł, Bilety 100 zł. Łączny plan T
 
 Przykład z rachunkiem: Mieszkanie ma wspólny limit 1000 zł, a przypisany czynsz wynosi 700 zł. Na pozostałe wydatki zostaje 300 zł. Czynsz mieści się już w tych 1000 zł.
 
-Plan pokazuje zwięzłą tabelę: cały plan, wydano w planie, do opłacenia i na zwykłe wydatki. Kliknij nazwę kategorii, aby rozwinąć opis, podkategorie oraz przypisane płatności i pule. Podkategorie korzystające ze wspólnej kwoty nie są dodawane do planu po raz drugi. Lista konkretnych rachunków pokazuje termin, konto, status i podkategorię. Opłacone rachunki można rozwinąć. Nowy rachunek dodany stąd ma wstępnie wybraną kategorię; możesz zmienić ją na podkategorię.
+Kliknij nazwę kategorii, aby rozwinąć opis, podkategorie oraz przypisane płatności i pule. Lista płatności pokazuje termin, konto, status i podkategorię; opłacone pozycje można rozwinąć. W zarządzaniu nowy rachunek dodany stąd ma wstępnie wybraną kategorię, którą możesz zmienić na podkategorię.
 
 Kategoria bez własnego limitu nie oznacza, że jej zakupy są bezkosztowe. Zapisany zakup pomniejsza saldo, a przekroczenie nie zwraca automatycznie pieniędzy do puli „Do rozdysponowania w planie”. Niezapłacone zobowiązanie również pozostaje do pokrycia.
+
+### Czytanie planu i pasków wykorzystania
+
+Tabela ma kolumny **Kategoria / Plan / Wydano / Pozostało**. Plan kategorii głównej zawiera podkategorie i przypisane płatności. Rozwiń kategorię, aby zobaczyć jej części: kwoty przypisane podkategoriom, płatności przypisane bezpośrednio do kategorii oraz **nieprzypisaną część planu**. Nie dodawaj wiersza rodzica ponownie do jego dzieci.
+
+Przykład: Dom ma plan 300 zł, a Wyposażenie własny limit 300 zł. Nieprzypisana część planu Domu wynosi 0 zł. Podkategoria Inne zakupy bez własnej kwoty nie dostaje dodatkowych 300 zł. Zakup nadal obciąży wspólny plan Domu.
+
+**Wydano** to faktyczne zakupy po zwrotach. **Pozostało** wynika z wykonania planu. Przy mediach wykonanie obejmuje również odłożenia, a płatności sfinansowane wcześniejszą rezerwą nie obciążają limitu ponownie. Jeżeli te miary się różnią, obok zakupów widzisz osobne wykonanie planu. Pozostało nie oznacza wolnego salda: w tej kwocie mogą nadal mieścić się oczekujące rachunki i plan mediów.
+
+Pasek rozróżnia koszty obciążające ten plan (turkus), nieopłacone zobowiązania (złoty), wykonane i oczekujące odłożenia mediów (fiolet) oraz resztę planu (tło). Tekst podaje wykonanie i kwoty zobowiązań, a przekroczenie ma osobną kwotę i kolor. Brak planu jest oznaczony słownie, bez wyliczania procentu z zera. Sumy odłożeń na pozostałe rezerwy są pokazane oddzielnie poniżej tabeli, żeby nie zwiększać drugi raz limitów kategorii.
+
+W podsumowaniu **Na co wydano?** pokazuje zakupy po zwrotach według kategorii głównych. Kliknięcie otwiera transakcje z filtrem obejmującym także podkategorie. Przy mieszanym paragonie podsumowanie filtra sumuje tylko jego pasujące pozycje; wiersz transakcji nadal pokazuje całą płatność. Przelewy i nowe odłożenia nie są zakupami w tym zestawieniu.
+
+W tym zestawieniu przełącznik **Wykorzystanie planu** odnosi każdy pasek do planu jego kategorii: 80% wypełnia 80% szerokości, a przekroczenie ma pełny czerwony pasek i kwotę ponad plan. Wykonanie planu może różnić się od zakupów z powodu odłożeń mediów lub wykorzystania wcześniejszych rezerw; wtedy pokazujemy je osobno. Brak planu nie otrzymuje sztucznego procentu. **Udział w wydatkach** pokazuje natomiast udział kategorii w sumie wydatków; pasek i podpis korzystają z tej samej miary. Gdy zwroty przewyższają zakupy w którejś kategorii, udział liczymy tylko w dodatnich kwotach kategorii i podajemy podstawę obliczenia. Suma u góry nadal uwzględnia wszystkie zwroty. Przy zwiniętej liście podajemy kwotę pominiętych kategorii.
 
 ## 5. Plan domyślny, wyjątki i kopiowanie
 
@@ -138,7 +164,7 @@ Późniejsza zmiana obowiązuje od wskazanego miesiąca. Wcześniejsze wersje po
 
 ### Wyjątek na jeden miesiąc
 
-Wybierz miesiąc, włącz **Edytuj limity**, wpisz kwotę i zapisz kategorię. Ten zapis ma pierwszeństwo przed domyślnym limitem. Przykład: domyślnie Jedzenie 1000 zł, grudzień 1300 zł, styczeń znów 1000 zł, o ile nie ma własnego styczniowego zapisu.
+Wybierz miesiąc, włącz **zarządzanie**, kliknij **Zmień limit** przy wybranej kategorii, wpisz kwotę i zapisz kategorię. Ten zapis ma pierwszeństwo przed domyślnym limitem. Przykład: domyślnie Jedzenie 1000 zł, grudzień 1300 zł, styczeń znów 1000 zł, o ile nie ma własnego styczniowego zapisu.
 
 Miesięczny wpis 0 zł jest decyzją, nie brakiem danych. Gdy istnieje domyślny limit, przy zapisanym wyjątku dostępne jest **Wróć do domyślnego**. Usuwa to wyjątek dla wybranej kategorii i miesiąca, zachowując historię wydatków.
 
@@ -192,6 +218,8 @@ Jeśli omyłkowo wybrałeś historię dla naprawdę nowego zakupu, użyj dostęp
 
 ## 7. Rachunki i raty kredytów
 
+W **Rachunkach i ratach** kwoty opłacone, pozostałe i najbliższy termin obejmują obie grupy. Filtr pozwala wybrać rachunki jednorazowe, powtarzalne lub raty kredytów. Komunikat o rozliczeniu wszystkich płatności wymaga rozliczenia również rat. Zapłacone pozycje obu rodzajów znajdziesz w **Opłaconych płatnościach**.
+
 ### Dodanie rachunku
 
 W **Rachunkach i ratach → Dodaj zobowiązanie** podaj nazwę, kwotę, konto oraz kategorię. Wybierz:
@@ -224,6 +252,8 @@ Plan rat jest przypisany do identyfikatora kategorii, nie do samej nazwy „Rach
 Przy płatności wybierz **Cofnij rozliczenie** i przeczytaj podgląd skutków. Jeśli rozliczenie utworzyło nowy wydatek, cofnięcie usuwa jego obciążenie. Jeśli tylko powiązało wcześniej istniejący zakup, ten zakup pozostaje w historii i saldzie, a zwalniane jest powiązanie. To nie jest zapis zwrotu pieniędzy od sprzedawcy.
 
 ## 8. Rezerwy na przyszłe wydatki
+
+Na karcie rezerwy od razu widać zgromadzoną kwotę, wykonanie planu miesiąca i kwotę jeszcze do odłożenia. **Odłóż środki** oraz **Zapisz płatność** pozostają na wierzchu. W **Szczegółach rezerwy** są opis, miejsca pieniędzy, zwolnienie środków, przeniesienie, historia i — w zarządzaniu — archiwizacja. Plan miesięczny i kwota brakująca do całego celu to osobne miary.
 
 ### Rezerwa z terminem, np. OC w lutym
 
@@ -279,6 +309,8 @@ Możesz zmienić konto i każdą kwotę; **0 zł pomija daną rezerwę**. Najpie
 ### Rezerwa bez terminu
 
 Wybierz **Bez terminu** i stałą miesięczną kwotę, także 0 zł. Nie ma obowiązkowego celu ani automatycznego zwiększania wpłaty po pominiętym miesiącu. Kwotę domyślną zmieniasz w edycji rezerwy. Możesz ręcznie odkładać dowolne kwoty; przy 0 zł brak odłożenia nie jest zaległą obowiązkową wpłatą.
+
+Na karcie rezerwy oddzielone są **odłożone środki na cały cel** oraz **wykonanie planu miesiąca**. Cel z kwotą ma postęp zgromadzonej rezerwy; drugi pasek odnosi się wyłącznie do miesięcznego planu. Rezerwa bez celu nie dostaje sztucznego procentu oszczędności. Przy miesięcznej kwocie 0 zł pojawia się informacja o odkładaniu ręcznym. Wpłata ponad plan jest opisana kwotą; pasek nie wychodzi poza kartę. Dla mediów wykonanie miesięczne obejmuje płatności i odłożenia zgodnie z zasadą jednej puli.
 
 ## 9. Miesięczne pule na prąd i wodę
 
@@ -381,18 +413,22 @@ Dodatnia płatność z banku nie zawsze jest rozpoznana jako zwrot sama z siebie
 
 ### Co znaczą główne kwoty
 
+Podsumowanie wyróżnia **Wolne z dochodów miesiąca**, **Wydano w miesiącu** i **Poza rezerwami na koniec miesiąca**. Nagłówek planu pokazuje ten sam bilans dochodów miesiąca. Dzisiejsze saldo, rezerwy i kwota poza rezerwami są w osobnym pasku „Stan dzisiaj”, niezależnym od wybranego miesiąca.
+
 | Kwota | Interpretacja |
 |---|---|
 | Wydano w miesiącu | Faktycznie zapisane zakupy i płatności od początku wybranego miesiąca do dziś, po zwrotach |
 | Pozostałe zobowiązania | Rachunki i raty jeszcze do opłacenia/rozliczenia |
 | Przewidywane saldo na koniec miesiąca | Symulacja salda wszystkich kont na ostatni dzień wybranego miesiąca; osobno widać kwotę poza rezerwami. Dla miesiąca poza zakresem prognozy nie pokazujemy zmyślonego salda |
 | Do rozdysponowania w planie | Pieniądze pozostałe po uwzględnieniu sald, oczekiwanych wpływów miesiąca, pozostałych limitów i zobowiązań oraz rezerw i brakujących odłożeń |
-| Wolne z przychodów miesiąca | Nadwyżka wyłącznie otrzymanych i oczekiwanych dochodów miesiąca ponad jego finansowane koszty i pozostały plan; bez wcześniejszych sald |
+| Wolne z dochodów miesiąca | Nadwyżka wyłącznie otrzymanych i oczekiwanych dochodów miesiąca ponad jego finansowane koszty i pozostały plan; bez wcześniejszych sald |
 | Do następnej wypłaty | Wynik symulacji do następnego planowanego wpływu; sprawdź też najniższy punkt po drodze |
 
 Przykład „Do rozdysponowania w planie”: bieżące saldo 3000 zł + oczekiwane wpływy 1000 zł − rezerwy 500 zł − pozostały plan i zobowiązania 1500 zł − dodatkowe brakujące odłożenia 200 zł = 1800 zł. Wykonane płatności są już w saldzie; nie odejmujemy ich ponownie.
 
 Przykład „Wolne z przychodów”: dochody miesiąca 6000 zł, finansowane koszty miesiąca 2000 zł, plan pozostały 3000 zł — wolne z tych dochodów 1000 zł, niezależnie od oszczędności z poprzednich miesięcy. Finansowane koszty uwzględniają również nowe przeznaczenie pieniędzy na rezerwy i transfery do inwestycji, z rozliczeniem wykorzystanych rezerw.
+
+Dla przyszłego miesiąca pomocniczy bilans na dzisiejszych saldach może zawyżać wrażenie dostępnej kwoty: nie odejmuje niewykonanego planu miesięcy przed nim. Jest dostępny w objaśnieniu, a nie jako główna wolna kwota. „Dlaczego plan i prognoza pokazują różne kwoty?” rozdziela dzisiejsze środki poza rezerwami, zmianę przed początkiem miesiąca, jego bilans dochodów i różnicę założeń prognozy. Ta ostatnia może obejmować szacunkowe limity i inny harmonogram finansowania rezerw; sprawdź założenia zamiast traktować wynik jako gwarantowane pieniądze.
 
 **Saldo na koniec miesiąca nie musi równać się wolnej kwocie do zaplanowania.** Saldo zawiera rezerwy, a wolna kwota odejmuje także pozostałe przeznaczenia pieniędzy. Dodatnia suma wszystkich kont nie gwarantuje środków na koncie konkretnej płatności.
 
@@ -410,7 +446,7 @@ Wykres można przełączyć między codziennymi wydatkami, faktycznymi płatnoś
 
 ### Kolejka spraw i wykonanie odłożeń
 
-Na podsumowaniu rozwiń **Do sprawdzenia**. W jednym miejscu są zapisane zakupy bez kategorii, oczekujące importy i paragony, możliwe powiązania płatności, salda wymagające potwierdzenia, brakujące odłożenia i szacunkowe założenia prognozy. Filtr ogranicza listę do dokumentów, płatności, sald albo planowania. Link otwiera odpowiedni dokument lub sekcję. Kolejka sama nie księguje żadnej operacji. Pilne sprawy nad nią dotyczą wybranego miesiąca; terminy kolejnego miesiąca pozostają w prognozie.
+W **Podsumowaniu** jest jedna lista **Do zrobienia**, domyślnie z trzema najpilniejszymi sprawami. Rozwiń wszystkie albo wybierz rodzaj spraw. Dopasowanie istniejącej płatności zastępuje zwykłe przypomnienie o tym samym rachunku lub rezerwie. Lista łączy płatności i plan wybranego miesiąca z dokumentami oczekującymi na sprawdzenie także z innych miesięcy; szczegóły zakresu są rozwijane pod listą. Link otwiera odpowiednią sekcję lub dokument. Kolejka sama nie księguje żadnej operacji.
 
 W planie rezerw **Wykonano plan** jest sumą pokrycia każdego celu do wysokości jego miesięcznej kwoty. **Dodatkowe wpłaty** pokazują nadwyżki oddzielnie. Przykład: plan OC 100 zł i serwis 100 zł, wpłata na OC 150 zł i serwis 0 zł. Wykonano 100 zł z 200 zł, dodatkowo odłożono 50 zł, a na serwis nadal brakuje 100 zł. Nadwyżka jednego celu nie wypełnia automatycznie innego.
 

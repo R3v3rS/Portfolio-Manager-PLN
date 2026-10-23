@@ -5,7 +5,7 @@ const category={id:1,name:'Zakupy spożywcze',manual_plan:0,planned:0,planned_bi
 describe('Category meaning and visibility',()=>{
   it('shows a shared allowance instead of a false zero limit',()=>{
     const hint=categoryPlanDescription(category,{...category,name:'Jedzenie',planned:1200});
-    expect(hint).toContain('wspólnego limitu');expect(hint).toMatch(/1\s?200,00/);
+    expect(hint).toContain('wspólnego limitu');expect(hint).not.toMatch(/1\s?200,00/);
     expect(categoryPlanDescription({...category,planned_bills:250,planned:250})).toContain('Plan z rachunków');
     expect(categoryPlanDescription(category,{...category,name:'Rachunki',planned:1000,planned_bills:1000})).toContain('nowy zakup będzie dodatkowym kosztem');
   });

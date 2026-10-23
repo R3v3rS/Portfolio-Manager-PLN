@@ -1,3 +1,4 @@
+import {useBudgetMode} from './budgetMode';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Pencil, Plus } from 'lucide-react';
@@ -6,6 +7,7 @@ import { BillEditor, BillPayment } from './BudgetObligations';
 import { planningDay as day, planningMoney as money, planningToday } from './planningHelpers';
 
 export default function BudgetCategoryPayments({ category, data, reload }: { category: BudgetCategory; data: BudgetWorkspace; reload: () => Promise<void> }) {
+  const {management}=useBudgetMode();
   const children = data.categories.filter(item => item.parent_id === category.id);
   const ids = [category.id, ...children.map(item => item.id)];
   const bills = data.bills.filter(bill => ids.includes(bill.category_id));
@@ -22,8 +24,8 @@ export default function BudgetCategoryPayments({ category, data, reload }: { cat
     {hasPayments&&<div className="budget-category-allocation" aria-label={`Podział limitu: ${category.name}`}>
       <div className="budget-allocation-values">
         <div><span>Płatności i pule w limicie</span><b>{money(category.planned_bills)}</b><small>Rachunki, raty i miesięczne media</small></div>
-        <div><span>Limit zwykłych wydatków</span><b>{money(ordinaryPlan)}</b><small>Po wydzieleniu płatności i mediów</small></div>
-        <div><span>Zwykłe wydatki — jeszcze do wykorzystania</span><b>{money(plan?.ordinary_remaining ?? Math.max(0, category.remaining))}</b><small>{plan ? `Wydano ${money(plan.ordinary_spent)}` : 'W ramach wspólnego planu'}</small></div>
+        <div><span>Pozostałe zaplanowane wydatki</span><b>{money(ordinaryPlan)}</b><small>Limity zakupów w kategorii i podkategoriach</small></div>
+
       </div>
       {(category.reserve_covered ?? 0) > 0 && <p>Poza tym limitem: {money(category.reserve_covered ?? 0)} finansowane odłożoną rezerwą.</p>}
       {plan&&plan.payments_pending>0&&<p>Płatności jeszcze do rozliczenia: {money(plan.payments_pending)}. Ta kwota jest już zarezerwowana w planie.</p>}
@@ -32,13 +34,13 @@ export default function BudgetCategoryPayments({ category, data, reload }: { cat
       {!!plan?.ordinary_over && <p className="budget-negative">Przekroczenie zwykłych wydatków: {money(plan.ordinary_over)}. Pozostałe kategorie zachowują swoje limity.</p>}
       <p>To podział kwoty pokazanej u góry. Rachunków nie dopisuj drugi raz do limitu.</p>
     </div>}
-    {!hasPayments&&<div className="budget-plan-toolbar"><p>{category.is_unassigned?'Zakupy bez przypisania są uwzględnione w wydatkach. Przypisz je do właściwych kategorii.':'Cały limit dotyczy zwykłych wydatków. Nie ma w nim rachunków ani rat.'}{(category.carryover??0)>0&&` W tym przeniesiono ${money(category.carryover??0)}.`}</p>{category.is_unassigned?<Link className="budget-text-button" to={`/budget/imports?tab=pending&month=${data.month}`}>Przypisz kategorie</Link>:<button className="budget-text-button" onClick={()=>setEditing(null)}><Plus size={15}/>Dodaj rachunek do: {category.name}</button>}</div>}
+    {!hasPayments&&<div className="budget-plan-toolbar"><p>{category.is_unassigned?'Zakupy bez przypisania są uwzględnione w wydatkach. Przypisz je do właściwych kategorii.':'Plan obejmuje zakupy w tej kategorii i jej podkategoriach. Nie przypisano rachunków ani rat.'}{(category.carryover??0)>0&&` W tym przeniesiono ${money(category.carryover??0)}.`}</p>{category.is_unassigned?<Link className="budget-text-button" to={`/budget/imports?tab=pending&month=${data.month}`}>Przypisz kategorie</Link>:management&&<button className="budget-text-button" onClick={()=>setEditing(null)}><Plus size={15}/>Dodaj rachunek do: {category.name}</button>}</div>}
     {hasPayments&&<details className="budget-category-payments" open={pending}>
       <summary>Rachunki i raty w tej kategorii ({bills.length + loans.length})</summary>
       {pending&&paidCount>0&&<label className="budget-transaction-filter-status"><input type="checkbox" checked={showPaid} onChange={event=>setShowPaid(event.target.checked)}/>Pokaż opłacone płatności ({paidCount})</label>}
       {media.map(reserve => <div className="budget-category-payment" key={`media:${reserve.reserve_id}`}>
         <div><strong>{reserve.name} · miesięczna pula</strong><small>Plan {money(reserve.planned)} · wykonano {money(reserve.funded)} · brakuje {money(reserve.remaining)}</small><small>Płatności i odłożenia wykorzystują tę samą pulę.</small></div>
-        <b>{money(reserve.planned)}</b><Link className="budget-text-button" to={`/budget?view=plan&month=${data.month}#reserve-month-plans`}>Zmień pulę / odłóż</Link>
+        <b>{money(reserve.planned)}</b><Link className="budget-text-button" to={`/budget?view=plan&month=${data.month}#reserve-month-plans`}>Sprawdź pulę / odłóż</Link>
       </div>)}
       {[category, ...children].map(group => {
         const groupedBills = bills.filter(bill => bill.category_id === group.id && (!pending||showPaid||bill.status!=='PAID'));
@@ -55,7 +57,7 @@ export default function BudgetCategoryPayments({ category, data, reload }: { cat
               </div><b>{money(bill.amount)}</b>
               <div className="budget-category-payment-actions">
                 {bill.status !== 'PAID' && data.month <= planningToday().slice(0, 7) && <button className="budget-button-secondary" onClick={() => setPaying(bill)}><Check size={14}/>{bill.payment_candidates?.length ? 'Powiąż płatność' : 'Rozlicz'}</button>}
-                <button className="budget-icon-button" aria-label={`Zmień kategorię lub plan rachunku: ${bill.title}`} title="Kategoria, kwota i termin rachunku" onClick={() => setEditing(bill)}><Pencil size={15}/></button>
+                {management&&<button className="budget-icon-button" aria-label={`Zmień kategorię lub plan rachunku: ${bill.title}`} title="Kategoria, kwota i termin rachunku" onClick={() => setEditing(bill)}><Pencil size={15}/></button>}
               </div>
             </div>;
           })}
@@ -66,9 +68,9 @@ export default function BudgetCategoryPayments({ category, data, reload }: { cat
         </div>;
       })}
       {!bills.length && !loans.length && <p className="bp-help">Nie ma przypisanych rachunków ani rat w tym miesiącu.</p>}
-      {!category.is_unassigned && <button className="budget-text-button" onClick={() => setEditing(null)}><Plus size={15}/>Dodaj rachunek do: {category.name}</button>}
+      {management && !category.is_unassigned && <button className="budget-text-button" onClick={() => setEditing(null)}><Plus size={15}/>Dodaj rachunek do: {category.name}</button>}
     </details>}
-    {editing !== undefined && <BillEditor data={data} bill={editing} categoryId={category.id} reload={reload} onClose={() => setEditing(undefined)}/>}
+    {management && editing !== undefined && <BillEditor data={data} bill={editing} categoryId={category.id} reload={reload} onClose={() => setEditing(undefined)}/>}
     {paying && <BillPayment data={data} bill={paying} reload={reload} onClose={() => setPaying(null)}/>}
   </>;
 }

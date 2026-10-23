@@ -1,3 +1,6 @@
+import { confirmBudgetNavigation, useBudgetDraftGuard, useBudgetMode } from './budgetMode';
+import BudgetManagementGate from './BudgetManagementGate';
+import BudgetSpendingBreakdown from './BudgetSpendingBreakdown';
 import BudgetPaymentMatches from './BudgetPaymentMatches';
 import { ImportDialog } from './imports/ImportUi';
 import BudgetCharts from './BudgetCharts';
@@ -13,7 +16,6 @@ import BudgetCategoryPlanTable from './BudgetCategoryPlanTable';
 import BudgetYearPlan from './BudgetYearPlan';
 import BudgetPlanTransfer from './BudgetPlanTransfer';
 import BudgetReviewQueue from './BudgetReviewQueue';
-import BudgetNextActions from './BudgetNextActions';
 import BudgetDefaultPlans from './BudgetDefaultPlans';
 import BudgetPlanCopy from './BudgetPlanCopy';
 import BudgetCategorySettings from './BudgetCategorySettings';
@@ -26,7 +28,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight, Camera,
   ClipboardList, CreditCard,
-  Pencil, Plus, Wallet, X,
+  Plus, Wallet, X,
 } from 'lucide-react';
 import {
   budgetWorkspaceApi, type BudgetEntry,
@@ -59,20 +61,18 @@ const monthLabel = (month: string) => {
   const [year, currentMonth] = month.split('-').map(Number);
   return new Intl.DateTimeFormat('pl-PL', { month: 'long', year: 'numeric' }).format(new Date(year, currentMonth - 1, 1));
 };
-const dateLabel = (value: string) => new Intl.DateTimeFormat('pl-PL', {
-  day: '2-digit', month: 'short',
-}).format(new Date(value + 'T12:00:00'));
 const inputAmount = (value: string) => Number(value.replace(',', '.'));
 
 export default function BudgetWorkspaceDashboard() {
   const [refundPurchase,setRefundPurchase]=useState<BudgetEntry|null>(null);
   const [ruleSuggestion,setRuleSuggestion]=useState<RuleSuggestion|null>(null);
-  const [planEditing,setPlanEditing]=useState(false);
+  const {management:planEditing,setManagement:setPlanEditing}=useBudgetMode();
   const [showYear,setShowYear]=useState(false);
   const [showClosing,setShowClosing]=useState(false);
   const [copyPlan,setCopyPlan]=useState(false);
+  const [newCategoryId,setNewCategoryId]=useState<number|null>(null);
   const [categorySearch,setCategorySearch]=useState('');
-  const [showUnusedCategories,setShowUnusedCategories]=useState(false);
+  const [showUnusedCategories,setShowUnusedCategories]=useState(true);
   const [transferPlan,setTransferPlan]=useState(false);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -96,6 +96,9 @@ export default function BudgetWorkspaceDashboard() {
   const [categoryParent, setCategoryParent] = useState('');
   const [categoryDailyPace, setCategoryDailyPace] = useState(true);
   const [editingCategory, setEditingCategory] = useState<BudgetCategory | null>(null);
+  const categoryInitial=useRef('');
+  useBudgetDraftGuard(planEditing&&showCategoryForm&&categoryInitial.current!==JSON.stringify([categoryName,categoryDescription,categoryParent,categoryDailyPace]));
+  const closeCategory=()=>{if(confirmBudgetNavigation())setShowCategoryForm(false);};
   const [planDrafts, setPlanDrafts] = useState<Record<number, string>>({});
   const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
   const [editingEntry, setEditingEntry] = useState<BudgetEntry | null>(null);
@@ -118,7 +121,6 @@ export default function BudgetWorkspaceDashboard() {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    setPlanEditing(false);
     setData(null);
     setError('');
     budgetWorkspaceApi.get(month).then(next => {
@@ -130,6 +132,8 @@ export default function BudgetWorkspaceDashboard() {
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [month]);
+
+  useEffect(()=>{if(!planEditing){setNewCategoryId(null);setShowCategoryForm(false);setShowClosing(false);setTransferPlan(false);setCopyPlan(false);}},[planEditing]);
 
   useEffect(()=>{
     if (!data || loading || !/^#(category-\d+|reserve-month-plans|default-plans)$/.test(location.hash)) return;
@@ -264,10 +268,16 @@ export default function BudgetWorkspaceDashboard() {
     event.preventDefault();
     await action(async () => {
       if (editingCategory) await budgetWorkspaceApi.updateCategory(editingCategory.id, categoryName, categoryParent ? Number(categoryParent) : null, editingCategory.version ?? 1, categoryDailyPace, categoryDescription);
-      else await budgetWorkspaceApi.createCategory(categoryName, categoryParent ? Number(categoryParent) : null, categoryDailyPace, categoryDescription);
+      else {
+        const added=await budgetWorkspaceApi.createCategory(categoryName, categoryParent ? Number(categoryParent) : null, categoryDailyPace, categoryDescription);
+        setNewCategoryId(added.id);
+        setPlanEditing(true);
+        setShowUnusedCategories(true);
+        setCategorySearch(categoryName);
+      }
       setCategoryName('');
       setShowCategoryForm(false);
-    }, editingCategory ? 'Kategoria zmieniona. Dotychczasowe wpisy zachowały przypisanie.' : 'Kategoria dodana.');
+    }, editingCategory ? 'Kategoria zmieniona. Dotychczasowe wpisy zachowały przypisanie.' : 'Kategoria dodana. Ustaw jej limit w planie wybranego miesiąca.');
   };
 
   const openCategory = (parent: number | null = null, category: BudgetCategory | null = null) => {
@@ -275,6 +285,7 @@ export default function BudgetWorkspaceDashboard() {
     setCategoryDescription(category?.description ?? '');
     setCategoryParent(String(category?.parent_id ?? parent ?? ''));
     setCategoryDailyPace(category?.daily_pace_included !== false);
+    categoryInitial.current=JSON.stringify([category?.name??'',category?.description??'',String(category?.parent_id??parent??''),category?.daily_pace_included??true]);
     setError(''); setShowCategoryForm(true);
   };
 
@@ -311,7 +322,7 @@ export default function BudgetWorkspaceDashboard() {
         <div>
           <p className="page-eyebrow">Codzienne finanse</p>
           <h1>{view==='plan'?'Plan miesiąca':view==='entries'?'Transakcje':view==='bills'?'Rachunki i raty':view==='settings'?'Ustawienia budżetu':view==='cycle'?'Okres rozliczeniowy':view==='purchases'?'Większe zakupy':'Budżet pod kontrolą'}</h1>
-          <p className="budget-subtitle">Zaplanuj miesiąc, zapisuj wydatki i pilnuj terminów płatności.</p>
+
         </div>
       </header>
       <BudgetNavigation active={view==='cycle'?'forecast':view==='purchases'?'reserves':view} month={month} onMonth={setMonth} onView={target=>setView(target as View)} onExpense={()=>openEntry('EXPENSE')} onIncome={()=>openEntry('INCOME')}/>
@@ -333,15 +344,15 @@ export default function BudgetWorkspaceDashboard() {
             </form>
           </section>
         ) : <>
-          <details className="budget-topline budget-topline-compact"><summary>Salda kont teraz</summary>
+          {view !== 'overview' && view !== 'plan' && <details className="budget-topline budget-topline-compact"><summary>Salda kont teraz</summary>
             <div className="budget-account-list">
               <span className="budget-muted-label">Salda teraz</span>
               {data.accounts.map(account => <span className="budget-account-pill" key={account.id}><CreditCard size={14} />{account.name}<strong>{money(account.balance)}</strong></span>)}
-              <button type="button" className="budget-text-button" onClick={() => setShowAccountForm(!showAccountForm)}><Plus size={15} /> Dodaj konto</button>
+              {planEditing&&<button type="button" className="budget-text-button" onClick={() => setShowAccountForm(!showAccountForm)}><Plus size={15} /> Dodaj konto</button>}
             </div>
 
-          </details>
-          {showAccountForm && <form onSubmit={saveAccount} className="budget-inline-form surface-card">
+          </details>}
+          {planEditing && showAccountForm && <form onSubmit={saveAccount} className="budget-inline-form surface-card">
             <label>Nazwa konta<input required maxLength={100} value={accountName} onChange={event => setAccountName(event.target.value)} /></label>
             <label>Aktualne saldo w PLN<input type="number" min="0" step="0.01" required value={openingBalance} onChange={event => setOpeningBalance(event.target.value)} /></label>
             <button type="submit" disabled={busy} className="budget-button-primary">Zapisz konto</button>
@@ -357,21 +368,19 @@ export default function BudgetWorkspaceDashboard() {
               <article className="budget-stat"><span>Do rozdysponowania w planie</span><strong className={data.totals.to_plan < 0 ? 'budget-negative' : ''}>{money(data.totals.to_plan)}</strong><small>Saldo + oczekiwane wpływy − pozostałe limity i zobowiązania − odłożenia − rezerwy ({money(data.totals.reserved ?? 0)})</small><Link className="budget-stat-income" to={`/budget/forecast?month=${month}`}>Wpływy do otrzymania: {money(data.totals.expected_income ?? 0)} <ArrowRight size={13} /></Link><small>Plan dla wybranego miesiąca. Otrzymane wpływy są już w saldzie.</small></article>
             </section>}
             {!data.planning&&<BudgetSpendingSummary data={data}/>}
-            <BudgetNextActions data={data} forecast={forecast}/><BudgetReviewQueue data={data} forecast={forecast}/>
-            <BudgetCharts key={month} data={data} />
-            <details className="budget-plan-settings"><summary>Kategorie i szczegóły wykonania</summary>
-              <div className="budget-category-list">{data.categories.filter(c=>!c.parent_id&&(c.planned>0||c.spent!==0)).map(c=><div key={c.id} className="budget-category-payment"><div><strong>{c.name}</strong><small>Wykorzystano {money(c.spent)} z {money(c.planned)}</small></div><b className={c.remaining<0?'budget-negative':''}>{c.remaining<0?'Przekroczono':'Pozostało'} {money(Math.abs(c.remaining))}</b><Link className="budget-text-button" to={`/budget?view=plan&month=${month}#category-${c.id}`}>Sprawdź limit</Link></div>)}</div>
-            </details>
+            <BudgetReviewQueue data={data} forecast={forecast}/>
+            <BudgetSpendingBreakdown data={data}/><BudgetCharts key={month} data={data} />
+
           </>}
 
           {view === 'plan' && <>
-            <div className="budget-view-toolbar"><div className="br-tabs" aria-label="Zakres planu"><button aria-pressed={!showYear} className={!showYear?'is-active':''} onClick={()=>setShowYear(false)}>Miesiąc</button><button aria-pressed={showYear} className={showYear?'is-active':''} onClick={()=>setShowYear(true)}>12 miesięcy</button></div><div className="br-actions"><button className="budget-button-secondary" onClick={()=>setTransferPlan(true)}>Przenieś limit</button><button className="budget-button-secondary" onClick={()=>setShowClosing(true)}>Rozlicz miesiąc</button></div></div>
+            <div className="budget-view-toolbar"><div className="br-tabs" aria-label="Zakres planu"><button aria-pressed={!showYear} className={!showYear?'is-active':''} onClick={()=>{if(confirmBudgetNavigation())setShowYear(false);}}>Miesiąc</button><button aria-pressed={showYear} className={showYear?'is-active':''} onClick={()=>{if(confirmBudgetNavigation())setShowYear(true);}}>12 miesięcy</button></div>{planEditing&&<div className="br-actions"><button className="budget-button-secondary" onClick={()=>setTransferPlan(true)}>Przenieś limit</button><button className="budget-button-secondary" onClick={()=>setShowClosing(true)}>Rozlicz miesiąc</button></div>}</div>
             {showYear?<BudgetYearPlan month={month}/>:<>
-              <div className="budget-plan-summary"><span>Do rozdysponowania <b className={data.totals.to_plan<0?'budget-negative':''}>{money(data.totals.to_plan)}</b></span><span>Plan kategorii <b>{money(data.totals.planned)}</b></span><span>Wybrany miesiąc <b>{monthLabel(month)}</b></span></div>
-              <details className="budget-plan-settings"><summary>Podział planu: wpływy, płatności i odłożenia</summary><BudgetMonthPlan data={data} reload={reload}/></details>
-              <div className="budget-view-toolbar"><div className="br-actions"><button className="budget-button-secondary" disabled={busy} onClick={()=>void action(()=>budgetWorkspaceApi.copyPlans(previousMonth,month).then(()=>undefined),'Skopiowano brakujące limity.')}>Kopiuj poprzedni miesiąc</button><button className="budget-button-secondary" onClick={()=>setCopyPlan(true)}><ClipboardList size={16}/>Kopiuj na 3, 6 lub 12 miesięcy</button></div><button className="budget-button-primary" disabled={busy} aria-pressed={planEditing} onClick={()=>setPlanEditing(!planEditing)}><Pencil size={15}/>{planEditing?'Zamknij edycję limitów':'Edytuj limity'}</button></div>
-              <BudgetCategoryPlanTable data={data} editing={planEditing} busy={busy} drafts={planDrafts} setDraft={(id,value)=>setPlanDrafts(old=>({...old,[id]:value}))} onSave={category=>void action(()=>budgetWorkspaceApi.setPlan(category.id,month,inputAmount(planDrafts[category.id]??'0')).then(()=>undefined),'Limit zapisany.')} onReset={category=>void action(()=>budgetWorkspaceApi.resetPlan(category.id,month).then(()=>undefined),'Przywrócono domyślny limit.')} onEdit={category=>openCategory(null,category)} onAdd={parent=>openCategory(parent)} reload={reload}/>
-              {data.planning&&<BudgetReservePlans data={data} reload={reload} editing={planEditing}/>}
+              <div className="budget-plan-summary"><span>{data.totals.monthly_income_to_plan!==undefined?'Bilans dochodów miesiąca':'Do rozdysponowania'} <b className={(data.totals.monthly_income_to_plan??data.totals.to_plan)<0?'budget-negative':''}>{money(data.totals.monthly_income_to_plan??data.totals.to_plan)}</b></span><span>Plan kategorii <b>{money(data.totals.planned)}</b></span></div>
+              <details className="budget-plan-settings"><summary>Wpływy, płatności i odłożenia</summary><BudgetMonthPlan data={data} reload={reload}/></details>
+              {planEditing&&<div className="budget-view-toolbar"><div className="br-actions"><button className="budget-button-secondary" disabled={busy} onClick={()=>void action(()=>budgetWorkspaceApi.copyPlans(previousMonth,month).then(()=>undefined),'Skopiowano brakujące limity.')}>Kopiuj poprzedni miesiąc</button><button className="budget-button-secondary" onClick={()=>setCopyPlan(true)}><ClipboardList size={16}/>Kopiuj na 3, 6 lub 12 miesięcy</button></div></div>}
+              <BudgetCategoryPlanTable key={`categories:${month}:${planEditing}`} data={data} revealId={newCategoryId} editing={planEditing} busy={busy} drafts={planDrafts} setDraft={(id,value)=>setPlanDrafts(old=>({...old,[id]:value}))} onSave={category=>void action(()=>budgetWorkspaceApi.setPlan(category.id,month,inputAmount(planDrafts[category.id]??'0')).then(()=>undefined),'Limit zapisany.')} onReset={category=>void action(()=>budgetWorkspaceApi.resetPlan(category.id,month).then(()=>undefined),'Przywrócono domyślny limit.')} onEdit={category=>openCategory(null,category)} onAdd={parent=>openCategory(parent)} reload={reload}/>
+              {data.planning&&<BudgetReservePlans key={`reserves:${month}:${planEditing}`} data={data} reload={reload} editing={planEditing}/>}
               <details className="budget-plan-settings"><summary>Tempo wybranych kategorii</summary><BudgetSpendingPace data={data}/></details>
             </>}
           </>}
@@ -382,11 +391,11 @@ export default function BudgetWorkspaceDashboard() {
               <BudgetTransactions data={data}>{entry=><BudgetTransactionRow key={entry.id} entry={entry} busy={busy} edit={value=>openEntry(value.kind as 'INCOME'|'EXPENSE',value)} apply={value=>void applyEntryBalance(value)} refund={setRefundPurchase} remove={value=>void deleteEntry(value)}/>}</BudgetTransactions>}
           </section>}
 
-          {view === 'bills' && <><BudgetObligations data={data} reload={reload}/><section className="budget-panel surface-card"><h2>Raty kredytów w miesiącu</h2>{data.planning?.loans?.map(loan=><div className="budget-category-payment" key={`${loan.id}-${loan.installment_month}`}><div><strong>{loan.name}</strong><small>{dateLabel(loan.date)} · {data.accounts.find(a=>a.id===loan.account_id)?.name??'Ustaw konto w kredycie'} · {data.categories.find(c=>c.id===loan.category_id)?.selection_label}</small><span className="budget-payment-status">{loan.paid?'Spłata zapisana':'Do rozliczenia'}</span></div><b>{money(loan.paid_amount??loan.amount)}</b><Link className="budget-text-button" to={`/loans/${loan.id}?installment=${loan.installment_month}`}>{loan.paid?'Szczegóły':'Rozlicz'}</Link></div>)}{!data.planning?.loans?.length&&<p className="bp-help">Brak rat w tym miesiącu.</p>}</section></>}
+          {view === 'bills' && <BudgetObligations data={data} reload={reload}/>}
           {view === 'cycle' && data.planning && <BudgetPayCycle key={month + ':' + data.planning.settings.version} data={data} forecast={forecast} reload={reload}/>}
           {view === 'purchases' && data.planning && <BudgetPurchases data={data} reload={reload}/>}
-          {view === 'settings' && <>
-            <div className="br-tabs budget-settings-tabs" aria-label="Sekcje ustawień">{[['categories','Kategorie'],['defaults','Plan domyślny'],['rules','Reguły'],['planning','Konta i okres'],['closing','Koniec miesiąca']].map(([id,name])=><button key={id} aria-pressed={settingsTab===id} className={settingsTab===id?'is-active':''} onClick={()=>{const next=new URLSearchParams(params);next.set('settings',id);setParams(next);}}>{name}</button>)}</div>
+          {view === 'settings' && <BudgetManagementGate>
+            <div className="br-tabs budget-settings-tabs" aria-label="Sekcje ustawień">{[['categories','Kategorie'],['defaults','Plan domyślny'],['rules','Reguły'],['planning','Konta i okres'],['closing','Koniec miesiąca']].map(([id,name])=><button key={id} aria-pressed={settingsTab===id} className={settingsTab===id?'is-active':''} onClick={()=>{if(!confirmBudgetNavigation())return;const next=new URLSearchParams(params);next.set('settings',id);setParams(next);}}>{name}</button>)}</div>
             {settingsTab==='defaults'&&<BudgetDefaultPlans key={month} data={data} reload={reload}/>}
             {settingsTab==='categories'&&<>
             <section className="budget-panel surface-card"><div className="budget-section-heading"><div><p className="page-eyebrow">Twoja struktura budżetu</p><h2>Kategorie i podkategorie</h2><p>Tu zmienisz nazwy, podział i kategorie uwzględniane w tempie. Limity ustawisz w planie miesiąca.</p></div><button className="budget-button-secondary" onClick={()=>openCategory()}><Plus size={16}/>Dodaj kategorię</button></div>
@@ -395,7 +404,7 @@ export default function BudgetWorkspaceDashboard() {
             </section>
             </>}{settingsTab==='rules'&&<section className="budget-panel surface-card"><h2>Automatyczne przypisywanie</h2><p className="bp-help">Kategorie sklepów i odbiorców oraz przelewy na rezerwy.</p><Link className="budget-button-secondary" to={`/budget/imports?tab=rules&month=${month}`}>Reguły kategorii i rezerw <ArrowRight size={15}/></Link></section>}
             {data.planning&&settingsTab==='planning'&&<BudgetPayCycle key={`settings:${month}:${data.planning.settings.version}`} data={data} forecast={forecast} reload={reload} settingsOnly/>}{data.planning&&settingsTab==='closing'&&<BudgetCarryoverPolicies data={data} reload={reload} mode="settings"/>}
-          </>}
+          </BudgetManagementGate>}
           {view === 'overview' && forecast && <details className="budget-plan-settings"><summary>Salda kont i potrzebne przelewy w kolejnych 30 dniach</summary><ForecastAccounts data={forecast}/></details>}
         </>}
 
@@ -428,22 +437,23 @@ export default function BudgetWorkspaceDashboard() {
           </form>
         </section>
       </div>}
-      {showCategoryForm && data && <ImportDialog title={editingCategory ? 'Edytuj kategorię' : categoryParent ? 'Dodaj podkategorię' : 'Dodaj kategorię'} busy={busy} onClose={() => setShowCategoryForm(false)}>
+      {planEditing && showCategoryForm && data && <ImportDialog title={editingCategory ? 'Edytuj kategorię' : categoryParent ? 'Dodaj podkategorię' : 'Dodaj kategorię'} busy={busy} onClose={closeCategory}>
         <form onSubmit={saveCategory} className="budget-category-form">
           {error && <p role="alert" className="budget-negative">{error}</p>}
           <label>Nazwa kategorii<input required maxLength={100} value={categoryName} onChange={event => setCategoryName(event.target.value)} placeholder={categoryParent ? 'np. Paliwo, bilety, utrzymanie auta' : 'np. Transport'} /></label>
           <label>Opis i przykłady<textarea maxLength={500} rows={3} value={categoryDescription} onChange={event=>setCategoryDescription(event.target.value)} placeholder="Co zaliczasz do tej kategorii, a co przypisujesz gdzie indziej?"/></label>
           <label>Kategoria główna<select value={categoryParent} onChange={event => setCategoryParent(event.target.value)} disabled={!!editingCategory && data.categories.some(c => c.parent_id === editingCategory.id)}><option value="">Samodzielna kategoria główna</option>{data.categories.filter(c => !c.parent_id && !c.is_unassigned && c.id !== editingCategory?.id).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <p className="budget-plan-explanation">Kategorie są wspólne dla wszystkich miesięcy. Samo dodanie kategorii nie ustawia kwoty — limit na grudzień lub inny miesiąc zapiszesz w planie tego miesiąca.</p>
           <label className="budget-checkbox"><input type="checkbox" checked={categoryDailyPace} onChange={event=>setCategoryDailyPace(event.target.checked)}/>Uwzględniaj w tempie codziennych wydatków</label>
           <p className="budget-plan-explanation">Wyłącz np. paliwo kupowane raz na kilka tygodni. Z tempa usuniemy wydatki i limit tej kategorii; pełny budżet, prognoza oraz saldo nadal ją uwzględniają. Wyłączenie kategorii głównej obejmuje jej podkategorie. Dla wyłączanej podkategorii ustaw osobny limit, aby odjąć go od wspólnego planu.</p>
           {categoryParent&&data.categories.find(c=>c.id===Number(categoryParent))?.daily_pace_included===false&&<p className="bp-warning">Kategoria główna jest wyłączona z tempa, więc ta podkategoria również nie będzie liczona.</p>}
           <p className="budget-plan-explanation">Wydatki podkategorii są uwzględnione w sumie kategorii głównej. Zmiana nazwy lub przeniesienie kategorii zachowuje jej wpisy, rachunki i reguły importu oraz przelicza także wcześniejsze miesiące.</p>
-          <div className="budget-form-actions"><button type="button" className="budget-button-quiet" disabled={busy} onClick={() => setShowCategoryForm(false)}>Anuluj</button><button type="submit" className="budget-button-primary" disabled={busy}>{busy ? 'Zapisywanie…' : editingCategory ? 'Zapisz zmiany' : 'Dodaj'}</button></div>
+          <div className="budget-form-actions"><button type="button" className="budget-button-quiet" disabled={busy} onClick={closeCategory}>Anuluj</button><button type="submit" className="budget-button-primary" disabled={busy}>{busy ? 'Zapisywanie…' : editingCategory ? 'Zapisz zmiany' : 'Dodaj'}</button></div>
         </form>
       </ImportDialog>}
-      {showClosing&&data?.planning&&<ImportDialog title={`Rozliczenie miesiąca · ${monthLabel(month)}`} busy={busy} onClose={()=>setShowClosing(false)}><BudgetCarryoverPolicies data={data} reload={reload} mode="closing"/></ImportDialog>}
-      {transferPlan&&data&&<BudgetPlanTransfer data={data} reload={reload} onClose={()=>setTransferPlan(false)}/>}
-      {copyPlan&&data&&<BudgetPlanCopy data={data} reload={reload} onClose={()=>setCopyPlan(false)}/>}
+      {planEditing&&showClosing&&data?.planning&&<ImportDialog title={`Rozliczenie miesiąca · ${monthLabel(month)}`} busy={busy} onClose={()=>setShowClosing(false)}><BudgetCarryoverPolicies data={data} reload={reload} mode="closing"/></ImportDialog>}
+      {planEditing&&transferPlan&&data&&<BudgetPlanTransfer data={data} reload={reload} onClose={()=>setTransferPlan(false)}/>}
+      {planEditing&&copyPlan&&data&&<BudgetPlanCopy data={data} reload={reload} onClose={()=>setCopyPlan(false)}/>}
     </div>
   );
 }

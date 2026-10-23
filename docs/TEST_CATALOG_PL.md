@@ -1,6 +1,6 @@
 # Kontrola jakości i mapa testów
 
-Stan: 22 października 2026. [Spis dokumentacji](README.md). To mapa obszarów i wybranych scenariuszy, nie pełna lista testów ani deklaracja kompletnego pokrycia. Aktualne nazwy przypadków i wyniki wynikają z kodu oraz konkretnego przebiegu.
+Stan: 23 października 2026. [Spis dokumentacji](README.md). To mapa obszarów i wybranych scenariuszy, nie pełna lista testów ani deklaracja kompletnego pokrycia. Aktualne nazwy przypadków i wyniki wynikają z kodu oraz konkretnego przebiegu.
 
 ## Uruchamianie
 
@@ -40,6 +40,15 @@ Na środowisku z Bash dostępny jest `scripts/run_quality_gate.sh`, opcjonalnie 
 | Tempo i prognoza | Wyłączenia kategorii, płatności stałe poza tempem, zakresy i źródła planu | [tempo](../backend/tests/test_budget_chart_pace.py), [bezpieczeństwo](../backend/tests/test_budget_safety.py) |
 
 Interakcje sprawdzają m.in. [BudgetUsability](../frontend/src/components/budget/BudgetUsability.test.tsx), [ReserveOperations](../frontend/src/components/budget/ReserveOperations.test.tsx), [BudgetImports](../frontend/src/pages/BudgetImports.test.tsx), [BudgetAccounts](../frontend/src/pages/BudgetAccounts.test.tsx) i [CashForecast](../frontend/src/pages/CashForecast.test.tsx). Zmiana wspólnych obliczeń wymaga sprawdzenia powiązanych obszarów, nie tylko jednego ekranu.
+
+Czytelność budżetu i tryby pracy sprawdzają dodatkowo:
+
+- [BudgetModes](../frontend/src/components/budget/BudgetModes.test.tsx): dostępność operacji w przeglądaniu i zarządzaniu oraz ochrona niezapisanych zmian.
+- [BudgetSummary](../frontend/src/components/budget/BudgetSummary.test.tsx): bilans dochodów miesiąca, bieżące pieniądze i prognoza z jawnymi brakami danych.
+- [BudgetSpendingBreakdown](../frontend/src/components/budget/BudgetSpendingBreakdown.test.tsx): wykorzystanie planu, udział w wydatkach, przekroczenia i zwroty.
+- [BudgetReadability](../frontend/src/components/budget/BudgetReadability.test.tsx): wspólne płatności rachunków i kredytów, brak powtórzonych przypomnień, rozwijanie listy oraz rozdzielenie miesięcznego odłożenia od całego celu.
+
+Testy interakcji nie zastępują oceny wyglądu. Po zmianie układu sprawdź na komputerze i telefonie przewijanie, długość nazw, kwoty, rozwijane szczegóły oraz edycję jednej pozycji bez zapisywania próbnych danych finansowych.
 
 ## Inwestycje i integracje
 

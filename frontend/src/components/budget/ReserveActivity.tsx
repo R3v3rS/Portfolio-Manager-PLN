@@ -28,7 +28,7 @@ export function ReserveOperationSummary({value,compact=false}:{value:ReserveSumm
   </div>;
 }
 
-export function ReserveJournal({item,month,open,onUndo}:{item:Reserve;month:string;open:boolean;onUndo:(id:number)=>void}){
+export function ReserveJournal({item,month,open,onUndo}:{item:Reserve;month:string;open:boolean;onUndo?:(id:number)=>void}){
   const [kind,setKind]=useState('ALL'),[period,setPeriod]=useState('ALL');
   const events:ReserveJournalEvent[]=item.journal??item.movements.map(m=>({id:String(m.id),kind:m.kind,title:m.kind==='ADD'?'Odłożenie':m.kind==='RELEASE'?'Zwolnienie środków':'Rozliczenie płatności',date:m.date,amount:m.expense_amount??m.amount,reserve_change:m.kind==='ADD'?m.amount:-m.amount,bank_change:m.expense_amount?-m.expense_amount:0,account_name:m.account_name??item.account_name,notes:m.notes,transfer:null,budget_entry_id:m.budget_entry_id,summary:null}));
   const filtered=events.filter(e=>(kind==='ALL'||e.kind===kind)&&(period==='ALL'||e.date.startsWith(month)));
@@ -39,7 +39,7 @@ export function ReserveJournal({item,month,open,onUndo}:{item:Reserve;month:stri
       {e.transfer&&<small>{e.transfer.source} → {e.transfer.target}{e.kind==='FUND'?' · przelew i odłożenie liczone razem':' · łączna kwota rezerwy bez zmian'}</small>}
       {e.notes&&<p>{e.notes}</p>}
       {e.summary?<ReserveOperationSummary value={e.summary} compact/>:<small>{e.kind==='REVERSAL'?'Cofnięta operacja nie jest ponownie wliczana do zestawienia.':e.transfer?<>{e.transfer.changes_cash!==false?<>Salda: {e.transfer.source} {money(-e.amount)} · {e.transfer.target} +{money(e.amount)}.</>:'Zapis nie zmienia sald kont.'} Rezerwa: {e.reserve_change>0?'+':''}{money(e.reserve_change)}.</>:<>Rezerwa: {e.reserve_change>0?'+':''}{money(e.reserve_change)} · {e.bank_change?`zmiana salda konta ${money(e.bank_change)}`:'saldo konta bez zmian'}</>}</small>}
-      {e.kind==='SPEND'&&e.budget_entry_id!=null&&<button className="budget-text-button" onClick={()=>onUndo(e.budget_entry_id!)}>Cofnij rozliczenie</button>}
+      {onUndo&&e.kind==='SPEND'&&e.budget_entry_id!=null&&<button className="budget-text-button" onClick={()=>onUndo(e.budget_entry_id!)}>Cofnij rozliczenie</button>}
     </li>)}</ol>
   </details>;
 }

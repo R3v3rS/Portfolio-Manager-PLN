@@ -9,7 +9,9 @@ export default function BudgetTransactions({ data, children }: { data: BudgetWor
   const [params,setParams]=useSearchParams();
   const focused=Number(params.get('entry_id'))||null;
   const [search, setSearch] = useState(''), [account, setAccount] = useState('');
-  const [category, setCategory] = useState(''), [kind, setKind] = useState(''), [scope, setScope] = useState('');
+  const category=params.get('category')??'';
+  const setCategory=(value:string)=>setParams(current=>{const next=new URLSearchParams(current);if(value)next.set('category',value);else next.delete('category');return next;});
+  const [kind, setKind] = useState(''), [scope, setScope] = useState('');
   const [limit, setLimit] = useState(60);
   const [saved,setSaved]=useState(readBudgetFilters),[filterName,setFilterName]=useState(''),[filterError,setFilterError]=useState('');
   const saveFilter=()=>{const name=filterName.trim();if(!name||name.length>60)return;const next=[...saved.filter(item=>item.name!==name),{name,search,account,category,kind,scope}].slice(-12);try{writeBudgetFilters(next);setSaved(next);setFilterName('');setFilterError('');}catch{setFilterError('Przeglądarka nie pozwala zapisać filtra. Bieżące filtrowanie nadal działa.');}};
@@ -34,16 +36,18 @@ export default function BudgetTransactions({ data, children }: { data: BudgetWor
     const earlier = days.slice(0, days.indexOf(date));
     return earlier.reduce((count, key) => count + filtered.filter(item => item.date === key).length + filteredTransfers.filter(item => item.date === key).length, 0) < limit;
   });
-  const spent = filtered.reduce((total, entry) => total + (entry.kind === 'EXPENSE' ? entry.amount : entry.kind === 'REFUND' ? -entry.amount : 0), 0);
+  const categoryIds=category?[Number(category),...data.categories.filter(c=>c.parent_id===Number(category)).map(c=>c.id)]:[];
+  const expenseValue=(entry:BudgetEntry)=>category?entry.lines.filter(line=>categoryIds.includes(line.category_id)).reduce((sum,line)=>sum+line.amount,0):entry.amount;
+  const spent = filtered.reduce((total, entry) => total + (entry.kind === 'EXPENSE' ? expenseValue(entry) : entry.kind === 'REFUND' ? -expenseValue(entry) : 0), 0);
   const count = filtered.length + filteredTransfers.length;
-  const reset = () => { setSearch(''); setAccount(''); setCategory(''); setKind(''); setScope(''); setLimit(60);if(focused){const next=new URLSearchParams(params);next.delete('entry_id');setParams(next);} };
+  const reset = () => { setSearch(''); setAccount(''); setKind(''); setScope(''); setLimit(60);setParams(current=>{const next=new URLSearchParams(current);next.delete('entry_id');next.delete('category');return next;}); };
   return <>
     {saved.length>0&&<div className="budget-saved-filters" aria-label="Zapisane filtry">{saved.map(row=><span key={row.name} className="budget-filter-chip"><button onClick={()=>applySaved(row)}>{row.name}</button><button aria-label={`Usuń filtr: ${row.name}`} onClick={()=>removeSaved(row.name)}>×</button></span>)}</div>}
     <div className="budget-transaction-filters budget-basic-filters">
       <label>Szukaj transakcji<input type="search" value={search} onChange={event => { setSearch(event.target.value); setLimit(60); }} placeholder="Sklep, opis lub produkt z paragonu"/></label>
       <label>Konto transakcji<select value={account} onChange={event => { setAccount(event.target.value); setLimit(60); }}><option value="">Wszystkie konta</option>{data.accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     </div>
-    <details className="budget-advanced-filters"><summary><ChevronDown size={16}/>Więcej filtrów i zapisane widoki{(category||kind||scope)&&<span className="budget-count">Aktywne: {[category,kind,scope].filter(Boolean).length}</span>}</summary>
+    <details className="budget-advanced-filters" open={category?true:undefined}><summary><ChevronDown size={16}/>Więcej filtrów i zapisane widoki{(category||kind||scope)&&<span className="budget-count">Aktywne: {[category,kind,scope].filter(Boolean).length}</span>}</summary>
       <div className="budget-transaction-filters budget-basic-filters">
         <label>Kategoria transakcji<select value={category} onChange={event => { setCategory(event.target.value); setLimit(60); }}><option value="">Wszystkie kategorie</option>{data.categories.map(item => <option key={item.id} value={item.id}>{item.selection_label ?? item.name}</option>)}</select></label>
         <label>Rodzaj transakcji<select value={kind} onChange={event => { setKind(event.target.value); setLimit(60); }}><option value="">Wszystkie rodzaje</option><option value="EXPENSE">Wydatki</option><option value="INCOME">Wpływy</option><option value="REFUND">Zwroty</option><option value="TRANSFER">Przelewy</option></select></label>
@@ -53,11 +57,11 @@ export default function BudgetTransactions({ data, children }: { data: BudgetWor
     </details>
     {filterError&&<p role="status">{filterError}</p>}
     {(search||account||category||kind||scope||focused)&&<button className="budget-text-button" onClick={reset}>{focused?'Pokaż wszystkie transakcje':'Wyczyść filtry'}</button>}
-    <div className="budget-transaction-summary" aria-live="polite"><span>{count} transakcji</span><span>Wydatki po zwrotach: <b>{money(spent)}</b></span><span>Wpływy: <b>{money(filtered.filter(entry => entry.kind === 'INCOME').reduce((total, entry) => total + entry.amount, 0))}</b></span><small>Sumy dotyczą wybranych filtrów. Przelewy są poza wydatkami i wpływami.</small></div>
+    <div className="budget-transaction-summary" aria-live="polite"><span>{count} transakcji</span><span>Wydatki po zwrotach: <b>{money(spent)}</b></span><span>Wpływy: <b>{money(filtered.filter(entry => entry.kind === 'INCOME').reduce((total, entry) => total + entry.amount, 0))}</b></span><small>{category?'Wydatki dotyczą tylko pozycji wybranej kategorii. Wiersz transakcji pokazuje całą płatność.':'Sumy dotyczą wybranych filtrów.'} Przelewy są poza wydatkami i wpływami.</small></div>
     {!count && <p className="budget-small-empty">Brak transakcji pasujących do filtrów.</p>}
     {shownDays.map(date => {
       const entries = filtered.filter(entry => entry.date === date);
-      const daySpent = entries.reduce((total, entry) => total + (entry.kind === 'EXPENSE' ? entry.amount : entry.kind === 'REFUND' ? -entry.amount : 0), 0);
+      const daySpent = entries.reduce((total, entry) => total + (entry.kind === 'EXPENSE' ? expenseValue(entry) : entry.kind === 'REFUND' ? -expenseValue(entry) : 0), 0);
       return <section className="budget-transaction-day" key={date} aria-label={`Transakcje: ${date}`}>
         <h3>{day(date)}<span>Wydatki po zwrotach: {money(daySpent)}</span></h3>
         <div className="budget-entry-list">{entries.map(children)}

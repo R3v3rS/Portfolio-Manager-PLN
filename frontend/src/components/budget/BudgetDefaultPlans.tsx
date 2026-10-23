@@ -1,3 +1,4 @@
+import {useBudgetDraftGuard,confirmBudgetNavigation} from './budgetMode';
 import {useEffect,useState} from 'react';
 import {Link} from 'react-router-dom';
 import {budgetWorkspaceApi,type BudgetWorkspace,type DefaultPlans} from '../../api_budget_workspace';
@@ -22,10 +23,11 @@ export default function BudgetDefaultPlans({data,reload}:{data:BudgetWorkspace;r
       .catch(err=>{if(active)setError(extractErrorMessageFromUnknown(err));}).finally(()=>{if(active)setLoading(false);});
     return()=>{active=false;};
   },[start]);
+  useBudgetDraftGuard(!!record?.items.some(row=>!row.managed&&(drafts[row.category_id]??'')!==(row.amount===null?'':String(row.amount))));
   const selected=record?.items.filter(row=>!row.managed&&(drafts[row.category_id]??'').trim()!=='')??[];
   return <section className="budget-panel surface-card budget-default-plans" id="default-plans">
     <div className="budget-section-heading"><div><p className="page-eyebrow">Podstawa kolejnych miesięcy</p><h2>Domyślny plan miesięczny</h2><p>Limity obowiązują do kolejnej zmiany. Limit zapisany w konkretnym miesiącu ma pierwszeństwo, także gdy wynosi 0 zł.</p></div><Link className="budget-text-button" to={`/budget?view=plan&month=${start}`}>Sprawdź plan miesiąca</Link></div>
-    <div className="budget-plan-toolbar"><label>Obowiązuje od miesiąca<input type="month" min={earliest} max="2100-12" required value={start} disabled={action.busy} onChange={e=>{if(e.target.value)setStart(e.target.value);}}/></label><button className="budget-button-secondary" disabled={loading||action.busy||!record} onClick={()=>setDrafts(old=>({...old,...Object.fromEntries(data.categories.filter(c=>!c.monthly_reserve_managed&&!c.is_unassigned&&c.plan_source!=='NONE').map(c=>[c.id,String(c.manual_plan)]))}))}>Użyj limitów z {data.month}</button></div>
+    <div className="budget-plan-toolbar"><label>Obowiązuje od miesiąca<input type="month" min={earliest} max="2100-12" required value={start} disabled={action.busy} onChange={e=>{if(e.target.value&&confirmBudgetNavigation())setStart(e.target.value);}}/></label><button className="budget-button-secondary" disabled={loading||action.busy||!record} onClick={()=>setDrafts(old=>({...old,...Object.fromEntries(data.categories.filter(c=>!c.monthly_reserve_managed&&!c.is_unassigned&&c.plan_source!=='NONE').map(c=>[c.id,String(c.manual_plan)]))}))}>Użyj limitów z {data.month}</button></div>
     <p className="bp-help">Wspólny limit kategorii zawiera jej podkategorie, rachunki i raty. Nie kopiujemy płatności ani jednorazowych rachunków. Kwoty mediów ustawiasz w miesięcznych pulach, a pozostałych rezerw — w ich planach odłożeń.</p>
     {error&&<p role="alert" className="budget-negative">{error}</p>}<PlanningMessages {...action}/>
     {loading?<p className="bp-help">Ładowanie limitów…</p>:record&&<form onSubmit={e=>{e.preventDefault();void action.run(()=>budgetWorkspaceApi.saveDefaults(start,selected.map(row=>({category_id:row.category_id,amount:Number(drafts[row.category_id]),revision:row.revision}))),'Plan domyślny zapisany. Miesięczne wyjątki pozostają bez zmian.');}}>

@@ -1,3 +1,4 @@
+import {setBudgetManagement} from './budgetMode';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { it, expect, vi, beforeEach } from 'vitest';
@@ -5,7 +6,7 @@ import { budgetWorkspaceApi, type BudgetWorkspace } from '../../api_budget_works
 import BudgetCategoryPayments from './BudgetCategoryPayments';
 
 vi.mock('../../api_budget_workspace',()=>({budgetWorkspaceApi:{createBill:vi.fn(),updateBill:vi.fn(),payBill:vi.fn()}}));
-beforeEach(()=>vi.clearAllMocks());
+beforeEach(()=>{setBudgetManagement(true);vi.clearAllMocks();});
 it('lists child bills inside the parent limit and prefills the category of a new bill', async () => {
   const data={month:'2026-10',accounts:[{id:1,name:'PKO',balance:2000,currency:'PLN'}],categories:[{id:1,name:'Mieszkanie',manual_plan:1000,planned:1000,planned_bills:600,remaining:1000},{id:2,name:'Czynsz',parent_id:1,selection_label:'Mieszkanie › Czynsz'}],
     bills:[{id:3,title:'Czynsz październik',category_id:2,account_id:1,account_name:'PKO',due_date:'2026-10-10',amount:600,status:'UPCOMING'}],entries:[],totals:{},

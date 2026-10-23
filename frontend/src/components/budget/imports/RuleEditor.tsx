@@ -1,9 +1,10 @@
+import {useBudgetFormGuard} from '../budgetMode';
 import { useState } from 'react';
 import { budgetImportsApi, type BudgetImportsWorkspace, type CategoryRule, type CategoryRuleInput } from '../../../api_budget_imports';
 import { extractErrorMessageFromUnknown } from '../../../http/response';
 import { ImportDialog } from './ImportUi';
 
-export default function RuleEditor({workspace,rule,pattern='',categoryId,onClose,onSaved}:{workspace:BudgetImportsWorkspace;rule:CategoryRule|null;pattern?:string;categoryId?:number;onClose:()=>void;onSaved:()=>void}){
+export default function RuleEditor({workspace,rule,pattern='',categoryId,onClose:close,onSaved}:{workspace:BudgetImportsWorkspace;rule:CategoryRule|null;pattern?:string;categoryId?:number;onClose:()=>void;onSaved:()=>void}){
   const [name,setName]=useState(rule?.name??''),[text,setText]=useState(rule?.pattern??pattern);
   const [field,setField]=useState<CategoryRuleInput['match_field']>(rule?.match_field??'ANY');
   const [match,setMatch]=useState<CategoryRuleInput['match_type']>(rule?.match_type??'CONTAINS');
@@ -11,6 +12,8 @@ export default function RuleEditor({workspace,rule,pattern='',categoryId,onClose
   const [newCategory,setNewCategory]=useState(''),[account,setAccount]=useState(String(rule?.account_id??''));
   const [priority,setPriority]=useState(String(rule?.priority??100)),[active,setActive]=useState(rule?Boolean(rule.active):true);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[requestId]=useState(()=>crypto.randomUUID());
+  const canClose=useBudgetFormGuard([name,text,field,match,category,newCategory,account,priority,active]);
+  const onClose=()=>{if(canClose())close();};
   const save=async(e:React.FormEvent)=>{
     e.preventDefault();setBusy(true);setError('');
     const data:CategoryRuleInput={name:name.trim()||text.trim(),pattern:text.trim(),match_field:field,match_type:match,
