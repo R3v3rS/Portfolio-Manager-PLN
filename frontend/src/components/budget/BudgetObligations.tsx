@@ -1,3 +1,6 @@
+import BudgetPaymentsSummary from './BudgetPaymentsSummary';
+import BudgetLoanPayments from './BudgetLoanPayments';
+import {useBudgetFormGuard,useBudgetMode} from './budgetMode';
 import BudgetSettlementUndo from './BudgetSettlementUndo';
 import {Fragment,useEffect,useState} from 'react';
 import {Link,useSearchParams} from 'react-router-dom';
@@ -15,16 +18,18 @@ function billInput(bill:BudgetBill,month:string):BillInput{
     variable_amount:bill.variable_amount??false,notes:bill.notes??'',reserve_id:bill.reserve_id??null,version:bill.version};
 }
 
-export function BillEditor({data,bill,reload,onClose,categoryId}:{data:BudgetWorkspace;bill:BudgetBill|null;reload:()=>Promise<void>;onClose:()=>void;categoryId?:number}){
+export function BillEditor({data,bill,reload,onClose:close,categoryId}:{data:BudgetWorkspace;bill:BudgetBill|null;reload:()=>Promise<void>;onClose:()=>void;categoryId?:number}){
   const [input,setInput]=useState<BillInput>(()=>bill?billInput(bill,data.month):{title:'',amount:0,due_day:data.month===planningToday().slice(0,7)?Number(planningToday().slice(-2)):1,frequency:'ONCE',start_month:data.month,due_month:data.month,account_id:data.accounts[0]?.id??0,category_id:categoryId??data.categories.find(c=>!c.parent_id&&(c.icon==='ReceiptText'||c.name==='Rachunki'))?.id??data.categories.find(c=>!c.is_unassigned)?.id??0,variable_amount:false,notes:'',reserve_id:null});
   const [requestId]=useState(()=>crypto.randomUUID()),action=usePlanningAction(reload);
+  const canClose=useBudgetFormGuard(input);
+  const onClose=()=>{if(canClose())close();};
   const update=<K extends keyof BillInput>(key:K,value:BillInput[K])=>setInput(old=>({...old,[key]:value}));
   const oneOff=input.frequency==='ONCE';
   const paymentMonth=input.due_month??data.month;
   const [year,month]=paymentMonth.split('-').map(Number);
   const paymentDate=`${paymentMonth}-${String(Math.max(1,Math.min(input.due_day,new Date(year,month,0).getDate()))).padStart(2,'0')}`;
   return <ImportDialog title={bill?'Edytuj zobowiązanie':'Nowe zobowiązanie'} busy={action.busy} onClose={onClose}>
-    <PlanningMessages {...action}/><form className="bp-editor" onSubmit={e=>{e.preventDefault();void action.run(()=>bill?budgetWorkspaceApi.updateBill(bill.id,input):budgetWorkspaceApi.createBill({...input,request_id:requestId}),'Zobowiązanie zapisane.',onClose);}}>
+    <PlanningMessages {...action}/><form className="bp-editor" onSubmit={e=>{e.preventDefault();void action.run(()=>bill?budgetWorkspaceApi.updateBill(bill.id,input):budgetWorkspaceApi.createBill({...input,request_id:requestId}),'Zobowiązanie zapisane.',close);}}>
       <label>Nazwa<input required maxLength={150} value={input.title} onChange={e=>update('title',e.target.value)} placeholder="np. Internet, OC auta"/></label>
       <fieldset className="bp-bill-type"><legend>Rodzaj rachunku</legend><label><input type="radio" name="bill-type" checked={oneOff} onChange={()=>setInput(old=>({...old,frequency:'ONCE',end_month:null,promotion_end:null,regular_amount:null,notice_date:null}))}/><span><strong>Jednorazowy</strong><small>Jedna płatność, np. zakup lub prezent.</small></span></label><label><input type="radio" name="bill-type" checked={!oneOff} onChange={()=>update('frequency','MONTHLY')}/><span><strong>Powtarzalny</strong><small>Regularna opłata, np. czynsz lub telefon.</small></span></label></fieldset>
       <div className="budget-form-grid"><label>Kwota w PLN<input type="number" required min="0.01" step="0.01" value={input.amount||''} onChange={e=>update('amount',Number(e.target.value))}/></label>{oneOff?<label>Termin płatności<input required type="date" value={paymentDate} onChange={e=>{const value=e.target.value;if(value)setInput(old=>({...old,due_month:value.slice(0,7),due_day:Number(value.slice(-2))}));}}/></label>:<label>Dzień płatności<input type="number" required min="1" max="31" value={input.due_day} onChange={e=>update('due_day',Number(e.target.value))}/></label>}</div>
@@ -72,9 +77,11 @@ export function BillPayment({data,bill,reload,onClose}:{data:BudgetWorkspace;bil
 export default function BudgetObligations({data,reload}:{data:BudgetWorkspace;reload:()=>Promise<void>}){
   const [params,setParams]=useSearchParams();
   const requestedBill=params.get('bill');
+  const {management}=useBudgetMode();
   const [scope,setScope]=useState<'MONTH'|'ALL'>('MONTH'),[inactive,setInactive]=useState(false),[editing,setEditing]=useState<BudgetBill|null|undefined>(undefined),[paying,setPaying]=useState<BudgetBill|null>(null);
-  const [kind,setKind]=useState<'ALL'|'ONCE'|'RECURRING'>('ALL');
+  const [kind,setKind]=useState<'ALL'|'ONCE'|'RECURRING'|'LOANS'>('ALL');
   const [undo,setUndo]=useState<number|null>(null);
+  useEffect(()=>{if(!management){setEditing(undefined);setUndo(null);}},[management]);
   useEffect(()=>{
     if(!requestedBill)return;
     const bill=data.bills.find(item=>String(item.id)===requestedBill);
@@ -84,28 +91,31 @@ export default function BudgetObligations({data,reload}:{data:BudgetWorkspace;re
   },[requestedBill,data.bills,data.month,setParams]);
   const action=usePlanningAction(reload);
   const catalog=data.planning?.bill_catalog??data.bills;
-  const rows=(scope==='MONTH'?data.bills:catalog).filter(b=>(inactive||b.active!==false)&&(kind==='ALL'||(kind==='ONCE')===(b.frequency==='ONCE'))).sort((a,b)=>Number(b.frequency==='ONCE')-Number(a.frequency==='ONCE'));
+  const rows=(scope==='MONTH'?data.bills:catalog).filter(b=>(inactive||b.active!==false)&&(kind==='ALL'||kind==='ONCE'&&b.frequency==='ONCE'||kind==='RECURRING'&&b.frequency!=='ONCE')).sort((a,b)=>Number(b.frequency==='ONCE')-Number(a.frequency==='ONCE'));
   const paidRows=scope==='MONTH'?rows.filter(b=>b.status==='PAID'):[];
   const pendingRows=scope==='MONTH'?rows.filter(b=>b.status!=='PAID'):rows;
+  const loans=scope==='MONTH'&&(kind==='ALL'||kind==='LOANS')?data.planning?.loans??[]:[];
+  const paidLoans=loans.filter(l=>l.paid),pendingLoans=loans.filter(l=>!l.paid);
   const renderRows=(items:typeof rows)=>items.map((bill,index)=>{
       const occurrence=data.bills.find(b=>b.id===bill.id),date=occurrence?.due_date??bill.next_due_date;
       return <Fragment key={bill.id}>{(index===0||(items[index-1].frequency==='ONCE')!==(bill.frequency==='ONCE'))&&<h3 className="bp-bill-group">{bill.frequency==='ONCE'?'Rachunki jednorazowe':'Rachunki powtarzalne'}</h3>}<article className={`bp-obligation ${occurrence?.status==='OVERDUE'?'is-overdue':occurrence?.status==='PAID'?'is-paid':''}`}>
         <div className="bp-obligation-date"><CalendarDays size={18}/><span>{date?day(date):'Brak kolejnego terminu'}</span></div>
         <div className="bp-obligation-main"><h3>{bill.title}</h3><span className="bp-bill-kind">{bill.frequency==='ONCE'?'Jednorazowy':'Powtarzalny'}</span><p>{frequencyNames[bill.frequency]} · {bill.account_name}</p><span className={`budget-bill-status ${bill.active===false?'is-paused':occurrence?.status==='PAID'?'is-paid':occurrence?.status==='OVERDUE'?'is-overdue':'is-pending'}`}>{bill.active===false?<Pause size={14}/>:occurrence?.status==='PAID'?<Check size={14}/>:occurrence?.status==='OVERDUE'?<CircleAlert size={14}/>:<CalendarDays size={14}/>} {bill.active===false?'Wstrzymany':occurrence?.status==='PAID'?'Opłacony':occurrence?.status==='OVERDUE'?'Po terminie':'Do zapłaty'}</span>{bill.variable_amount&&<small>Kwota szacunkowa</small>}{bill.reserve_id&&<Link to={`/budget/reserves?reserve=${bill.reserve_id}`}>Finansuje rezerwa: {bill.reserve_name}</Link>}{bill.promotion_end&&<small>Promocja do {day(bill.promotion_end)} · potem {money(bill.regular_amount??bill.amount)}</small>}{bill.notice_date&&<small className="bp-deadline">Wypowiedzenie do {day(bill.notice_date)}</small>}</div>
         <div className="bp-obligation-money"><small>{bill.funding_source}</small>{bill.reserve_id&&<small>Z rezerwy {money(bill.reserve_covered??0)} · z wolnych środków {money(bill.unfunded??bill.amount)}</small>}<b>{money(occurrence?.amount??bill.amount)}</b><small>{bill.frequency==='ONCE'?'Jedna płatność — bez powtarzania':`Plan na 12 miesięcy ${money(bill.annual_cost??bill.amount)}`}</small></div>
-        <div className="bp-obligation-actions">{occurrence?.status==='PAID'&&occurrence.entry_id&&<button className="budget-button-secondary" onClick={()=>setUndo(occurrence.entry_id)}>Cofnij rozliczenie</button>}{!!occurrence?.payment_candidates?.length&&<button className="budget-button-primary" onClick={()=>setPaying(occurrence)}>Znaleziono płatność — powiąż</button>}{occurrence&&occurrence.status!=='PAID'&&data.month<=planningToday().slice(0,7)&&<button className="budget-button-secondary" disabled={action.busy} onClick={()=>setPaying(occurrence)}><Check size={15}/>Zapisz opłacenie</button>}<button className="budget-icon-button" aria-label={`Edytuj zobowiązanie: ${bill.title}`} disabled={action.busy} onClick={()=>setEditing(bill)}><Pencil size={16}/></button><button className="budget-icon-button" aria-label={`${bill.active===false?'Przywróć':'Wstrzymaj'} zobowiązanie: ${bill.title}`} disabled={action.busy} onClick={()=>void action.run(()=>budgetWorkspaceApi.updateBill(bill.id,{...billInput(bill,data.month),active:bill.active===false}),bill.active===false?'Zobowiązanie przywrócone.':'Zobowiązanie wstrzymane.')}>{bill.active===false?<Play size={16}/>:<Pause size={16}/>}</button></div>
+        <div className="bp-obligation-actions">{management&&occurrence?.status==='PAID'&&occurrence.entry_id&&<button className="budget-button-secondary" onClick={()=>setUndo(occurrence.entry_id)}>Cofnij rozliczenie</button>}{!!occurrence?.payment_candidates?.length&&<button className="budget-button-primary" onClick={()=>setPaying(occurrence)}>Znaleziono płatność — powiąż</button>}{occurrence&&occurrence.status!=='PAID'&&data.month<=planningToday().slice(0,7)&&<button className="budget-button-secondary" disabled={action.busy} onClick={()=>setPaying(occurrence)}><Check size={15}/>Zapisz opłacenie</button>}{management&&<><button className="budget-icon-button" aria-label={`Edytuj zobowiązanie: ${bill.title}`} disabled={action.busy} onClick={()=>setEditing(bill)}><Pencil size={16}/></button><button className="budget-icon-button" aria-label={`${bill.active===false?'Przywróć':'Wstrzymaj'} zobowiązanie: ${bill.title}`} disabled={action.busy} onClick={()=>void action.run(()=>budgetWorkspaceApi.updateBill(bill.id,{...billInput(bill,data.month),active:bill.active===false}),bill.active===false?'Zobowiązanie przywrócone.':'Zobowiązanie wstrzymane.')}>{bill.active===false?<Play size={16}/>:<Pause size={16}/>}</button></>}</div>
       </article></Fragment>;
     });
   return <section className="budget-panel surface-card bp-panel">
-    <div className="budget-section-heading"><div><p className="page-eyebrow">Rachunki i subskrypcje</p><h2>Zobowiązania pod kontrolą</h2><p>Terminy, koszt kolejnych 12 miesięcy, promocje i finansowanie z rezerw w jednym miejscu.</p></div><button className="budget-button-primary" disabled={action.busy} onClick={()=>setEditing(null)}><Plus size={17}/>Dodaj zobowiązanie</button></div>
-    <div className="bp-toolbar"><div className="bp-switch"><button aria-pressed={scope==='MONTH'} onClick={()=>setScope('MONTH')}>Wybrany miesiąc</button><button aria-pressed={scope==='ALL'} onClick={()=>setScope('ALL')}>Szablony opłat</button></div><label>Rodzaj rachunków<select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="ALL">Wszystkie rodzaje</option><option value="ONCE">Jednorazowe</option><option value="RECURRING">Powtarzalne</option></select></label><label className="bp-checkbox"><input type="checkbox" checked={inactive} onChange={e=>setInactive(e.target.checked)}/>Pokaż wstrzymane</label></div><PlanningMessages {...action}/><div className="bp-help">{data.bills.filter(b=>b.status!=='PAID'&&b.payment_candidates?.length).length>0&&<p><strong>Do powiązania: {data.bills.filter(b=>b.status!=='PAID'&&b.payment_candidates?.length).length} rachunków.</strong> Wybierz „Znaleziono płatność — powiąż”, aby rozliczyć import bez kolejnego obciążenia.</p>}</div>
-    {!rows.length?<p className="budget-small-empty">Brak zobowiązań w tym widoku.</p>:<>
-      <div className="bp-obligations">{renderRows(pendingRows)}</div>
-      {scope==='MONTH'&&pendingRows.length===0&&<p className="budget-small-empty">Wszystkie rachunki w tym widoku są opłacone.</p>}
-      {paidRows.length>0&&<details className="budget-paid-bills"><summary><Check size={16}/>Opłacone rachunki ({paidRows.length}) · {money(paidRows.reduce((sum,b)=>sum+b.amount,0))}</summary><div className="bp-obligations">{renderRows(paidRows)}</div></details>}
+    <div className="budget-section-heading"><div><p className="page-eyebrow">Zobowiązania</p><h2>Płatności miesiąca</h2><p>Rachunki i raty kredytów w jednym zestawieniu.</p></div>{management&&<button className="budget-button-primary" disabled={action.busy} onClick={()=>setEditing(null)}><Plus size={17}/>Dodaj zobowiązanie</button>}</div>
+    <BudgetPaymentsSummary data={data}/>
+    <div className="bp-toolbar"><div className="bp-switch"><button aria-pressed={scope==='MONTH'} onClick={()=>setScope('MONTH')}>Wybrany miesiąc</button><button aria-pressed={scope==='ALL'} onClick={()=>{setScope('ALL');if(kind==='LOANS')setKind('ALL');}}>Szablony opłat</button></div><label>Rodzaj płatności<select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="ALL">Rachunki i raty</option><option value="ONCE">Jednorazowe</option><option value="RECURRING">Powtarzalne rachunki</option>{scope==='MONTH'&&<option value="LOANS">Raty kredytów</option>}</select></label><label className="bp-checkbox"><input type="checkbox" checked={inactive} onChange={e=>setInactive(e.target.checked)}/>Pokaż wstrzymane</label></div><PlanningMessages {...action}/><div className="bp-help">{data.bills.filter(b=>b.status!=='PAID'&&b.payment_candidates?.length).length>0&&<p><strong>Do powiązania: {data.bills.filter(b=>b.status!=='PAID'&&b.payment_candidates?.length).length} rachunków.</strong> Wybierz „Znaleziono płatność — powiąż”, aby rozliczyć import bez kolejnego obciążenia.</p>}</div>
+    {!rows.length&&!loans.length?<p className="budget-small-empty">Brak zobowiązań w tym widoku.</p>:<>
+      <div className="bp-obligations">{renderRows(pendingRows)}</div>{pendingLoans.length>0&&<div className="budget-pending-loans"><h3 className="bp-bill-group">Raty kredytów</h3><BudgetLoanPayments loans={pendingLoans} data={data}/></div>}
+      {scope==='MONTH'&&pendingRows.length+pendingLoans.length===0&&<p className="budget-small-empty">Wszystkie płatności w tym widoku są rozliczone.</p>}
+      {paidRows.length+paidLoans.length>0&&<details className="budget-paid-bills"><summary><Check size={16}/>Opłacone płatności ({paidRows.length+paidLoans.length}) · {money(paidRows.reduce((sum,b)=>sum+b.amount,0)+paidLoans.reduce((sum,l)=>sum+(l.paid_amount??l.amount),0))}</summary><div className="bp-obligations">{renderRows(paidRows)}<BudgetLoanPayments loans={paidLoans} data={data}/></div></details>}
     </>}
 
     {undo&&<BudgetSettlementUndo entryId={undo} reload={reload} onClose={()=>setUndo(null)}/>}
-    {editing!==undefined&&<BillEditor key={editing?.id??'new'} data={data} bill={editing} reload={reload} onClose={()=>setEditing(undefined)}/>}{paying&&<BillPayment data={data} bill={paying} reload={reload} onClose={()=>setPaying(null)}/>}
+    {management&&editing!==undefined&&<BillEditor key={editing?.id??'new'} data={data} bill={editing} reload={reload} onClose={()=>setEditing(undefined)}/>}{paying&&<BillPayment data={data} bill={paying} reload={reload} onClose={()=>setPaying(null)}/>}
   </section>;
 }

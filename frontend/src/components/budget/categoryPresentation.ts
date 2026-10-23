@@ -1,16 +1,18 @@
 import type { BudgetCategory } from '../../api_budget_workspace';
 import { planningMoney as money } from './planningHelpers';
+import { categoryAllocation } from './budgetPlanPresentation';
 
 export function showCategory(category: Pick<BudgetCategory,'has_activity'>, includeUnused: boolean, search: string) {
   return includeUnused || search.trim() !== '' || category.has_activity !== false;
 }
 
-export function categoryPlanDescription(category: BudgetCategory, parent?: BudgetCategory) {
+export function categoryPlanDescription(category: BudgetCategory, parent?: BudgetCategory, categories?: BudgetCategory[]) {
   if (category.monthly_reserve_managed) return `Miesięczna pula: ${money(category.planned)}. Płatności i odłożenia wykorzystują tę samą kwotę.`;
   if (category.planned_bills > 0 && category.manual_plan === 0) return `Plan z rachunków i rat: ${money(category.planned_bills)}.`;
   if (parent && category.manual_plan === 0 && category.planned_bills === 0) {
-    const ordinary=parent.plan_details?.ordinary_planned??Math.max(0,parent.planned-parent.planned_bills);
-    if (ordinary > 0) return `Korzysta ze wspólnego limitu zwykłych wydatków „${parent.name}”: ${money(ordinary)}. Bez dodatkowej kwoty.`;
+    const ordinary=categories ? categoryAllocation(parent,categories).unassigned : null;
+    if (ordinary !== null) return `Bez własnej kwoty. W planie „${parent.name}” nieprzypisane do podkategorii i płatności: ${money(ordinary)}. To część wspólnej puli, nie dodatkowy limit.`;
+    if (parent.planned > parent.planned_bills) return `Korzysta ze wspólnego limitu „${parent.name}”. Nie ma dodatkowej kwoty; sprawdź podział planu kategorii.`;
     if (parent.planned_bills > 0) return `Brak osobnego limitu. Plan „${parent.name}” pokrywa przypisane płatności; nowy zakup będzie dodatkowym kosztem.`;
     return 'Brak własnego i wspólnego limitu. Zapisane wydatki nadal obciążają budżet.';
   }

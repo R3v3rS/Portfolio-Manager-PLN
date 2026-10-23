@@ -1,3 +1,4 @@
+import {useBudgetFormGuard} from './budgetMode';
 import {useState} from 'react';
 import {budgetWorkspaceApi,type BudgetWorkspace,type PlanCopyInput,type PlanCopyPreview} from '../../api_budget_workspace';
 import {ImportDialog} from './imports/ImportUi';
@@ -6,14 +7,16 @@ import {extractErrorMessageFromUnknown} from '../../http/response';
 
 function nextMonth(month:string){const [y,m]=month.split('-').map(Number);return `${m===12?y+1:y}-${String(m===12?1:m+1).padStart(2,'0')}`;}
 const actionLabels={ADD:'Dodaj limit',REPLACE:'Zastąp limit',KEEP:'Zachowaj wyjątek',MANAGED:'Miesięczna pula — pomiń',NO_SOURCE:'Brak limitu źródłowego — pomiń'};
-export default function BudgetPlanCopy({data,reload,onClose}:{data:BudgetWorkspace;reload:()=>Promise<void>;onClose:()=>void}){
+export default function BudgetPlanCopy({data,reload,onClose:close}:{data:BudgetWorkspace;reload:()=>Promise<void>;onClose:()=>void}){
   const earliest=planningToday().slice(0,7);
   const [input,setInput]=useState<PlanCopyInput>({source:data.month,start:nextMonth(data.month)<earliest?earliest:nextMonth(data.month),months:12,replace:false,category_ids:data.categories.filter(c=>!c.is_unassigned&&!c.monthly_reserve_managed).map(c=>c.id)});
   const [preview,setPreview]=useState<PlanCopyPreview|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const [requestId,setRequestId]=useState(()=>crypto.randomUUID());
+  const canClose=useBudgetFormGuard(input);
+  const onClose=()=>{if(canClose())close();};
   const update=(next:Partial<PlanCopyInput>)=>{setInput(old=>({...old,...next}));setPreview(null);setError('');setRequestId(crypto.randomUUID());};
   const check=async()=>{setBusy(true);setError('');try{setPreview(await budgetWorkspaceApi.previewCopy(input));setRequestId(crypto.randomUUID());}catch(err){setError(extractErrorMessageFromUnknown(err));}finally{setBusy(false);}};
-  const save=async()=>{if(!preview)return;setBusy(true);setError('');try{await budgetWorkspaceApi.copyRange(input,preview.token,requestId);onClose();await reload();}catch(err){setError(extractErrorMessageFromUnknown(err));}finally{setBusy(false);}};
+  const save=async()=>{if(!preview)return;setBusy(true);setError('');try{await budgetWorkspaceApi.copyRange(input,preview.token,requestId);close();await reload();}catch(err){setError(extractErrorMessageFromUnknown(err));}finally{setBusy(false);}};
   return <ImportDialog title="Zastosuj limity na kolejne miesiące" busy={busy} onClose={onClose}>
     <p className="bp-help">Kopiujemy zapisane lub domyślne limity kategorii. Podgląd pokazuje własne limity; końcowy wspólny plan uwzględni także podkategorie i przypisane płatności. Rachunki, raty i odłożenia wynikają z własnych harmonogramów. Nie kopiujemy historii ani przeniesionych kwot z zamknięcia miesiąca.</p>
     {error&&<p role="alert" className="budget-negative">{error}</p>}

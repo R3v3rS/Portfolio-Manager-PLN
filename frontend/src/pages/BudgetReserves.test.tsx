@@ -1,3 +1,4 @@
+import {setBudgetManagement} from '../components/budget/budgetMode';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,7 +18,7 @@ const workspace=():ReservesWorkspace=>({as_of:'2026-10-02',items:[{...reserve}],
 const show=()=>render(<MemoryRouter initialEntries={['/budget/reserves?reserve=7']}><BudgetReserves/></MemoryRouter>);
 const get=vi.mocked(reservesApi.get);
 async function review(){fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Sprawdź podgląd'}));await screen.findByRole('region',{name:'Podgląd przed zapisem'});}
-beforeEach(()=>{vi.resetAllMocks();vi.mocked(reservesApi.preview).mockImplementation(async(id,input)=>({...input,reserve_id:id,reserve_name:reserve.name,covered:0,released:0,surplus:0,surplus_mode:'KEEP',surplus_reserve_name:null,accounts:[],budget_entry_id:null,expected_state:'snapshot'}));get.mockResolvedValue(workspace());vi.mocked(reservesApi.create).mockResolvedValue({id:8});vi.mocked(reservesApi.move).mockResolvedValue({id:2,budget_entry_id:null});});
+beforeEach(()=>{setBudgetManagement(true);vi.resetAllMocks();vi.mocked(reservesApi.preview).mockImplementation(async(id,input)=>({...input,reserve_id:id,reserve_name:reserve.name,covered:0,released:0,surplus:0,surplus_mode:'KEEP',surplus_reserve_name:null,accounts:[],budget_entry_id:null,expected_state:'snapshot'}));get.mockResolvedValue(workspace());vi.mocked(reservesApi.create).mockResolvedValue({id:8});vi.mocked(reservesApi.move).mockResolvedValue({id:2,budget_entry_id:null});});
 
 describe('Budget reserves',()=>{
   it('starts a new monthly pool in the selected month without creating a deposit',async()=>{
@@ -37,7 +38,7 @@ describe('Budget reserves',()=>{
       month_planned:0,month_allocated:0,saved:0,remaining:0,monthly_required:0,movements:[]}];get.mockResolvedValue(data);
     show();const card=(await screen.findByRole('heading',{name:'Woda Listopad - Styczeń'})).closest('article')!;
     expect(card).toHaveTextContent('Początek odkładania: listopad 2026');
-    expect(card).toHaveTextContent(/Plan bieżącego miesiąca0,00/);
+    expect(card).toHaveTextContent(/Plan bieżącego miesiąca: 0,00/);
     expect(within(card).getByRole('link',{name:'Koryguj pierwszy miesiąc'})).toHaveAttribute('href','/budget?view=plan&month=2026-11');
     expect(within(card).queryByRole('link',{name:'Koryguj bieżący miesiąc'})).not.toBeInTheDocument();
     fireEvent.click(within(card).getByRole('button',{name:'Edytuj rezerwę: Woda Listopad - Styczeń'}));
@@ -91,7 +92,8 @@ describe('Budget reserves',()=>{
     expect(card).toHaveTextContent('Miesięczna pula na media');
     expect(card).toHaveTextContent('Odłożone środki');
     expect(card).toHaveTextContent('Plan bieżącego miesiąca');
-    expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(within(card).getByRole('progressbar',{name:'Wykonanie odłożeń: Prąd'})).toHaveAttribute('aria-valuenow','100');
+    expect(within(card).queryByRole('progressbar',{name:'Postęp: Prąd'})).not.toBeInTheDocument();
     fireEvent.click(within(card).getByRole('button',{name:'Zapisz płatność'}));
     expect(screen.getByRole('dialog')).toHaveTextContent('Miesięczna pula pozostanie aktywna');
     expect(screen.getByRole('dialog')).not.toHaveTextContent('Rozpocznie się kolejny roczny cykl');

@@ -1,3 +1,4 @@
+import {setBudgetManagement} from './budgetMode';
 import {fireEvent,render,screen,waitFor,within} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
 import {beforeEach,describe,expect,it,vi} from 'vitest';
@@ -20,7 +21,7 @@ const fixture=():BudgetWorkspace=>({month:'2026-10',accounts:[{id:1,name:'PKO',b
     cycle:{start:'2026-10-10',end:'2026-11-09',income:0,spent:200,expected_income:6000,bills_before_payday:100,next_payday:'2026-10-10'}}});
 const reload=vi.fn(async()=>undefined);
 const show=(node:React.ReactNode)=>render(<MemoryRouter>{node}</MemoryRouter>);
-beforeEach(()=>{vi.resetAllMocks();for(const fn of Object.values(planningApi))vi.mocked(fn).mockResolvedValue({});vi.mocked(budgetWorkspaceApi.createBill).mockResolvedValue({id:8});vi.mocked(budgetWorkspaceApi.updateBill).mockResolvedValue({id:8});vi.mocked(budgetWorkspaceApi.payBill).mockResolvedValue({entry_id:9});});
+beforeEach(()=>{setBudgetManagement(true);vi.resetAllMocks();for(const fn of Object.values(planningApi))vi.mocked(fn).mockResolvedValue({});vi.mocked(budgetWorkspaceApi.createBill).mockResolvedValue({id:8});vi.mocked(budgetWorkspaceApi.updateBill).mockResolvedValue({id:8});vi.mocked(budgetWorkspaceApi.payBill).mockResolvedValue({entry_id:9});});
 
 describe('Household planning controls',()=>{
   it('keeps paid bill actions folded while pending payments remain visible',()=>{
@@ -28,9 +29,9 @@ describe('Household planning controls',()=>{
     data.bills=[{id:1,title:'Czynsz',amount:800,due_date:'2026-10-10',frequency:'MONTHLY',account_id:1,account_name:'PKO',category_id:3,category_name:'Transport',status:'PAID',entry_id:9},{id:2,title:'Telefon',amount:55,due_date:'2026-10-15',frequency:'MONTHLY',account_id:1,account_name:'PKO',category_id:3,category_name:'Transport',status:'UPCOMING',entry_id:null}];
     show(<BudgetObligations data={data} reload={reload}/>);
     expect(screen.getByRole('heading',{name:'Telefon'})).toBeInTheDocument();
-    const paidSection=screen.getByText(/Opłacone rachunki \(1\)/).closest('details');
+    const paidSection=screen.getByText(/Opłacone płatności \(1\)/).closest('details');
     expect(paidSection).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText(/Opłacone rachunki \(1\)/));
+    fireEvent.click(screen.getByText(/Opłacone płatności \(1\)/));
     expect(paidSection).toHaveAttribute('open');
     expect(screen.getByRole('heading',{name:'Czynsz'})).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Cofnij rozliczenie'})).toBeInTheDocument();
@@ -53,7 +54,7 @@ describe('Household planning controls',()=>{
     show(<BudgetObligations data={data} reload={reload}/>);
     expect(screen.getByRole('heading',{name:'Rachunki jednorazowe'})).toBeInTheDocument();
     expect(screen.getByRole('heading',{name:'Rachunki powtarzalne'})).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Rodzaj rachunków'),{target:{value:'ONCE'}});
+    fireEvent.change(screen.getByLabelText('Rodzaj płatności'),{target:{value:'ONCE'}});
     expect(screen.queryByRole('heading',{name:'Telefon'})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Dodaj zobowiązanie'}));
     const dialog=within(screen.getByRole('dialog'));
@@ -63,17 +64,18 @@ describe('Household planning controls',()=>{
     expect(dialog.queryByLabelText('Termin płatności')).not.toBeInTheDocument();
   });
   it('shows monthly income funds independently of the account cash card',()=>{
-    const data=fixture();data.totals={...data.totals,income:1000,expected_income:200,monthly_income_total:1200,monthly_income_cost:300,monthly_income_remaining_plan:800,monthly_income_to_plan:100};
+    const data=fixture();data.totals={...data.totals,income:1000,expected_income:200,reserved:500,available_now:3000,monthly_income_total:1200,monthly_income_cost:300,monthly_income_remaining_plan:800,monthly_income_to_plan:100};
     show(<BudgetPlanningOverview data={data} forecast={null} failed={false}/>);
     const monthly=within(screen.getByLabelText('Wolne z przychodów miesiąca'));
     expect(monthly.getByText('100,00 zł',{exact:false})).toBeInTheDocument();
-    expect(screen.getByText(/W tym oczekiwane wpływy:.*200,00/)).toBeInTheDocument();
-    expect(monthly.getByText(/Z samych przychodów miesiąca/)).toBeInTheDocument();
-    expect(screen.getByText(/3\s?500,00/,{selector:'strong'})).toBeInTheDocument();
+    expect(monthly.getByText(/Do otrzymania:.*200,00/)).toBeInTheDocument();
+    expect(monthly.getByText(/Tyle zostaje z dochodów tego miesiąca/)).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Pieniądze dzisiaj')).getByText(/3\s?500,00/,{selector:'dd'})).toBeInTheDocument();
   });
   it('keeps an open reserve plan fixed and available for manual funding at zero',()=>{
     const data=fixture();data.planning!.reserve_plans[0]={...data.planning!.reserve_plans[0],name:'Poduszka',open_ended:true,monthly_amount:0,planned:0,funded:333,remaining:0};
     show(<BudgetReservePlans data={data} reload={reload}/>);
+    fireEvent.click(screen.getByRole('button',{name:`Zmień plan: ${data.planning!.reserve_plans[0].name}`}));
     expect(screen.getByLabelText('Plan odłożenia: Poduszka')).toHaveAttribute('readonly');
     expect(screen.queryByRole('button',{name:'Zapisz plan'})).not.toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Zmień stałą kwotę'})).toBeInTheDocument();
@@ -83,6 +85,7 @@ describe('Household planning controls',()=>{
   it('corrects only the selected month of a media pool and exposes invoice settlement',async()=>{
     const data=fixture();data.planning!.reserve_plans[0]={...data.planning!.reserve_plans[0],name:'Prąd',monthly_amount:250,planned:250,funded:180,remaining:70};
     show(<BudgetReservePlans data={data} reload={reload}/>);
+    fireEvent.click(screen.getByRole('button',{name:`Zmień plan: ${data.planning!.reserve_plans[0].name}`}));
     expect(screen.getByText(/Domyślnie.*250,00/)).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Rozlicz fakturę'})).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Plan odłożenia: Prąd'),{target:{value:'220'}});
@@ -120,6 +123,7 @@ describe('Household planning controls',()=>{
   });
   it('saves a monthly reserve target with priority and version, without recording a contribution',async()=>{
     show(<BudgetReservePlans data={fixture()} reload={reload}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Zmień plan: OC auta'}));
     fireEvent.change(screen.getByLabelText('Plan odłożenia: OC auta'),{target:{value:'650'}});
     fireEvent.click(screen.getByRole('button',{name:'Zapisz plan'}));
     await waitFor(()=>expect(planningApi.reservePlan).toHaveBeenCalledWith(4,{month:'2026-10',amount:650,priority:1,version:3}));
@@ -129,6 +133,7 @@ describe('Household planning controls',()=>{
   it('keeps an explicitly saved zero target instead of replacing it with the recommendation',()=>{
     const data=fixture();data.planning!.reserve_plans[0].planned=0;
     show(<BudgetReservePlans data={data} reload={reload}/>);
+    fireEvent.click(screen.getByRole('button',{name:`Zmień plan: ${data.planning!.reserve_plans[0].name}`}));
     expect(screen.getByLabelText('Plan odłożenia: OC auta')).toHaveValue(0);
   });
   it('requires the closing preview before moving a remaining limit to its reserve',async()=>{

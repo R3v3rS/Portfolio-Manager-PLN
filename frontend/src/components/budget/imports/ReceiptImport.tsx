@@ -1,3 +1,4 @@
+import {useBudgetMode} from '../budgetMode';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, Check, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
@@ -7,6 +8,7 @@ import { importDay, importMoney, importToday } from './importFormat';
 
 type LineDraft={label:string;amount:string;category_id:string};
 export default function ReceiptImport({workspace,draftId,onDraft,onSaved,onDeleted}:{workspace:BudgetImportsWorkspace;draftId:number|null;onDraft:(id:number|null)=>void;onSaved:(message:string)=>void;onDeleted:(id:number)=>void}){
+  const {management}=useBudgetMode();
   const [draft,setDraft]=useState<ReceiptDraft|null>(null),[account,setAccount]=useState(String(workspace.selected_entry?.account_id??workspace.accounts[0]?.id??''));
   const [amount,setAmount]=useState(''),[day,setDay]=useState(importToday()),[merchant,setMerchant]=useState(''),[text,setText]=useState('');
   const [mode,setMode]=useState<ReceiptCommit['classification_mode']>('KEEP'),[balanceMode,setBalanceMode]=useState<BalanceMode|''>('');
@@ -88,7 +90,7 @@ export default function ReceiptImport({workspace,draftId,onDraft,onSaved,onDelet
       onSaved(result.linked?'Paragon połączony z istniejącym zakupem. Saldo konta pozostaje bez zmian.':`Wydatek z paragonem zapisany. ${balanceMode==='HISTORY'?'Saldo pozostaje bez zmian.':'Saldo konta zostało zaktualizowane.'}`);
     }catch(err){setError(extractErrorMessageFromUnknown(err));}finally{setBusy(false);}
   };
-  return <section className="br-panel bi-receipts"><div className="br-toolbar"><div><p className="page-eyebrow">Zdjęcie lub PDF</p><h2>Paragony i podział zakupów</h2></div>{draft&&<div className="br-actions">{draft.status==='PENDING'&&<button type="button" className="budget-button-secondary" disabled={busy||!workspace.ocr.available} onClick={()=>void recognizeAgain()}><RefreshCw size={16}/>{busy?'Przetwarzanie…':'Odczytaj ponownie'}</button>}<button type="button" className="budget-button-secondary bi-delete-receipt" disabled={busy} onClick={()=>void remove()}><Trash2 size={16}/>Usuń paragon</button><button type="button" className="budget-button-secondary" disabled={busy} onClick={()=>{onDraft(null);setDraft(null);setBusy(false);uploadToken.current=crypto.randomUUID();}}>Dodaj kolejny paragon</button></div>}</div>
+  return <section className="br-panel bi-receipts"><div className="br-toolbar"><div><p className="page-eyebrow">Zdjęcie lub PDF</p><h2>Paragony i podział zakupów</h2></div>{draft&&<div className="br-actions">{draft.status==='PENDING'&&<button type="button" className="budget-button-secondary" disabled={busy||!workspace.ocr.available} onClick={()=>void recognizeAgain()}><RefreshCw size={16}/>{busy?'Przetwarzanie…':'Odczytaj ponownie'}</button>}{(management||draft.status==='PENDING')&&<button type="button" className="budget-button-secondary bi-delete-receipt" disabled={busy} onClick={()=>void remove()}><Trash2 size={16}/>Usuń paragon</button>}<button type="button" className="budget-button-secondary" disabled={busy} onClick={()=>{onDraft(null);setDraft(null);setBusy(false);uploadToken.current=crypto.randomUUID();}}>Dodaj kolejny paragon</button></div>}</div>
     {error&&<div className="br-warning" role="alert">{error}{draftId&&<button className="budget-text-button" disabled={busy} onClick={()=>void load(draftId)}>Odśwież paragon</button>}</div>}
     {!draft?<><p className="br-form-help">Rozpoznane dane najpierw sprawdzasz. Jeśli zakup już jest w budżecie, zdjęcie i podział uzupełnią istniejący wpis na jego koncie. Odczyt działa lokalnie na Windows; zdjęcia nie są wysyłane do zewnętrznej usługi.</p>
       {workspace.selected_entry&&<p className="br-warning">Dodajesz paragon do: {workspace.selected_entry.description} · {importMoney(workspace.selected_entry.amount)} · {workspace.selected_entry.account_name}.</p>}

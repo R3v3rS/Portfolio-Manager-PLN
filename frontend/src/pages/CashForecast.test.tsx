@@ -1,3 +1,4 @@
+import {setBudgetManagement} from '../components/budget/budgetMode';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,7 +24,7 @@ const forecast=():ForecastData=>({
   recent_incomes:[{id:19,account_id:1,date:'2026-10-02',description:'Pensja',amount:5800},{id:20,account_id:2,date:'2026-10-02',description:'Inne konto',amount:100}],warnings:[],
 });
 const show=()=>render(<MemoryRouter><CashForecast/></MemoryRouter>);
-beforeEach(()=>{vi.resetAllMocks();vi.mocked(forecastApi.get).mockResolvedValue(forecast());vi.mocked(forecastApi.createIncome).mockResolvedValue({id:8});vi.mocked(forecastApi.receiveIncome).mockResolvedValue({id:1,budget_entry_id:19});vi.mocked(forecastApi.updateIncome).mockResolvedValue({});vi.mocked(forecastApi.setIncomeActive).mockResolvedValue({});});
+beforeEach(()=>{setBudgetManagement(true);vi.resetAllMocks();vi.mocked(forecastApi.get).mockResolvedValue(forecast());vi.mocked(forecastApi.createIncome).mockResolvedValue({id:8});vi.mocked(forecastApi.receiveIncome).mockResolvedValue({id:1,budget_entry_id:19});vi.mocked(forecastApi.updateIncome).mockResolvedValue({});vi.mocked(forecastApi.setIncomeActive).mockResolvedValue({});});
 
 describe('Cash forecast',()=>{
   it('loads a purchase variant from its link and can restore the saved plan without writing',async()=>{

@@ -1,0 +1,35 @@
+.budget-mode-bar{display:flex;align-items:center;justify-content:space-between;gap:1rem;border:1px solid var(--line);border-radius:12px;padding:.85rem 1rem;margin-bottom:1rem;background:var(--surface)}
+.budget-mode-bar strong,.budget-mode-bar small{display:block}.budget-mode-bar small{font-size:.78rem;color:var(--muted);margin-top:.2rem}.budget-mode-bar.is-managing{border-color:var(--accent,#51dcd6);background:rgba(70,210,200,.07)}
+.budget-mode-bar button{flex-shrink:0}.budget-mode-empty{padding:1.5rem}.budget-mode-empty p{color:var(--muted);margin:.6rem 0 1rem}
+.budget-plan-progress{margin:.6rem 0 0;min-width:150px;max-width:450px}.budget-plan-progress small{display:block;font-size:.72rem;color:var(--muted);white-space:normal;line-height:1.55;margin-top:.35rem;font-weight:400}
+.budget-segment-track{display:flex;height:8px;border-radius:8px;background:rgba(148,170,184,.15);overflow:hidden;width:100%}.budget-segment-track>span{height:100%;flex-shrink:0}.budget-segment-track .is-spent{background:#56d9ca}.budget-segment-track .is-pending{background:#e7b869}.budget-segment-track .is-funding{background:#aea0ef}.budget-segment-track.is-over .is-spent{background:#fb889d}
+.budget-plan-legend{display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;color:var(--muted);font-size:.72rem;padding:.6rem 0 1rem}.budget-plan-legend span:before{content:'';display:inline-block;width:9px;height:9px;border-radius:3px;background:rgba(148,170,184,.3);margin-right:.35rem}.budget-plan-legend .is-spent:before{background:#56d9ca}.budget-plan-legend .is-pending:before{background:#e7b869}.budget-plan-legend .is-funding:before{background:#aea0ef}
+.budget-page .budget-category-table{min-width:620px;table-layout:auto}.budget-page .budget-category-table th:first-child{width:48%}.budget-page .budget-category-table td{vertical-align:top;padding-top:1.1rem}.budget-category-table td>b{display:block;font-variant-numeric:tabular-nums}.budget-page .budget-category-table .budget-limit-editor{display:flex;flex-wrap:wrap;gap:.5rem;min-width:190px;max-width:280px;margin:.6rem 0}.budget-limit-editor small{white-space:normal;color:var(--muted);font-weight:400;flex-basis:100%}.budget-limit-editor label{font-size:.75rem}.budget-limit-editor input{width:100%;max-width:150px}
+.budget-hierarchy-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;background:rgba(140,166,186,.06);padding:1rem;border-radius:10px;margin:1rem 0}.budget-hierarchy-summary span{font-size:.8rem;color:var(--muted)}.budget-hierarchy-summary b{display:block;color:var(--ink);font-size:1rem;margin-top:.25rem}.budget-hierarchy-summary small{grid-column:1/-1;color:var(--muted);line-height:1.5}
+.budget-spending-ranking{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.15rem 2rem}.budget-spending-ranking>a{display:block;padding:.7rem;border-radius:8px}.budget-spending-ranking>a:hover{background:rgba(85,210,200,.07)}.budget-spending-ranking>a>span:first-child{display:flex;justify-content:space-between;gap:.6rem;font-size:.87rem}.budget-spending-ranking b{font-variant-numeric:tabular-nums}.budget-ranking-track{display:block;height:7px;background:rgba(148,170,184,.13);border-radius:8px;margin:.5rem 0;overflow:hidden}.budget-ranking-track i{display:block;background:#56d9ca;height:100%;border-radius:8px}.budget-spending-ranking small{font-size:.73rem;color:var(--muted)}
+.budget-funding-progress{padding:.7rem 0;margin-bottom:.5rem}.budget-funding-progress>div:first-child{display:flex;justify-content:space-between;gap:.7rem;font-size:.78rem;margin-bottom:.5rem}.budget-funding-progress small{display:block;color:var(--muted);font-size:.73rem;margin-top:.4rem}.budget-bills-overview{display:flex;flex-wrap:wrap;gap:1rem 2.5rem;padding:1rem 0;border-block:1px solid var(--line);margin:1rem 0}.budget-bills-overview span{font-size:.78rem;color:var(--muted)}.budget-bills-overview b{display:block;font-size:1.15rem;color:var(--ink);margin-top:.2rem}
+@media(max-width:650px){.budget-mode-bar{align-items:flex-start;flex-direction:column}.budget-mode-bar button{width:100%}.budget-spending-ranking,.budget-hierarchy-summary{grid-template-columns:1fr}.budget-hierarchy-summary small{grid-column:auto}.budget-funding-progress>div:first-child{flex-wrap:wrap}.budget-category-table .budget-category-detail{padding:.5rem}}
+@media(prefers-reduced-motion:no-preference){.budget-ranking-track i,.budget-segment-track>span{transition:width .2s ease}}
+
+.budget-page .budget-reserve-read-row{grid-template-columns:minmax(180px,1fr) repeat(3,minmax(95px,auto))}
+.budget-page .budget-reserve-read-row>.budget-funding-progress{display:block;text-align:left;grid-column:1/-1;grid-row:2;padding:.3rem 0;margin:0}
+.budget-page .budget-reserve-read-row>button{grid-row:3;justify-self:start}
+.budget-page .budget-reserve-read-row>.budget-funding-progress>div:first-child{display:flex;justify-content:space-between}
+@media(max-width:650px){.budget-page .budget-reserve-read-row{grid-template-columns:1fr}.budget-page .budget-reserve-read-row>.budget-funding-progress,.budget-page .budget-reserve-read-row>button{grid-row:auto;grid-column:1/-1}.budget-page .budget-reserve-read-row>.budget-funding-progress>div:first-child{display:flex;align-items:baseline;flex-wrap:wrap}}
+
+.budget-spending-ranking{gap:.75rem 1rem}
+.budget-spending-ranking>a{min-width:0;padding:.9rem 1rem;border:1px solid var(--line);background:rgba(148,170,184,.035)}
+.budget-spending-ranking>a>span:first-child{align-items:baseline;flex-wrap:wrap}
+.budget-spending-ranking>a>span:first-child>b{margin-left:auto;white-space:nowrap}
+.budget-spending-ranking small{display:block;line-height:1.5;margin-top:.25rem}
+.budget-spending-ranking>a.is-over{border-color:rgba(251,136,157,.4)}
+.budget-spending-ranking .is-over .budget-ranking-track i{background:#fb889d}
+.budget-spending-ranking .budget-ranking-overrun{color:#fb889d;font-weight:600;margin-top:.2rem}
+.budget-ranking-track.is-unplanned{height:7px;background:transparent;border:1px dashed var(--muted);opacity:.45}
+.budget-ranking-total{text-align:right;font-variant-numeric:tabular-nums;flex-shrink:0}
+.budget-ranking-total span{display:block;color:var(--muted);font-size:.75rem;margin-bottom:.3rem}
+.budget-ranking-total strong{font-size:1.25rem}
+.budget-ranking-tabs{margin-bottom:.7rem;flex-wrap:wrap}
+.budget-ranking-explanation,.budget-ranking-footer small{font-size:.78rem;color:var(--muted);line-height:1.6}
+.budget-ranking-explanation{margin:0 0 1rem}
+.budget-ranking-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem 1rem;margin-top:1rem}

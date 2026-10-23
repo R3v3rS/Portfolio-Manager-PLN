@@ -1,3 +1,4 @@
+import {useBudgetFormGuard} from './budgetMode';
 import { useRef, useState } from 'react';
 import { budgetWorkspaceApi, type BudgetWorkspace, type PlanTransferPreview } from '../../api_budget_workspace';
 import { HttpError } from '../../http';
@@ -6,12 +7,14 @@ import { ImportDialog } from './imports/ImportUi';
 import { planningMoney as money, planningToday } from './planningHelpers';
 
 type Props = { data: BudgetWorkspace; reload: () => Promise<void>; onClose: () => void };
-export default function BudgetPlanTransfer({ data, reload, onClose }: Props) {
+export default function BudgetPlanTransfer({ data, reload, onClose:close }: Props) {
   const categories = data.categories.filter(category => !category.is_unassigned && !category.monthly_reserve_managed);
   const [source, setSource] = useState(''), [target, setTarget] = useState(''), [amount, setAmount] = useState('');
   const [preview, setPreview] = useState<PlanTransferPreview | null>(null);
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [saved, setSaved] = useState(false);
   const requestId = useRef(crypto.randomUUID());
+  const canClose=useBudgetFormGuard([source,target,amount]);
+  const onClose=()=>{if(canClose())close();};
   const input = { month: data.month, source_id: Number(source), target_id: Number(target), amount: Number(amount) };
   const change = (setter: (value: string) => void, value: string) => {
     setter(value); setPreview(null); setError(''); requestId.current = crypto.randomUUID();
@@ -37,7 +40,7 @@ export default function BudgetPlanTransfer({ data, reload, onClose }: Props) {
         return;
       }
     }
-    try { await reload(); onClose(); }
+    try { await reload(); close(); }
     catch (err) { setError('Limity zostały zapisane. Nie udało się odświeżyć planu: ' + extractErrorMessageFromUnknown(err)); }
     finally { setBusy(false); }
   };

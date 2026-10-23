@@ -2,9 +2,21 @@
 
 [Pełna instrukcja budżetu](BUDZET_INSTRUKCJA_PL.md) · [Spis dokumentacji](README.md)
 
+## Dwa tryby pracy
+
+Na co dzień korzystaj z **Przeglądania**: wydatki, importy, płatności, przelewy i odłożenia pozostają dostępne. Do zmian planu wybierz **Zarządzaj** (na telefonie **Edytuj**), a następnie **Zmień limit** przy konkretnej kategorii lub planie rezerwy. Edycja dotyczy wybranej pozycji. Po pracy kliknij **Zakończ** (na telefonie **Gotowe**). Tryb pozostaje przy przechodzeniu między zakładkami; po odświeżeniu zaczynasz w przeglądaniu.
+
+Paski w planie pokazują wykonanie, oczekujące płatności i pulę mediów. **Pozostało** to reszta limitu wraz z przyszłymi zobowiązaniami, nie wolne saldo. Rozwinięta kategoria pokazuje kwoty przypisane podkategoriom i część jeszcze nieprzypisaną. **Na co wydano?** prowadzi do transakcji wybranej kategorii.
+
+Pasek miesiąca i narzędzi przewija się razem ze stroną; na górze pozostają tylko zakładki. Na telefonie plan pokazuje karty z kwotami **Plan / Wydano / Pozostało**. Wyszukiwarkę i dodatkowe filtry otworzysz przez **Filtry kategorii**.
+
+Podsumowanie zaczyna się od trzech kwot. Objaśnienia otworzysz bezpośrednio na kafelku; oczekiwane wpływy są oznaczone od razu. Jedna lista **Do zrobienia** pokazuje początkowo trzy najpilniejsze sprawy. Możesz rozwinąć całość lub wybrać rodzaj spraw. Dokumenty do sprawdzenia mogą pochodzić z różnych miesięcy — zakres wyjaśnia opis listy.
+
+**Rachunki i raty** mają wspólną sumę opłaconych i pozostałych płatności oraz najbliższy termin. Opłacone wpisy są zwinięte. Karty rezerw pokazują odłożoną kwotę i wykonanie miesięcznego planu; miejsca pieniędzy, historię i dodatkowe operacje znajdziesz w **Szczegółach rezerwy**.
+
 ## Pierwsze ustawienie
 
-W **Kontach** wpisz obecne salda jako saldo początkowe. Dodaj oczekiwane dochody, rachunki oraz konto i kategorię każdego kredytu. W **Planie miesiąca** ustaw limity i odłożenia; powtarzalne limity zapisz w planie domyślnym. Dodaj rezerwy, wskaż już odłożone pieniądze i ich konto, a potem sprawdź **Prognozę**. [Szczegóły ustawienia](BUDZET_INSTRUKCJA_PL.md#2-pierwsze-ustawienie-budżetu).
+Wybierz **Zarządzaj** (na telefonie **Edytuj**). W **Kontach** wpisz obecne salda jako saldo początkowe. Dodaj oczekiwane dochody, rachunki oraz konto i kategorię każdego kredytu. W **Planie miesiąca** ustaw limity i odłożenia; powtarzalne limity zapisz w planie domyślnym. Dodaj rezerwy, wskaż już odłożone pieniądze i ich konto, a potem sprawdź **Prognozę**. [Szczegóły ustawienia](BUDZET_INSTRUKCJA_PL.md#2-pierwsze-ustawienie-budżetu).
 
 ## Co właśnie zrobiłeś?
 
@@ -29,7 +41,7 @@ W **Kontach** wpisz obecne salda jako saldo początkowe. Dodaj oczekiwane dochod
 
 ## Którą kwotę sprawdzać?
 
-**Saldo konta** mówi, ile jest na koncie; minus karty oznacza dług. **Do rozdysponowania w planie** uwzględnia salda, oczekiwane wpływy, pozostały plan, zobowiązania i rezerwy. **Wolne z przychodów miesiąca** dotyczy dochodów danego miesiąca po jego obciążeniach i planie. **Prognoza** osobno pokazuje przyszłe salda i możliwe niedobory na kontach.
+**Wolne z dochodów miesiąca** pokazuje nadwyżkę dochodów wybranego miesiąca po jego obciążeniach i planie. **Poza rezerwami na koniec miesiąca** to prognoza od dzisiaj, uwzględniająca także okres przed przyszłym miesiącem i szacunki brakujących limitów. Dzisiejsze saldo i rezerwy są pokazane osobno w **Stanie dzisiaj**. Różnice wyjaśnia rozwijane objaśnienie podsumowania.
 
 [Znaczenie podsumowań i tempa](BUDZET_INSTRUKCJA_PL.md#13-podsumowanie-i-tempo-wydatków). Konta i rezerwy pokazują aktualny stan również po wybraniu wcześniejszego miesiąca; prognoza zaczyna się od dzisiaj.
 

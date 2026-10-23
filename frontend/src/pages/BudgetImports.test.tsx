@@ -1,3 +1,4 @@
+import {setBudgetManagement} from '../components/budget/budgetMode';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,7 +25,7 @@ const show=(path='/budget/imports')=>render(<MemoryRouter initialEntries={[path]
 const ready=()=>screen.findByRole('heading',{name:'Zakupy do przypisania'});
 const uploadPhoto=async()=>{fireEvent.change(screen.getByLabelText('Zdjęcie lub PDF paragonu'),{target:{files:[new File(['photo'],'paragon.png',{type:'image/png'})]}});await screen.findByLabelText('Kwota zakupu (PLN)');};
 
-beforeEach(()=>{
+beforeEach(()=>{setBudgetManagement(true);
   vi.resetAllMocks();vi.mocked(budgetImportsApi.get).mockResolvedValue(workspace());
   vi.mocked(budgetImportsApi.categorize).mockResolvedValue({updated:1});vi.mocked(budgetImportsApi.applyRules).mockResolvedValue({updated:1,unmatched:0});
   vi.mocked(budgetImportsApi.saveRule).mockResolvedValue({id:7});vi.mocked(budgetImportsApi.updateRule).mockResolvedValue({id:7});

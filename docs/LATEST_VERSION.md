@@ -1,8 +1,27 @@
 # Najnowsza wersja aplikacji
 
-Stan: 22 października 2026.
+Stan: 23 października 2026.
+
+## Zmiany z 23 października
+
+- Dokumentacja skrócona z 31 do 15 plików Markdown w repozytorium. Szesnaście dawnych raportów i planów zastępuje jeden indeks z trwałymi odnośnikami do ich pełnej treści w historii Git.
+- Instrukcja budżetu używa aktualnych nazw „Zarządzaj” / „Edytuj” i jednej listy „Do zrobienia”. Opisy płatności i rezerw są w odpowiednich rozdziałach, bez powtarzania ich we wstępie.
+- Spis dokumentacji rozdziela instrukcje użytkownika i referencje techniczne. Mapa testów uwzględnia nowe podsumowania, miary pasków, tryby pracy oraz wspólne zestawienie rachunków i rat.
 
 ## Zmiany z 22 października
+
+- Budżet ma wspólny tryb przeglądania i zarządzania. Codzienna ewidencja pozostaje dostępna; limity, harmonogramy i ustawienia odsłaniane są osobno. Ostrzeżenia chronią zmodyfikowane formularze i limity.
+- Plan kategorii: cztery kolumny, paski wykonania i zobowiązań, rozpisane części wspólnego limitu oraz kwota nieprzypisana. Podkategoria bez kwoty nie sugeruje dodatkowych pieniędzy poza przydziałami rodzeństwa.
+- Zestawienie wydatków według kategorii prowadzi do filtrowanych transakcji. Sumy wybranej kategorii uwzględniają pasujące pozycje zakupów mieszanych i zwroty.
+- Paski w „Na co wydano?” mają osobne miary wykorzystania planu i udziału w wydatkach. Długość odpowiada podpisowi; przekroczenia mają kwotę i kolor, a zwinięte kategorie wyjaśniają różnicę do sumy całego miesiąca.
+- Czytelniejszy budżet: zwarty nagłówek, tylko zakładki pozostające u góry, trzy główne kwoty z rozwijanym objaśnieniem oraz większe opisy pomocnicze.
+- Na telefonie plan kategorii ma karty bez przewijania w bok i rozwijane filtry. Karty rezerw są krótsze; historia, miejsca środków i dodatkowe operacje są w szczegółach.
+- Jedna lista „Do zrobienia” zamiast dwóch powtarzających się sekcji: trzy pilne sprawy na start, pełna lista i filtr rodzaju. Dopasowania płatności zastępują powtarzające się przypomnienia.
+- Rachunki i raty kredytów mają wspólne podsumowanie kwot, najbliższego terminu i opłaconych pozycji. Rezerwy oddzielają zgromadzone środki od wykonania miesięcznej wpłaty.
+
+- Nowe i nieużywane kategorie są dostępne przy edycji limitów, a ustawienia pokazują je domyślnie. Dodanie kategorii otwiera edycję planu i nie zapisuje samoczynnie kwoty limitu.
+
+- Podsumowanie budżetu rozdziela bilans dochodów miesiąca, zakupy i prognozę środków poza rezerwami. Dzisiejsze pieniądze są osobno; objaśnienie przyszłego miesiąca pokazuje koszty wcześniejszego okresu i różnicę założeń prognozy.
 
 - Przegląd dokumentacji: poprawione zasady kopii i przywracania, jakość wyceny, identyfikatory importu XTB oraz jednostki analiz. Krótka instrukcja budżetu, mapa testów i konfiguracja AI z opisem wysyłanych danych. OpenAPI jawnie częściowe, uzupełnione o trzy odczyty; archiwizacja ma jedną główną instrukcję.
 
